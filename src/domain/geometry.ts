@@ -157,6 +157,35 @@ export function zoomViewportAtScreenPoint(
   }
 }
 
+export function applyPinchViewportTransform(
+  viewport: ViewportState,
+  previousMidpointPx: ScreenPointPx,
+  nextMidpointPx: ScreenPointPx,
+  zoomFactor: number,
+): ViewportState {
+  const nextZoom = clamp(
+    viewport.zoomPxPerMm * zoomFactor,
+    MIN_ZOOM_PX_PER_MM,
+    MAX_ZOOM_PX_PER_MM,
+  )
+  const worldPointBeforePinch = screenToWorld(previousMidpointPx, viewport)
+  const halfWidth = viewport.canvasSizePx.width / 2
+  const halfHeight = viewport.canvasSizePx.height / 2
+
+  return {
+    ...viewport,
+    zoomPxPerMm: nextZoom,
+    cameraCenterMm: {
+      x: roundMm(
+        worldPointBeforePinch.x - (nextMidpointPx.x - halfWidth) / nextZoom,
+      ),
+      y: roundMm(
+        worldPointBeforePinch.y - (nextMidpointPx.y - halfHeight) / nextZoom,
+      ),
+    },
+  }
+}
+
 export function fitZoomPxPerMm(
   worldSizeMm: { width: number; height: number },
   canvasSizePx: CanvasSizePx,

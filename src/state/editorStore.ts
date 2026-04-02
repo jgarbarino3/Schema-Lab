@@ -11,6 +11,7 @@ import {
   isOpticalTarget,
 } from '../domain/componentCatalog'
 import {
+  applyPinchViewportTransform,
   fitZoomPxPerMm,
   normalizeQuarterTurns,
   panViewportByScreenDelta as panViewportByDelta,
@@ -110,6 +111,11 @@ interface EditorStore {
   clearNotice: () => void
   setViewportSize: (canvasSizePx: CanvasSizePx) => void
   panViewportByScreenDelta: (deltaPx: ScreenPointPx) => void
+  applyPinchViewport: (
+    previousMidpointPx: ScreenPointPx,
+    nextMidpointPx: ScreenPointPx,
+    zoomFactor: number,
+  ) => void
   zoomAtScreenPoint: (pointPx: ScreenPointPx, zoomFactor: number) => void
   resetViewport: () => void
   addComponent: (type: ComponentType) => void
@@ -501,6 +507,17 @@ export const useEditorStore = create<EditorStore>((set) => ({
   panViewportByScreenDelta: (deltaPx) => {
     set((state) => ({
       viewport: panViewportByDelta(state.viewport, deltaPx),
+    }))
+  },
+
+  applyPinchViewport: (previousMidpointPx, nextMidpointPx, zoomFactor) => {
+    set((state) => ({
+      viewport: applyPinchViewportTransform(
+        state.viewport,
+        previousMidpointPx,
+        nextMidpointPx,
+        zoomFactor,
+      ),
     }))
   },
 

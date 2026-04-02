@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  applyPinchViewportTransform,
   panViewportByScreenDelta,
   screenToWorld,
   worldToScreen,
@@ -40,5 +41,46 @@ describe('coordinate transforms', () => {
       x: screenPointBeforePan.x - 40,
       y: screenPointBeforePan.y + 20,
     })
+  })
+
+  it('keeps the world point under a fixed pinch midpoint stable while zooming', () => {
+    const midpointPx = { x: 420, y: 260 }
+    const anchoredWorldPoint = screenToWorld(midpointPx, viewport)
+    const pinchedViewport = applyPinchViewportTransform(
+      viewport,
+      midpointPx,
+      midpointPx,
+      1.5,
+    )
+
+    expect(worldToScreen(anchoredWorldPoint, pinchedViewport).x).toBeCloseTo(
+      midpointPx.x,
+      5,
+    )
+    expect(worldToScreen(anchoredWorldPoint, pinchedViewport).y).toBeCloseTo(
+      midpointPx.y,
+      5,
+    )
+  })
+
+  it('applies combined pinch pan and zoom around the moving midpoint', () => {
+    const previousMidpointPx = { x: 360, y: 280 }
+    const nextMidpointPx = { x: 440, y: 320 }
+    const anchoredWorldPoint = screenToWorld(previousMidpointPx, viewport)
+    const pinchedViewport = applyPinchViewportTransform(
+      viewport,
+      previousMidpointPx,
+      nextMidpointPx,
+      1.25,
+    )
+
+    expect(worldToScreen(anchoredWorldPoint, pinchedViewport).x).toBeCloseTo(
+      nextMidpointPx.x,
+      5,
+    )
+    expect(worldToScreen(anchoredWorldPoint, pinchedViewport).y).toBeCloseTo(
+      nextMidpointPx.y,
+      5,
+    )
   })
 })

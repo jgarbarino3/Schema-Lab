@@ -23,6 +23,13 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
   }>({
     didMove: false,
   })
+  const pinchStateRef = useRef<{
+    isActive: boolean
+    previousDistancePx?: number
+    previousMidpointPx?: ScreenPointPx
+  }>({
+    isActive: false,
+  })
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
@@ -32,6 +39,7 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
   const panViewportByScreenDelta = useEditorStore(
     (state) => state.panViewportByScreenDelta,
   )
+  const applyPinchViewport = useEditorStore((state) => state.applyPinchViewport)
   const zoomAtScreenPoint = useEditorStore((state) => state.zoomAtScreenPoint)
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
   const selectComponent = useEditorStore((state) => state.selectComponent)
@@ -87,6 +95,51 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
 
     return isPanMode ? 'grab' : 'crosshair'
   }, [interaction.isPointerPanning, isPanMode])
+
+  const endPinchGesture = () => {
+    pinchStateRef.current = {
+      isActive: false,
+      previousDistancePx: undefined,
+      previousMidpointPx: undefined,
+    }
+  }
+
+  const getTouchPointPx = (touch: Touch, element: HTMLDivElement): ScreenPointPx => {
+    const rect = element.getBoundingClientRect()
+
+    return {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top,
+    }
+  }
+
+  const getPinchSnapshot = (
+    targetTouches: TouchList,
+    element: HTMLDivElement,
+  ) => {
+    if (targetTouches.length !== 2) {
+      return undefined
+    }
+
+    const firstPointPx = getTouchPointPx(targetTouches[0]!, element)
+    const secondPointPx = getTouchPointPx(targetTouches[1]!, element)
+    const distancePx = Math.hypot(
+      secondPointPx.x - firstPointPx.x,
+      secondPointPx.y - firstPointPx.y,
+    )
+
+    if (!Number.isFinite(distancePx) || distancePx <= 0) {
+      return undefined
+    }
+
+    return {
+      distancePx,
+      midpointPx: {
+        x: (firstPointPx.x + secondPointPx.x) / 2,
+        y: (firstPointPx.y + secondPointPx.y) / 2,
+      },
+    }
+  }
 
   const handleWheel = (event: KonvaEventObject<WheelEvent>) => {
     event.evt.preventDefault()
@@ -146,9 +199,122 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     setPointerPanning(false)
   }
 
+  useEffect(() => {
+    const contentElement = containerRef.current?.querySelector('.konvajs-content')
+
+    if (!(contentElement instanceof HTMLDivElement)) {
+      return
+    }
+
+    const handleNativeTouchStart = (event: TouchEvent) => {
+      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+
+      if (!pinchSnapshot) {
+        return
+      }
+
+      event.preventDefault()
+
+      if (interaction.isPointerPanning) {
+        stopPointerPan()
+      }
+
+      setHoveredComponentId(undefined)
+      setHoveredBeamSegmentId(undefined)
+      pinchStateRef.current = {
+        isActive: true,
+        previousDistancePx: pinchSnapshot.distancePx,
+        previousMidpointPx: pinchSnapshot.midpointPx,
+      }
+    }
+
+    const handleNativeTouchMove = (event: TouchEvent) => {
+      if (!pinchStateRef.current.isActive) {
+        return
+      }
+
+      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+      const previousDistancePx = pinchStateRef.current.previousDistancePx
+      const previousMidpointPx = pinchStateRef.current.previousMidpointPx
+
+      if (!pinchSnapshot || !previousDistancePx || !previousMidpointPx) {
+        return
+      }
+
+      event.preventDefault()
+      applyPinchViewport(
+        previousMidpointPx,
+        pinchSnapshot.midpointPx,
+        pinchSnapshot.distancePx / previousDistancePx,
+      )
+      pinchStateRef.current = {
+        isActive: true,
+        previousDistancePx: pinchSnapshot.distancePx,
+        previousMidpointPx: pinchSnapshot.midpointPx,
+      }
+    }
+
+    const handleNativeTouchEnd = (event: TouchEvent) => {
+      if (!pinchStateRef.current.isActive) {
+        return
+      }
+
+      if (event.touches.length === 2) {
+        const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+
+        if (pinchSnapshot) {
+          pinchStateRef.current = {
+            isActive: true,
+            previousDistancePx: pinchSnapshot.distancePx,
+            previousMidpointPx: pinchSnapshot.midpointPx,
+          }
+          return
+        }
+      }
+
+      endPinchGesture()
+    }
+
+    contentElement.addEventListener('touchstart', handleNativeTouchStart, {
+      passive: false,
+    })
+    contentElement.addEventListener('touchmove', handleNativeTouchMove, {
+      passive: false,
+    })
+    contentElement.addEventListener('touchend', handleNativeTouchEnd, {
+      passive: false,
+    })
+    contentElement.addEventListener('touchcancel', handleNativeTouchEnd, {
+      passive: false,
+    })
+
+    return () => {
+      endPinchGesture()
+      contentElement.removeEventListener('touchstart', handleNativeTouchStart)
+      contentElement.removeEventListener('touchmove', handleNativeTouchMove)
+      contentElement.removeEventListener('touchend', handleNativeTouchEnd)
+      contentElement.removeEventListener('touchcancel', handleNativeTouchEnd)
+    }
+  }, [
+    applyPinchViewport,
+    interaction.isPointerPanning,
+    setHoveredBeamSegmentId,
+    setHoveredComponentId,
+    setPointerPanning,
+    viewport.canvasSizePx.height,
+    viewport.canvasSizePx.width,
+  ])
+
   const handleStagePointerDown = (
     event: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
+    if (
+      event.evt instanceof TouchEvent &&
+      (pinchStateRef.current.isActive || event.evt.touches.length !== 1)
+    ) {
+      return
+    }
+
     updateCursorFromStage(event)
 
     if (!isPanMode && event.evt instanceof MouseEvent && event.evt.button !== 1) {
@@ -162,6 +328,13 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
   const handleStagePointerMove = (
     event: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
+    if (
+      event.evt instanceof TouchEvent &&
+      (pinchStateRef.current.isActive || event.evt.touches.length !== 1)
+    ) {
+      return
+    }
+
     updateCursorFromStage(event)
 
     if (!interaction.isPointerPanning) {
