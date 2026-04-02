@@ -358,6 +358,11 @@ textarea {
   border-radius: 0 0 18px 18px;
 }
 
+.schema-stage .konvajs-content,
+.schema-stage .konvajs-content canvas {
+  touch-action: none;
+}
+
 .canvas-status {
   display: flex;
   flex-wrap: wrap;

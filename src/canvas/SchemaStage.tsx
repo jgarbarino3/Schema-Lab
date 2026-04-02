@@ -96,6 +96,12 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     return isPanMode ? 'grab' : 'crosshair'
   }, [interaction.isPointerPanning, isPanMode])
 
+  const preventNativeTouchDefault = (event: TouchEvent) => {
+    if (event.cancelable) {
+      event.preventDefault()
+    }
+  }
+
   const endPinchGesture = () => {
     pinchStateRef.current = {
       isActive: false,
@@ -117,7 +123,7 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     targetTouches: TouchList,
     element: HTMLDivElement,
   ) => {
-    if (targetTouches.length !== 2) {
+    if (targetTouches.length < 2) {
       return undefined
     }
 
@@ -201,20 +207,19 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
 
   useEffect(() => {
     const contentElement = containerRef.current?.querySelector('.konvajs-content')
+    const listenerOptions = {
+      capture: true,
+      passive: false,
+    } as const
 
     if (!(contentElement instanceof HTMLDivElement)) {
       return
     }
 
-    const handleNativeTouchStart = (event: TouchEvent) => {
-      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
-
-      if (!pinchSnapshot) {
-        return
-      }
-
-      event.preventDefault()
-
+    const beginPinchGesture = (pinchSnapshot: {
+      distancePx: number
+      midpointPx: ScreenPointPx
+    }) => {
       if (interaction.isPointerPanning) {
         stopPointerPan()
       }
@@ -228,20 +233,37 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
       }
     }
 
+    const handleNativeTouchStart = (event: TouchEvent) => {
+      preventNativeTouchDefault(event)
+
+      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+
+      if (pinchSnapshot) {
+        beginPinchGesture(pinchSnapshot)
+      }
+    }
+
     const handleNativeTouchMove = (event: TouchEvent) => {
-      if (!pinchStateRef.current.isActive) {
+      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+      if (!pinchSnapshot) {
         return
       }
 
-      const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
+      preventNativeTouchDefault(event)
+
+      if (!pinchStateRef.current.isActive) {
+        beginPinchGesture(pinchSnapshot)
+        return
+      }
+
       const previousDistancePx = pinchStateRef.current.previousDistancePx
       const previousMidpointPx = pinchStateRef.current.previousMidpointPx
 
-      if (!pinchSnapshot || !previousDistancePx || !previousMidpointPx) {
+      if (!previousDistancePx || !previousMidpointPx) {
+        beginPinchGesture(pinchSnapshot)
         return
       }
 
-      event.preventDefault()
       applyPinchViewport(
         previousMidpointPx,
         pinchSnapshot.midpointPx,
@@ -255,11 +277,7 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     }
 
     const handleNativeTouchEnd = (event: TouchEvent) => {
-      if (!pinchStateRef.current.isActive) {
-        return
-      }
-
-      if (event.touches.length === 2) {
+      if (pinchStateRef.current.isActive && event.touches.length >= 2) {
         const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
 
         if (pinchSnapshot) {
@@ -275,25 +293,33 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
       endPinchGesture()
     }
 
-    contentElement.addEventListener('touchstart', handleNativeTouchStart, {
-      passive: false,
-    })
-    contentElement.addEventListener('touchmove', handleNativeTouchMove, {
-      passive: false,
-    })
-    contentElement.addEventListener('touchend', handleNativeTouchEnd, {
-      passive: false,
-    })
-    contentElement.addEventListener('touchcancel', handleNativeTouchEnd, {
-      passive: false,
-    })
+    contentElement.addEventListener('touchstart', handleNativeTouchStart, listenerOptions)
+    contentElement.addEventListener('touchmove', handleNativeTouchMove, listenerOptions)
+    contentElement.addEventListener('touchend', handleNativeTouchEnd, listenerOptions)
+    contentElement.addEventListener('touchcancel', handleNativeTouchEnd, listenerOptions)
 
     return () => {
       endPinchGesture()
-      contentElement.removeEventListener('touchstart', handleNativeTouchStart)
-      contentElement.removeEventListener('touchmove', handleNativeTouchMove)
-      contentElement.removeEventListener('touchend', handleNativeTouchEnd)
-      contentElement.removeEventListener('touchcancel', handleNativeTouchEnd)
+      contentElement.removeEventListener(
+        'touchstart',
+        handleNativeTouchStart,
+        listenerOptions,
+      )
+      contentElement.removeEventListener(
+        'touchmove',
+        handleNativeTouchMove,
+        listenerOptions,
+      )
+      contentElement.removeEventListener(
+        'touchend',
+        handleNativeTouchEnd,
+        listenerOptions,
+      )
+      contentElement.removeEventListener(
+        'touchcancel',
+        handleNativeTouchEnd,
+        listenerOptions,
+      )
     }
   }, [
     applyPinchViewport,
