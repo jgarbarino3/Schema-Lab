@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
+import type Konva from 'konva'
 import { Layer, Rect, Stage } from 'react-konva'
 import { screenToWorld } from '../domain/geometry'
 import type { BeamTraceResult, GaussianTraceResult, ScreenPointPx } from '../domain/types'
@@ -13,10 +14,20 @@ import { RulerLayer } from './RulerLayer'
 interface SchemaStageProps {
   beamTrace: BeamTraceResult
   gaussianTrace: GaussianTraceResult
+  highlightedComponentIds?: string[]
+  highlightedInteractionIds?: string[]
+  highlightedPathIds?: string[]
 }
 
-export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
+export function SchemaStage({
+  beamTrace,
+  gaussianTrace,
+  highlightedComponentIds = [],
+  highlightedInteractionIds = [],
+  highlightedPathIds = [],
+}: SchemaStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const stageRef = useRef<Konva.Stage | null>(null)
   const panStateRef = useRef<{
     didMove: boolean
     lastPointPx?: ScreenPointPx
@@ -44,6 +55,12 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const beginComponentDrag = useEditorStore((state) => state.beginComponentDrag)
+  const updatePendingPlacementAnchor = useEditorStore(
+    (state) => state.updatePendingPlacementAnchor,
+  )
+  const commitPendingPlacement = useEditorStore(
+    (state) => state.commitPendingPlacement,
+  )
   const updateComponentDrag = useEditorStore((state) => state.updateComponentDrag)
   const commitComponentDrag = useEditorStore((state) => state.commitComponentDrag)
   const setHoveredComponentId = useEditorStore(
@@ -58,6 +75,16 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
   )
   const setCursorWorldMm = useEditorStore((state) => state.setCursorWorldMm)
   const setPointerPanning = useEditorStore((state) => state.setPointerPanning)
+
+  const getStagePointerWorldMm = () => {
+    const pointerPosition = stageRef.current?.getPointerPosition()
+
+    if (!pointerPosition) {
+      return undefined
+    }
+
+    return screenToWorld(pointerPosition, viewport)
+  }
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -363,6 +390,14 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
 
     updateCursorFromStage(event)
 
+    if (!interaction.isPointerPanning && interaction.pendingPlacement && !isPanMode) {
+      const pointerPosition = event.target.getStage()?.getPointerPosition()
+
+      if (pointerPosition) {
+        updatePendingPlacementAnchor(screenToWorld(pointerPosition, viewport))
+      }
+    }
+
     if (!interaction.isPointerPanning) {
       return
     }
@@ -407,9 +442,21 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     stopPointerPan()
   }
 
-  const handleBackgroundSelect = () => {
+  const handleBackgroundSelect = (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (event) {
+      updateCursorFromStage(event)
+    }
+
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
+      return
+    }
+
+    if (interaction.pendingPlacement) {
+      clearBeamInspectionSelection()
+      commitPendingPlacement(getStagePointerWorldMm())
       return
     }
 
@@ -421,6 +468,9 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
     <div className="schema-stage" ref={containerRef} style={{ cursor: stageCursor }}>
       {viewport.canvasSizePx.width > 0 && viewport.canvasSizePx.height > 0 ? (
         <Stage
+          ref={(stage) => {
+            stageRef.current = stage
+          }}
           height={viewport.canvasSizePx.height}
           onContextMenu={(event) => {
             event.evt.preventDefault()
@@ -444,8 +494,8 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
             <Rect
               fill="#0b1014"
               height={viewport.canvasSizePx.height}
-              onClick={handleBackgroundSelect}
-              onTap={handleBackgroundSelect}
+              onClick={(event) => handleBackgroundSelect(event)}
+              onTap={(event) => handleBackgroundSelect(event)}
               width={viewport.canvasSizePx.width}
               x={0}
               y={0}
@@ -471,7 +521,10 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
 
           <BeamLayer
             beamTrace={beamTrace}
+            gaussianTrace={gaussianTrace}
             hoveredSegmentId={interaction.hoveredBeamSegmentId}
+            highlightedInteractionIds={highlightedInteractionIds}
+            highlightedPathIds={highlightedPathIds}
             onHoverSegment={setHoveredBeamSegmentId}
             onSelectSegment={selectBeamSegment}
             selectedInteractionId={interaction.selectedBeamInteractionId}
@@ -486,12 +539,14 @@ export function SchemaStage({ beamTrace, gaussianTrace }: SchemaStageProps) {
             components={scene.components}
             dragPreview={interaction.dragPreview}
             hoveredComponentId={interaction.hoveredComponentId}
+            highlightedComponentIds={highlightedComponentIds}
             isPanMode={isPanMode}
             onBeginComponentDrag={beginComponentDrag}
             onCommitComponentDrag={commitComponentDrag}
             onHoverComponent={setHoveredComponentId}
             onSelectComponent={selectComponent}
             onUpdateComponentDrag={updateComponentDrag}
+            pendingPlacement={interaction.pendingPlacement}
             selectedComponentId={
               selection.type === 'component' ? selection.componentId : undefined
             }

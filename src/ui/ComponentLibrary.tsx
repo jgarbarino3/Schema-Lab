@@ -20,14 +20,17 @@ function describeMountMode(mode: string) {
 
 export function ComponentLibrary() {
   const addComponent = useEditorStore((state) => state.addComponent)
+  const pendingPlacementType = useEditorStore(
+    (state) => state.interaction.pendingPlacement?.draft.type,
+  )
 
   return (
-    <aside className="panel component-library">
+    <aside className="panel component-library" data-tour="component-library">
       <div className="panel__header">
         <h2>Component Families</h2>
         <p>
-          Add generic optical families here, then pick vendor variants and tunable
-          properties in the inspector.
+          Choose a family to arm placement, then edit variants and tunable
+          properties in the inspector before you place it on the board.
         </p>
       </div>
 
@@ -47,7 +50,7 @@ export function ComponentLibrary() {
 
               {definitions.map((definition) => (
                 <button
-                  className="component-library__item"
+                  className={`component-library__item${pendingPlacementType === definition.type ? ' is-armed' : ''}`}
                   key={definition.type}
                   onClick={() => addComponent(definition.type)}
                   type="button"
@@ -60,6 +63,11 @@ export function ComponentLibrary() {
                     {definition.variants.length === 1 ? '' : 's'} •{' '}
                     {describeMountMode(definition.mount.mode)}
                   </span>
+                  {pendingPlacementType === definition.type ? (
+                    <span className="component-library__item-state">
+                      Pending placement
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </section>

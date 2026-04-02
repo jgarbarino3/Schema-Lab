@@ -22,6 +22,7 @@ interface ShapeStyle {
 interface ComponentNodeProps {
   instance: ComponentInstance
   isDragEnabled?: boolean
+  isHighlighted?: boolean
   isHovered?: boolean
   isPreview?: boolean
   isSelected: boolean
@@ -124,6 +125,7 @@ function getPlacementAccent(status: PlacementStatus | undefined) {
 export function ComponentNode({
   instance,
   isDragEnabled = true,
+  isHighlighted = false,
   isHovered = false,
   isPreview = false,
   isSelected,
@@ -138,28 +140,32 @@ export function ComponentNode({
 }: ComponentNodeProps) {
   const spec = getResolvedComponentSpec(instance.type, instance.variantId)
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
-  const boundsMm = spec.footprintBoundsMm
+  const bodyBoundsMm = spec.visualBodyBoundsMm
+  const boundsMm = spec.hitBoundsMm
+  const supportBoundsMm = spec.mount.supportBoundsMm
   const accentStroke = getPlacementAccent(placementStatus)
   const stroke = isPreview
     ? accentStroke
     : isSelected
-      ? '#d8eef5'
+      ? '#f1fbff'
+      : isHighlighted
+        ? '#f5d28c'
       : isHovered
-        ? '#cde8f0'
+        ? '#def3fb'
         : spec.renderHint.stroke
-  const footprintStyle: ShapeStyle = isPreview
+  const bodyStyle: ShapeStyle = isPreview
     ? {
         dash: [3, 2],
-        fill: 'rgba(0, 0, 0, 0)',
-        opacity: 0.95,
+        fill: 'rgba(73, 104, 122, 0.12)',
+        opacity: 0.98,
         stroke,
-        strokeWidth: 1.1,
+        strokeWidth: 1.15,
       }
     : {
         fill: spec.renderHint.fill,
-        opacity: isHovered ? 0.96 : 1,
+        opacity: isHovered || isSelected || isHighlighted ? 0.98 : 0.92,
         stroke,
-        strokeWidth: isSelected ? 1.2 : isHovered ? 1 : 0.8,
+        strokeWidth: isSelected ? 1.35 : isHighlighted ? 1.15 : isHovered ? 1.1 : 0.85,
       }
 
   return (
@@ -223,10 +229,49 @@ export function ComponentNode({
           : undefined
       }
     >
-      {renderFootprintShape(spec.renderHint.shape, boundsMm, footprintStyle)}
+      <Rect
+        fill="rgba(0, 0, 0, 0.001)"
+        height={boundsMm.height}
+        width={boundsMm.width}
+        x={boundsMm.x}
+        y={boundsMm.y}
+      />
+
+      {isSelected || isPreview || isHovered || isHighlighted ? (
+        <Rect
+          cornerRadius={3}
+          dash={isPreview ? [5, 3] : [4, 3]}
+          fill={
+            isPreview
+              ? 'rgba(110, 163, 185, 0.08)'
+              : isSelected
+                ? 'rgba(140, 207, 223, 0.06)'
+                : isHighlighted
+                  ? 'rgba(245, 210, 140, 0.06)'
+                : 'rgba(140, 207, 223, 0.03)'
+          }
+          height={supportBoundsMm.height}
+          opacity={isHovered && !isSelected && !isHighlighted ? 0.65 : 0.95}
+          stroke={
+            isPreview
+              ? accentStroke
+              : isSelected
+                ? '#8ccfdf'
+                : isHighlighted
+                  ? '#f5d28c'
+                  : '#5b707b'
+          }
+          strokeWidth={isSelected ? 0.95 : isHighlighted ? 0.9 : 0.8}
+          width={supportBoundsMm.width}
+          x={supportBoundsMm.x}
+          y={supportBoundsMm.y}
+        />
+      ) : null}
+
+      {renderFootprintShape(spec.renderHint.shape, bodyBoundsMm, bodyStyle)}
 
       <ComponentGlyph
-        boundsMm={boundsMm}
+        boundsMm={bodyBoundsMm}
         glyph={spec.renderHint.glyph}
         stroke={isPreview ? accentStroke : stroke}
       />
@@ -291,14 +336,20 @@ export function ComponentNode({
       {!isPreview ? (
         <Text
           align="center"
-          fill="#e6edf2"
+          fill={
+            isSelected
+              ? '#f4fbff'
+              : isHighlighted
+                ? '#fff2c6'
+                : 'rgba(230, 237, 242, 0.88)'
+          }
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-          fontSize={6.3}
+          fontSize={isSelected || isHighlighted ? 6.55 : 6.1}
           listening={false}
           text={instance.label}
-          width={Math.max(boundsMm.width, 38)}
-          x={-Math.max(boundsMm.width, 38) / 2}
-          y={boundsMm.y + boundsMm.height + 4}
+          width={Math.max(bodyBoundsMm.width, 42)}
+          x={-Math.max(bodyBoundsMm.width, 42) / 2}
+          y={supportBoundsMm.y + supportBoundsMm.height + 4.5}
         />
       ) : null}
     </Group>

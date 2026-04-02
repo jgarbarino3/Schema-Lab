@@ -11,12 +11,18 @@ import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
+import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
 import { useEditorStore } from './state/editorStore'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
+import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
 import { Toolbar } from './ui/Toolbar'
+import { WarningReviewModal } from './ui/WarningReviewModal'
+
+const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
+const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -36,6 +42,8 @@ function App() {
   const loadScene = useEditorStore((state) => state.loadScene)
   const setSpacePanning = useEditorStore((state) => state.setSpacePanning)
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
+  const setWarningsOpen = useEditorStore((state) => state.setWarningsOpen)
+  const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
   const cancelActiveInteraction = useEditorStore(
     (state) => state.cancelActiveInteraction,
   )
@@ -52,11 +60,18 @@ function App() {
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
+  const [isWarningReviewOpen, setIsWarningReviewOpen] = useState(false)
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
+  const [onboardingStep, setOnboardingStep] = useState(0)
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const beamTrace = useMemo(() => traceSceneBeams(scene), [scene])
   const gaussianTrace = useMemo(
     () => analyzeGaussianPaths(scene, beamTrace),
     [beamTrace, scene],
+  )
+  const sceneWarnings = useMemo(
+    () => deriveSceneWarnings(scene, beamTrace, gaussianTrace),
+    [beamTrace, gaussianTrace, scene],
   )
   const selectedBeam = useMemo(
     () =>
@@ -83,10 +98,187 @@ function App() {
   const activeSources = scene.components.filter(
     (component) => component.config.source?.isEnabled,
   )
+  const pendingPlacement = interaction.pendingPlacement
   const selectedComponent =
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
       : undefined
+  const selectedWarning = sceneWarnings.find(
+    (warning) => warning.id === interaction.selectedWarningId,
+  )
+  const highlightedWarning = selectedWarning ?? (interaction.isWarningsOpen ? sceneWarnings[0] : undefined)
+  const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
+  const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
+  const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
+
+  const onboardingSteps = useMemo<OnboardingStep[]>(
+    () => [
+      {
+        title: 'Welcome to Schema-Lab',
+        selector: '[data-tour=\"toolbar-help\"]',
+        body: (
+          <>
+            <p>
+              The Help menu is your quick reference for controls, snap behavior, sources,
+              Gaussian overlays, and warning review.
+            </p>
+            <p>
+              When the scene needs attention, warnings appear in the top toolbar near this
+              area.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Choose a Family, Then Place It',
+        selector: '[data-tour=\"component-library\"]',
+        body: (
+          <>
+            <p>
+              Clicking a family now arms a pending placement instead of creating a real
+              component immediately.
+            </p>
+            <p>
+              A placement banner appears above the viewport. Move the pointer, rotate with
+              <code>R</code>, then click or tap the board to commit.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Inspector States Are Explicit',
+        selector: '[data-tour=\"inspector\"]',
+        body: (
+          <>
+            <p>
+              The right panel tells you whether you are editing the breadboard, a pending
+              placement, or a selected component already on the board.
+            </p>
+            <p>
+              This is also where variants, lens values, BBO thickness and phase matching,
+              and recommended hardware appear.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Laser Sources and First Targets',
+        selector: '[data-tour=\"canvas-panel\"]',
+        body: (
+          <>
+            <p>
+              Laser sources stay in the off-board source lanes. In the inspector, choose a
+              first target and use Align to Target to aim the source.
+            </p>
+            <p>
+              Once enabled, the Stage 2 beam path and Stage 3 Gaussian readouts update from
+              that source.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Warnings and Export Review',
+        selector: '[data-tour=\"toolbar-export\"]',
+        body: (
+          <>
+            <p>
+              Export will pause if critical scene warnings remain. Review them in the
+              warning center or bypass intentionally when you are ready.
+            </p>
+            <p>
+              Reopen this guide anytime from the blue Guide button in the top toolbar.
+            </p>
+          </>
+        ),
+      },
+    ],
+    [],
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const shouldNeverShow = window.localStorage.getItem(ONBOARDING_NEVER_SHOW_KEY) === '1'
+    const hasSeen = window.localStorage.getItem(ONBOARDING_SEEN_KEY) === '1'
+
+    if (!shouldNeverShow && !hasSeen) {
+      setIsOnboardingOpen(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (sceneWarnings.length === 0) {
+      setSelectedWarningId(undefined)
+      setWarningsOpen(false)
+      return
+    }
+
+    if (
+      interaction.selectedWarningId &&
+      !sceneWarnings.some((warning) => warning.id === interaction.selectedWarningId)
+    ) {
+      setSelectedWarningId(sceneWarnings[0]?.id)
+    }
+  }, [
+    interaction.selectedWarningId,
+    sceneWarnings,
+    setSelectedWarningId,
+    setWarningsOpen,
+  ])
+
+  const markOnboardingSeen = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ONBOARDING_SEEN_KEY, '1')
+    }
+  }
+
+  const handleOpenOnboarding = () => {
+    markOnboardingSeen()
+    setOnboardingStep(0)
+    setIsOnboardingOpen(true)
+  }
+
+  const handleCloseOnboarding = () => {
+    markOnboardingSeen()
+    setIsOnboardingOpen(false)
+  }
+
+  const handleNeverShowOnboarding = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ONBOARDING_NEVER_SHOW_KEY, '1')
+      window.localStorage.setItem(ONBOARDING_SEEN_KEY, '1')
+    }
+
+    setIsOnboardingOpen(false)
+  }
+
+  const handleAdvanceOnboarding = () => {
+    if (onboardingStep >= onboardingSteps.length - 1) {
+      handleCloseOnboarding()
+      return
+    }
+
+    setOnboardingStep((currentStep) => currentStep + 1)
+  }
+
+  const handleRetreatOnboarding = () => {
+    setOnboardingStep((currentStep) => Math.max(0, currentStep - 1))
+  }
+
+  const downloadSceneJson = () => {
+    const jsonBlob = new Blob([sceneJson], { type: 'application/json' })
+    const objectUrl = URL.createObjectURL(jsonBlob)
+    const link = document.createElement('a')
+
+    link.href = objectUrl
+    link.download = 'schema-lab-scene.json'
+    link.click()
+
+    URL.revokeObjectURL(objectUrl)
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -114,6 +306,18 @@ function App() {
           return
         }
 
+        if (isWarningReviewOpen) {
+          event.preventDefault()
+          setIsWarningReviewOpen(false)
+          return
+        }
+
+        if (isOnboardingOpen) {
+          event.preventDefault()
+          handleCloseOnboarding()
+          return
+        }
+
         event.preventDefault()
         cancelActiveInteraction()
         return
@@ -123,17 +327,17 @@ function App() {
         return
       }
 
-      if (selection.type !== 'component') {
+      if (!selectedComponent && !pendingPlacement) {
         return
       }
 
-      if (event.key === 'Delete' || event.key === 'Backspace') {
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedComponent) {
         event.preventDefault()
         deleteSelectedComponent()
         return
       }
 
-      if (event.key.toLowerCase() === 'd') {
+      if (event.key.toLowerCase() === 'd' && selectedComponent) {
         event.preventDefault()
         duplicateSelectedComponent()
         return
@@ -170,9 +374,12 @@ function App() {
     deleteSelectedComponent,
     duplicateSelectedComponent,
     interaction.isHelpOpen,
+    isOnboardingOpen,
     isJsonModalOpen,
+    isWarningReviewOpen,
+    pendingPlacement,
     rotateSelectedComponent,
-    selection.type,
+    selectedComponent,
     setHelpOpen,
     setSpacePanning,
   ])
@@ -184,15 +391,13 @@ function App() {
   }
 
   const handleExportJson = () => {
-    const jsonBlob = new Blob([sceneJson], { type: 'application/json' })
-    const objectUrl = URL.createObjectURL(jsonBlob)
-    const link = document.createElement('a')
+    if (sceneWarnings.length > 0) {
+      setIsWarningReviewOpen(true)
+      setSelectedWarningId(sceneWarnings[0]?.id)
+      return
+    }
 
-    link.href = objectUrl
-    link.download = 'schema-lab-scene.json'
-    link.click()
-
-    URL.revokeObjectURL(objectUrl)
+    downloadSceneJson()
   }
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -238,15 +443,18 @@ function App() {
     <div className="app-shell">
       <Toolbar
         beamTrace={beamTrace}
+        isWarningPulse={isWarningReviewOpen}
         onExportJson={handleExportJson}
         onImportJson={() => fileInputRef.current?.click()}
+        onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
+        warnings={sceneWarnings}
       />
 
       <div className="workspace">
         <ComponentLibrary />
 
-        <section className="canvas-panel">
+        <section className="canvas-panel" data-tour="canvas-panel">
           <div className="canvas-panel__header">
             <div>
               <h1>Schema-Lab</h1>
@@ -264,7 +472,21 @@ function App() {
             </div>
           </div>
 
-          <SchemaStage beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
+          {pendingPlacement ? (
+            <div className="placement-banner">
+              <strong>Placing: {pendingPlacement.draft.label}</strong>
+              <span>Click or tap the board to place</span>
+              <span>R rotate • Esc cancel</span>
+            </div>
+          ) : null}
+
+          <SchemaStage
+            beamTrace={beamTrace}
+            gaussianTrace={gaussianTrace}
+            highlightedComponentIds={highlightedComponentIds}
+            highlightedInteractionIds={highlightedInteractionIds}
+            highlightedPathIds={highlightedPathIds}
+          />
 
           <div className="canvas-status">
             <span>
@@ -286,7 +508,11 @@ function App() {
             </span>
             <span>
               Selection{' '}
-              {selectedComponent ? selectedComponent.label : scene.breadboard.label}
+              {pendingPlacement
+                ? `${pendingPlacement.draft.label} (pending)`
+                : selectedComponent
+                  ? selectedComponent.label
+                  : scene.breadboard.label}
             </span>
             {selectedBeam.segment ? (
               <span>
@@ -324,6 +550,31 @@ function App() {
           setIsJsonModalOpen(false)
         }}
         onLoad={handleLoadFromJson}
+      />
+
+      <WarningReviewModal
+        isOpen={isWarningReviewOpen}
+        onCancel={() => setIsWarningReviewOpen(false)}
+        onExportAnyway={() => {
+          setIsWarningReviewOpen(false)
+          downloadSceneJson()
+        }}
+        onReviewWarnings={() => {
+          setIsWarningReviewOpen(false)
+          setWarningsOpen(true)
+          setSelectedWarningId(sceneWarnings[0]?.id)
+        }}
+        warnings={sceneWarnings}
+      />
+
+      <OnboardingTour
+        currentStep={onboardingStep}
+        isOpen={isOnboardingOpen}
+        onClose={handleCloseOnboarding}
+        onNeverShowAgain={handleNeverShowOnboarding}
+        onNext={handleAdvanceOnboarding}
+        onPrevious={handleRetreatOnboarding}
+        steps={onboardingSteps}
       />
     </div>
   )

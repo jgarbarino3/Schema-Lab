@@ -10,9 +10,11 @@ import type {
   GaussianInteractionAnalysis,
   GaussianLocalReadout,
   GaussianPathAnalysis,
+  GaussianPathTableRow,
   GaussianSegmentAnalysis,
   GaussianSourceSummary,
   GaussianTraceResult,
+  GaussianWaistMarker,
   ResolvedComponentSpec,
   SceneDocument,
   SourceConfig,
@@ -540,4 +542,123 @@ export function getGaussianSourceSummary(
         (analysis) => analysis.sourceComponentId === sourceComponentId,
       )
     : undefined
+}
+
+export function getGaussianPathTableRows(
+  beamTrace: BeamTraceResult,
+  gaussianTrace: GaussianTraceResult,
+  pathId?: string,
+): GaussianPathTableRow[] {
+  if (!pathId) {
+    return []
+  }
+
+  const path = getGaussianPathAnalysis(gaussianTrace, pathId)
+
+  if (!path) {
+    return []
+  }
+
+  const segmentAnalysisById = new Map(
+    gaussianTrace.segmentAnalyses.map((analysis) => [analysis.segmentId, analysis] as const),
+  )
+  const interactionAnalysisById = new Map(
+    gaussianTrace.interactionAnalyses.map(
+      (analysis) => [analysis.interactionId, analysis] as const,
+    ),
+  )
+  const rows: GaussianPathTableRow[] = []
+
+  for (const segmentId of path.segmentIds) {
+    const segmentAnalysis = segmentAnalysisById.get(segmentId)
+
+    if (!segmentAnalysis) {
+      continue
+    }
+
+    rows.push({
+      id: `${segmentId}:segment`,
+      beamDiameterMm: segmentAnalysis.end.beamDiameterMm,
+      curvatureMm: segmentAnalysis.end.radiusOfCurvatureMm,
+      kind: 'segment',
+      label: `Segment ${segmentId}`,
+      rayleighRangeMm: segmentAnalysis.end.rayleighRangeMm,
+      spotRadiusMm: segmentAnalysis.end.spotRadiusMm,
+      waistOffsetMm: segmentAnalysis.end.waistOffsetMm,
+      waistRadiusMm: segmentAnalysis.end.waistRadiusMm,
+      zPositionMm: segmentAnalysis.endDistanceMm,
+    })
+
+    const event = beamTrace.events.find(
+      (candidate) => candidate.inputSegmentId === segmentId && candidate.pathId === pathId,
+    )
+    const interactionAnalysis = event
+      ? interactionAnalysisById.get(event.id)
+      : undefined
+
+    if (!event || !interactionAnalysis) {
+      continue
+    }
+
+    rows.push({
+      id: `${event.id}:interaction`,
+      apertureStatus: interactionAnalysis.apertureStatus,
+      beamDiameterMm: interactionAnalysis.local.beamDiameterMm,
+      curvatureMm: interactionAnalysis.local.radiusOfCurvatureMm,
+      kind: 'interaction',
+      label: event.componentLabel,
+      rayleighRangeMm: interactionAnalysis.local.rayleighRangeMm,
+      spotRadiusMm: interactionAnalysis.local.spotRadiusMm,
+      waistOffsetMm: interactionAnalysis.local.waistOffsetMm,
+      waistRadiusMm: interactionAnalysis.local.waistRadiusMm,
+      zPositionMm: interactionAnalysis.hitDistanceMm,
+    })
+  }
+
+  return rows
+}
+
+export function getGaussianWaistMarkers(
+  beamTrace: BeamTraceResult,
+  gaussianTrace: GaussianTraceResult,
+  pathId?: string,
+): GaussianWaistMarker[] {
+  if (!pathId) {
+    return []
+  }
+
+  const segmentById = new Map(
+    beamTrace.segments.map((segment) => [segment.id, segment] as const),
+  )
+
+  return gaussianTrace.segmentAnalyses.reduce<GaussianWaistMarker[]>((markers, analysis) => {
+    if (analysis.pathId !== pathId) {
+      return markers
+    }
+
+    const segment = segmentById.get(analysis.segmentId)
+
+    if (!segment) {
+      return markers
+    }
+
+    const waistOffsetMm = analysis.start.waistOffsetMm
+
+    if (waistOffsetMm < 0 || waistOffsetMm > analysis.lengthMm) {
+      return markers
+    }
+
+    markers.push({
+      pathId,
+      pointMm: {
+        x: segment.startMm.x + segment.directionMm.x * waistOffsetMm,
+        y: segment.startMm.y + segment.directionMm.y * waistOffsetMm,
+      },
+      segmentId: analysis.segmentId,
+      waistRadiusMm: analysis.start.waistRadiusMm,
+      zPositionMm: roundMm(analysis.startDistanceMm + waistOffsetMm),
+    })
+
+    return markers
+  }, [])
 }

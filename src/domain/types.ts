@@ -103,6 +103,15 @@ export type BeamOutcomeClass =
 export type BeamContentTag = 'fundamental' | 'shg' | 'mixed'
 export type FilterTransmissionClass = 'passband' | 'partial' | 'stopband'
 export type GaussianApertureStatus = 'clear' | 'near-limit' | 'overfill'
+export type SceneWarningCategory = 'mechanical' | 'optical'
+export type SceneWarningSeverity = 'warning' | 'critical'
+
+export interface WarningHighlightTarget {
+  componentIds?: string[]
+  interactionIds?: string[]
+  pathIds?: string[]
+  sourceComponentIds?: string[]
+}
 
 export type ComponentType =
   | 'laser-source'
@@ -185,6 +194,12 @@ export interface ComponentRenderHint {
   fill: string
   stroke: string
   glyph: ComponentGlyph
+}
+
+export interface ComponentRecommendedHardware {
+  mount?: string
+  post?: string
+  clamp?: string
 }
 
 export interface ComponentMount {
@@ -288,11 +303,14 @@ export interface ComponentVariant {
   sku?: string
   description: string
   footprintBoundsMm?: BoundsMm
+  visualBodyBoundsMm?: BoundsMm
+  hitBoundsMm?: BoundsMm
   mount?: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports?: PortDefinition[]
   renderHint?: Partial<ComponentRenderHint>
   physics?: ComponentBeamPhysics
+  recommendedHardware?: ComponentRecommendedHardware
 }
 
 export interface ComponentDefinition {
@@ -302,12 +320,15 @@ export interface ComponentDefinition {
   familyLabel: string
   defaultVariantId: string
   footprintBoundsMm: BoundsMm
+  visualBodyBoundsMm?: BoundsMm
+  hitBoundsMm?: BoundsMm
   mount: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
   physics: ComponentBeamPhysics
   variants: ComponentVariant[]
+  recommendedHardware?: ComponentRecommendedHardware
 }
 
 export interface SourceConfig {
@@ -410,11 +431,31 @@ export interface ResolvedComponentSpec {
   sku?: string
   description: string
   footprintBoundsMm: BoundsMm
+  visualBodyBoundsMm: BoundsMm
+  hitBoundsMm: BoundsMm
   mount: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
   physics: ComponentBeamPhysics
+  recommendedHardware?: ComponentRecommendedHardware
+}
+
+export interface PendingPlacementState {
+  draft: ComponentInstance
+  candidateAnchorMm: Vector2Mm
+}
+
+export interface SceneWarning {
+  id: string
+  category: SceneWarningCategory
+  severity: SceneWarningSeverity
+  message: string
+  componentId?: string
+  pathId?: string
+  interactionId?: string
+  sourceComponentId?: string
+  highlightTarget?: WarningHighlightTarget
 }
 
 export interface WorldPort extends PortDefinition {
@@ -671,6 +712,28 @@ export interface GaussianTraceResult {
   segmentAnalyses: GaussianSegmentAnalysis[]
   interactionAnalyses: GaussianInteractionAnalysis[]
   componentWarnings: GaussianComponentWarning[]
+}
+
+export interface GaussianPathTableRow {
+  id: string
+  apertureStatus?: GaussianApertureStatus
+  beamDiameterMm: number
+  curvatureMm?: number
+  kind: 'segment' | 'interaction'
+  label: string
+  rayleighRangeMm: number
+  spotRadiusMm: number
+  waistOffsetMm: number
+  waistRadiusMm: number
+  zPositionMm: number
+}
+
+export interface GaussianWaistMarker {
+  pathId: string
+  pointMm: Vector2Mm
+  segmentId: string
+  waistRadiusMm: number
+  zPositionMm: number
 }
 
 export interface BboDerivedMetrics {

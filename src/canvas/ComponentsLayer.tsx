@@ -4,6 +4,7 @@ import { screenToWorld, worldToScreen } from '../domain/geometry'
 import type {
   BreadboardModel,
   ComponentInstance,
+  PendingPlacementState,
   ScreenPointPx,
   SnapMode,
   ViewportState,
@@ -20,6 +21,7 @@ interface ComponentsLayerProps {
   components: ComponentInstance[]
   dragPreview?: DragPreviewState
   hoveredComponentId?: string
+  highlightedComponentIds?: string[]
   isPanMode: boolean
   onBeginComponentDrag: (componentId: string) => void
   onCommitComponentDrag: (
@@ -32,6 +34,7 @@ interface ComponentsLayerProps {
     componentId: string,
     anchorMm: { x: number; y: number },
   ) => void
+  pendingPlacement?: PendingPlacementState
   selectedComponentId?: string
   snapMode: SnapMode
   viewport: ViewportState
@@ -54,12 +57,14 @@ export function ComponentsLayer({
   components,
   dragPreview,
   hoveredComponentId,
+  highlightedComponentIds,
   isPanMode,
   onBeginComponentDrag,
   onCommitComponentDrag,
   onHoverComponent,
   onSelectComponent,
   onUpdateComponentDrag,
+  pendingPlacement,
   selectedComponentId,
   snapMode,
   viewport,
@@ -87,11 +92,32 @@ export function ComponentsLayer({
   const previewAccent = previewPlacement
     ? getPreviewAccent(previewPlacement.status)
     : undefined
+  const pendingPlacementResult = pendingPlacement
+    ? annotatePlacementOccupancy({
+        breadboard,
+        components,
+        ignoreComponentId: pendingPlacement.draft.id,
+        result: resolveComponentPlacement({
+          breadboard,
+          candidateAnchorMm: pendingPlacement.candidateAnchorMm,
+          component: pendingPlacement.draft,
+          phase: 'drag',
+          snapMode,
+        }),
+      })
+    : undefined
+  const pendingPreviewHoleMm =
+    pendingPlacementResult?.snapPreviewHoleMm ??
+    pendingPlacementResult?.snappedHoleMm
+  const pendingPreviewAccent = pendingPlacementResult
+    ? getPreviewAccent(pendingPlacementResult.status)
+    : undefined
 
   return (
     <Layer>
       {components.map((component) => (
         <ComponentNode
+          isHighlighted={highlightedComponentIds?.includes(component.id)}
           instance={component}
           isDragEnabled={!isPanMode}
           isHovered={component.id === hoveredComponentId}
@@ -129,6 +155,58 @@ export function ComponentsLayer({
           viewport={viewport}
         />
       ))}
+
+      {pendingPlacement && pendingPlacementResult ? (
+        <>
+          <ComponentNode
+            instance={{
+              ...pendingPlacement.draft,
+              anchorMm: pendingPlacementResult.resolvedAnchorMm,
+              rotationQuarterTurns: pendingPlacement.draft.rotationQuarterTurns,
+            }}
+            isPreview
+            isSelected={false}
+            placementStatus={pendingPlacementResult.status}
+            viewport={viewport}
+          />
+
+          {pendingPreviewHoleMm ? (
+            <Circle
+              fill="rgba(0, 0, 0, 0)"
+              listening={false}
+              radius={7}
+              stroke={pendingPreviewAccent}
+              strokeWidth={1.2}
+              x={worldToScreen(pendingPreviewHoleMm, viewport).x}
+              y={worldToScreen(pendingPreviewHoleMm, viewport).y}
+            />
+          ) : null}
+
+          <Rect
+            dash={[5, 3]}
+            fill="rgba(0, 0, 0, 0)"
+            height={pendingPlacementResult.supportBoundsMm.height * viewport.zoomPxPerMm}
+            listening={false}
+            stroke={pendingPreviewAccent}
+            strokeWidth={1}
+            width={pendingPlacementResult.supportBoundsMm.width * viewport.zoomPxPerMm}
+            x={worldToScreen(
+              {
+                x: pendingPlacementResult.supportBoundsMm.x,
+                y: pendingPlacementResult.supportBoundsMm.y,
+              },
+              viewport,
+            ).x}
+            y={worldToScreen(
+              {
+                x: pendingPlacementResult.supportBoundsMm.x,
+                y: pendingPlacementResult.supportBoundsMm.y,
+              },
+              viewport,
+            ).y}
+          />
+        </>
+      ) : null}
 
       {previewedComponent && previewPlacement ? (
         <>

@@ -22,6 +22,19 @@ function bounds(x: number, y: number, width: number, height: number): BoundsMm {
   return { x, y, width, height }
 }
 
+function insetBounds(
+  source: BoundsMm,
+  insetX: number,
+  insetY: number,
+): BoundsMm {
+  return bounds(
+    source.x + insetX,
+    source.y + insetY,
+    Math.max(1, source.width - insetX * 2),
+    Math.max(1, source.height - insetY * 2),
+  )
+}
+
 function port(
   id: string,
   label: string,
@@ -273,11 +286,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Laser Source',
     defaultVariantId: 'fs-source-head',
     footprintBoundsMm: bounds(-38, -14, 76, 28),
+    visualBodyBoundsMm: bounds(-34, -10, 68, 20),
+    hitBoundsMm: bounds(-42, -18, 84, 36),
     mount: mount('external-source', -38, -14, 76, 28),
     opticalCenterMm: { x: 8, y: 0 },
     ports: [port('output', 'Output', 'beam-output', 38, 0, 'east')],
     renderHint: renderHint('capsule', '#163949', '#8ad6ff', 'laser'),
     physics: sourcePhysics(480, 1300),
+    recommendedHardware: {
+      mount: 'External source shelf or rail mount',
+    },
     variants: [
       {
         id: 'fs-source-head',
@@ -409,6 +427,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Mirror',
     defaultVariantId: 'bb1-e02',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-7.5, -7.5, 15, 15),
+    hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -417,6 +437,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#4b545d', '#e0e7ec', 'mirror'),
     physics: mirrorPhysics(400, 750, 98.5, 1),
+    recommendedHardware: {
+      mount: 'Thorlabs KM100',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'bb1-e02',
@@ -451,6 +475,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Beamsplitter',
     defaultVariantId: 'plate-1in',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-8, -8, 16, 16),
+    hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -476,6 +502,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Lens',
     defaultVariantId: 'thin-lens-100mm',
     footprintBoundsMm: bounds(-12.7, -18, 25.4, 36),
+    visualBodyBoundsMm: bounds(-7.5, -14, 15, 28),
+    hitBoundsMm: bounds(-15, -20, 30, 40),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -484,6 +512,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#5a4730', '#ffcf79', 'lens'),
     physics: lensPhysics(100, 22),
+    recommendedHardware: {
+      mount: 'Thorlabs LMR1/M',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'thin-lens-50mm',
@@ -530,6 +562,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Filter',
     defaultVariantId: 'felh0400',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-8, -8, 16, 16),
+    hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -642,6 +676,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Iris',
     defaultVariantId: 'id12-m',
     footprintBoundsMm: bounds(-14, -14, 28, 28),
+    visualBodyBoundsMm: bounds(-9, -9, 18, 18),
+    hitBoundsMm: bounds(-16, -16, 32, 32),
     mount: mount('clamp-capable', -10, -10, 20, 20),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -724,6 +760,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'BBO Crystal',
     defaultVariantId: 'type-i-bbo',
     footprintBoundsMm: bounds(-8, -5, 16, 10),
+    visualBodyBoundsMm: bounds(-6.5, -4, 13, 8),
+    hitBoundsMm: bounds(-11, -9, 22, 18),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -732,6 +770,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#5f4f7b', '#d9c7ff', 'bbo'),
     physics: bboPhysics(29.2),
+    recommendedHardware: {
+      mount: 'Thorlabs KM100 or rotation-compatible crystal mount',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'type-i-bbo',
@@ -747,6 +789,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Sample / Stage',
     defaultVariantId: 'sample-stage-generic',
     footprintBoundsMm: bounds(-25, -19, 50, 38),
+    visualBodyBoundsMm: bounds(-22, -14, 44, 28),
+    hitBoundsMm: bounds(-26, -20, 52, 40),
     mount: mount('hole-mounted', -25, -19, 50, 38),
     opticalCenterMm: { x: 0, y: 0 },
     ports: [
@@ -755,11 +799,34 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#5d342d', '#efab98', 'sample'),
     physics: passThroughPhysics(95, 350, 1600, 18),
+    recommendedHardware: {
+      mount: 'Integrated translation stage base',
+      post: 'Direct breadboard mounting',
+    },
     variants: [
       {
         id: 'sample-stage-generic',
         label: 'Sample / Stage',
         description: 'Generic sample holder or delay stage footprint.',
+      },
+      {
+        id: 'pi-m-112-1dg1',
+        label: 'Delay Stage',
+        vendor: 'PI',
+        sku: 'M-112.1DG1',
+        description: 'Compact linear delay stage for optical path length tuning.',
+        footprintBoundsMm: bounds(-42.5, -17, 85, 34),
+        visualBodyBoundsMm: bounds(-39, -12, 78, 24),
+        hitBoundsMm: bounds(-45, -20, 90, 40),
+        mount: mount('hole-mounted', -42.5, -17, 85, 34),
+        recommendedHardware: {
+          mount: 'Integrated stage base',
+          post: 'Direct breadboard mounting',
+        },
+        ports: [
+          port('west', 'Input', 'beam-input', -42.5, 0, 'west'),
+          port('east', 'Output', 'beam-output', 42.5, 0, 'east'),
+        ],
       },
     ],
   },
@@ -878,6 +945,7 @@ export function getResolvedComponentSpec(
 ): ResolvedComponentSpec {
   const definition = getComponentDefinition(type)
   const variant = getComponentVariant(type, variantId ?? definition.defaultVariantId)
+  const footprintBoundsMm = variant.footprintBoundsMm ?? definition.footprintBoundsMm
 
   return {
     type: definition.type,
@@ -889,12 +957,23 @@ export function getResolvedComponentSpec(
     vendor: variant.vendor,
     sku: variant.sku,
     description: variant.description,
-    footprintBoundsMm: variant.footprintBoundsMm ?? definition.footprintBoundsMm,
+    footprintBoundsMm,
+    visualBodyBoundsMm:
+      variant.visualBodyBoundsMm ??
+      definition.visualBodyBoundsMm ??
+      insetBounds(footprintBoundsMm, 2, 2),
+    hitBoundsMm:
+      variant.hitBoundsMm ??
+      definition.hitBoundsMm ??
+      variant.mount?.supportBoundsMm ??
+      definition.mount.supportBoundsMm,
     mount: variant.mount ?? definition.mount,
     opticalCenterMm: variant.opticalCenterMm ?? definition.opticalCenterMm,
     ports: variant.ports ?? definition.ports,
     renderHint: mergeRenderHint(definition.renderHint, variant.renderHint),
     physics: mergePhysics(definition.physics, variant.physics),
+    recommendedHardware:
+      variant.recommendedHardware ?? definition.recommendedHardware,
   }
 }
 

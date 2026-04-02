@@ -9,6 +9,7 @@ import { getFilterTransmissionEstimate } from '../domain/beamTracing'
 import {
   getGaussianInteractionAnalysis,
   getGaussianPathAnalysis,
+  getGaussianPathTableRows,
   getGaussianSegmentAnalysis,
   getGaussianSourceSummary,
 } from '../domain/gaussian'
@@ -240,6 +241,17 @@ function BeamInspectionSection({
     () => getGaussianSegmentAnalysis(gaussianTrace, beamSelection.segment?.id),
     [beamSelection.segment?.id, gaussianTrace],
   )
+  const gaussianPathTableRows = useMemo(
+    () =>
+      getGaussianPathTableRows(
+        beamTrace,
+        gaussianTrace,
+        beamSelection.path?.pathId ??
+          beamSelection.segment?.pathId ??
+          beamSelection.interaction?.pathId,
+      ),
+    [beamSelection.interaction?.pathId, beamSelection.path?.pathId, beamSelection.segment?.pathId, beamTrace, gaussianTrace],
+  )
   const gaussianInteraction = useMemo(
     () =>
       getGaussianInteractionAnalysis(
@@ -436,6 +448,40 @@ function BeamInspectionSection({
           ) : null}
         </div>
       ) : null}
+
+      {gaussianPathTableRows.length > 0 ? (
+        <div className="inspector__table">
+          <div className="inspector__table-row inspector__table-row--head">
+            <span>Segment / Optic</span>
+            <span>z</span>
+            <span>Spot / Waist</span>
+            <span>Curvature / Aperture</span>
+          </div>
+
+          {gaussianPathTableRows.map((row) => (
+            <div className="inspector__table-row" key={row.id}>
+              <div>
+                <strong>{row.label}</strong>
+                <span>{row.kind}</span>
+              </div>
+              <div>
+                <strong>{row.zPositionMm.toFixed(2)} mm</strong>
+                <span>waist @ {row.waistOffsetMm.toFixed(2)} mm</span>
+              </div>
+              <div>
+                <strong>{row.spotRadiusMm.toFixed(3)} mm r</strong>
+                <span>{row.beamDiameterMm.toFixed(3)} mm dia</span>
+                <span>{row.waistRadiusMm.toFixed(3)} mm waist</span>
+              </div>
+              <div>
+                <strong>{formatCurvature(row.curvatureMm)}</strong>
+                <span>zR {row.rayleighRangeMm.toFixed(2)} mm</span>
+                <span>{formatGaussianStatus(row.apertureStatus)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -490,6 +536,9 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
   const interactionNotice = useEditorStore((state) => state.interaction.notice)
+  const pendingPlacement = useEditorStore(
+    (state) => state.interaction.pendingPlacement,
+  )
   const updateBreadboard = useEditorStore((state) => state.updateBreadboard)
   const applyBreadboardPreset = useEditorStore(
     (state) => state.applyBreadboardPreset,
@@ -523,8 +572,19 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           (component) => component.id === selection.componentId,
         ) ?? null
       : null
+  const inspectedComponent = pendingPlacement
+    ? {
+        ...pendingPlacement.draft,
+        anchorMm: pendingPlacement.candidateAnchorMm,
+      }
+    : selectedComponent
+  const inspectorMode = pendingPlacement
+    ? 'Pending Placement'
+    : inspectedComponent
+      ? 'Selected Component'
+      : 'Breadboard'
 
-  if (!selectedComponent) {
+  if (!inspectedComponent) {
     const holeCounts = getBreadboardHoleCounts(scene.breadboard)
     const effectivePitchMm = getEffectiveHolePitchMm(scene.breadboard)
     const activeSourceCount = scene.components.filter(
@@ -532,8 +592,9 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
     ).length
 
     return (
-      <aside className="panel inspector">
+      <aside className="panel inspector" data-tour="inspector">
         <div className="panel__header">
+          <span className="panel__eyebrow">{inspectorMode}</span>
           <h2>Breadboard Inspector</h2>
           <p>Board geometry, source-lane defaults, and deterministic beam-scene settings.</p>
         </div>
@@ -767,27 +828,27 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
     )
   }
 
-  const definition = getComponentDefinition(selectedComponent.type)
+  const definition = getComponentDefinition(inspectedComponent.type)
   const spec = getResolvedComponentSpec(
-    selectedComponent.type,
-    selectedComponent.variantId,
+    inspectedComponent.type,
+    inspectedComponent.variantId,
   )
-  const variants = getComponentVariants(selectedComponent.type)
-  const worldPorts = getWorldPortsForComponent(selectedComponent, spec)
-  const rotatedFootprint = getRotatedFootprintBoundsMm(selectedComponent, spec)
-  const placement = inspectComponentPlacement(scene.breadboard, selectedComponent, spec)
+  const variants = getComponentVariants(inspectedComponent.type)
+  const worldPorts = getWorldPortsForComponent(inspectedComponent, spec)
+  const rotatedFootprint = getRotatedFootprintBoundsMm(inspectedComponent, spec)
+  const placement = inspectComponentPlacement(scene.breadboard, inspectedComponent, spec)
   const beamEvents = beamTrace.events.filter(
-    (event) => event.componentId === selectedComponent.id,
+    (event) => event.componentId === inspectedComponent.id,
   )
   const sourceSummary = beamTrace.summaries.find(
-    (summary) => summary.sourceComponentId === selectedComponent.id,
+    (summary) => summary.sourceComponentId === inspectedComponent.id,
   )
   const gaussianSourceSummary = getGaussianSourceSummary(
     gaussianTrace,
-    selectedComponent.id,
+    inspectedComponent.id,
   )
   const terminalCapture = beamTrace.terminalCaptures.find(
-    (summary) => summary.componentId === selectedComponent.id,
+    (summary) => summary.componentId === inspectedComponent.id,
   )
   const strongestIncomingEvent = beamEvents.reduce<BeamInteractionEvent | undefined>(
     (strongest, event) =>
@@ -806,16 +867,16 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
     ? getGaussianInteractionAnalysis(gaussianTrace, strongestIncomingEvent.id)
     : undefined
   const gaussianComponentWarning = gaussianTrace.componentWarnings.find(
-    (warning) => warning.componentId === selectedComponent.id,
+    (warning) => warning.componentId === inspectedComponent.id,
   )
   const incomingPolarization =
     strongestIncomingEvent?.polarization ??
     (incomingSourceConfig
       ? createPolarizationSnapshot(incomingSourceConfig.polarization)
       : createPolarizationSnapshot())
-  const bboConfig = selectedComponent.config.bboCrystal
+  const bboConfig = inspectedComponent.config.bboCrystal
   const bboMetrics =
-    selectedComponent.type === 'bbo-crystal' && bboConfig
+    inspectedComponent.type === 'bbo-crystal' && bboConfig
       ? deriveBboMetrics({
           beamDiameterMm:
             incomingSourceConfig?.beamDiameterMm ??
@@ -834,7 +895,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
         })
       : undefined
   const bboPolarizationSummary =
-    selectedComponent.type === 'bbo-crystal' && bboConfig
+    inspectedComponent.type === 'bbo-crystal' && bboConfig
       ? deriveBboPolarizationSummary({
           axisLocalDeg: bboConfig.polarizationAxisLocalDeg,
           polarization: incomingPolarization,
@@ -843,21 +904,25 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   const filterEstimateNm =
     strongestIncomingEvent?.wavelengthNm ?? incomingSourceConfig?.wavelengthNm ?? 800
   const filterReadout =
-    selectedComponent.type === 'filter'
+    inspectedComponent.type === 'filter'
       ? getFilterTransmissionEstimate(spec, filterEstimateNm)
       : undefined
   const sourcePolarization =
-    selectedComponent.config.source?.polarization ?? createDefaultPolarizationConfig()
+    inspectedComponent.config.source?.polarization ?? createDefaultPolarizationConfig()
   const opticalTargets = scene.components.filter(
     (component) =>
-      component.id !== selectedComponent.id && isOpticalTarget(component.type),
+      component.id !== inspectedComponent.id && isOpticalTarget(component.type),
   )
-
   return (
-    <aside className="panel inspector">
+    <aside className="panel inspector" data-tour="inspector">
       <div className="panel__header">
-        <h2>Component Inspector</h2>
-        <p>Family, variant, placement, and deterministic beam-domain controls for the selection.</p>
+        <span className="panel__eyebrow">{inspectorMode}</span>
+        <h2>{pendingPlacement ? 'Pending Placement' : 'Component Inspector'}</h2>
+        <p>
+          {pendingPlacement
+            ? 'Edit the draft before you place it on the board.'
+            : 'Family, variant, placement, and deterministic beam-domain controls for the selection.'}
+        </p>
       </div>
 
       <div className="inspector__content">
@@ -867,6 +932,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           <div>
             <span>Family</span>
             <strong>{definition.familyLabel}</strong>
+          </div>
+          <div>
+            <span>Editing</span>
+            <strong>{pendingPlacement ? 'Pending draft' : 'Placed component'}</strong>
           </div>
           <div>
             <span>Variant</span>
@@ -907,8 +976,8 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
 
           <Field label="Variant / SKU">
             <select
-              onChange={(event) => updateSelectedVariant(event.target.value)}
-              value={selectedComponent.variantId}
+                onChange={(event) => updateSelectedVariant(event.target.value)}
+              value={inspectedComponent.variantId}
             >
               {variants.map((variant) => (
                 <option key={variant.id} value={variant.id}>
@@ -928,7 +997,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 })
               }
               type="text"
-              value={selectedComponent.label}
+              value={inspectedComponent.label}
             />
           </Field>
 
@@ -937,21 +1006,21 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               label="Anchor X (mm)"
               onChange={(x) =>
                 updateSelectedComponent({
-                  anchorMm: { x, y: selectedComponent.anchorMm.y },
+                  anchorMm: { x, y: inspectedComponent.anchorMm.y },
                 })
               }
               step={0.5}
-              value={selectedComponent.anchorMm.x}
+              value={inspectedComponent.anchorMm.x}
             />
             <NumberField
               label="Anchor Y (mm)"
               onChange={(y) =>
                 updateSelectedComponent({
-                  anchorMm: { x: selectedComponent.anchorMm.x, y },
+                  anchorMm: { x: inspectedComponent.anchorMm.x, y },
                 })
               }
               step={0.5}
-              value={selectedComponent.anchorMm.y}
+              value={inspectedComponent.anchorMm.y}
             />
 
             {spec.mount.mode !== 'external-source' ? (
@@ -962,7 +1031,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                       rotationQuarterTurns: Number(event.target.value) as QuarterTurn,
                     })
                   }
-                  value={selectedComponent.rotationQuarterTurns}
+                  value={inspectedComponent.rotationQuarterTurns}
                 >
                   <option value={0}>0°</option>
                   <option value={1}>90°</option>
@@ -975,7 +1044,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <input
                   readOnly
                   type="text"
-                  value={`${selectedComponent.config.source?.lane ?? 'left'} lane`}
+                  value={`${inspectedComponent.config.source?.lane ?? 'left'} lane`}
                 />
               </Field>
             )}
@@ -988,12 +1057,28 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               {spec.sku ? ` • ${spec.sku}` : ''}
             </p>
           ) : null}
+          {spec.recommendedHardware ? (
+            <div className="inspector__readout">
+              <div>
+                <span>Recommended mount</span>
+                <strong>{spec.recommendedHardware.mount ?? 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Recommended post</span>
+                <strong>{spec.recommendedHardware.post ?? 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Clamp</span>
+                <strong>{spec.recommendedHardware.clamp ?? 'Optional'}</strong>
+              </div>
+            </div>
+          ) : null}
           {describePlacementReason(placement.reason) ? (
             <p className="inspector__hint">{describePlacementReason(placement.reason)}</p>
           ) : null}
         </div>
 
-        {selectedComponent.config.source ? (
+        {inspectedComponent.config.source ? (
           <div className="inspector__subsection">
             <h3>Laser Source</h3>
 
@@ -1002,10 +1087,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <select
                   onChange={(event) =>
                     applySelectedSourcePreset(
-                      event.target.value as typeof selectedComponent.config.source.presetId,
+                      event.target.value as typeof inspectedComponent.config.source.presetId,
                     )
                   }
-                  value={selectedComponent.config.source.presetId}
+                  value={inspectedComponent.config.source.presetId}
                 >
                   {SOURCE_PRESETS.map((preset) => (
                     <option key={preset.id} value={preset.id}>
@@ -1019,10 +1104,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <select
                   onChange={(event) =>
                     updateSelectedSource({
-                      lane: event.target.value as typeof selectedComponent.config.source.lane,
+                      lane: event.target.value as typeof inspectedComponent.config.source.lane,
                     })
                   }
-                  value={selectedComponent.config.source.lane}
+                  value={inspectedComponent.config.source.lane}
                 >
                   <option value="left">Left</option>
                   <option value="top">Top</option>
@@ -1039,7 +1124,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                         event.target.value === '' ? undefined : event.target.value,
                     })
                   }
-                  value={selectedComponent.config.source.firstTargetComponentId ?? ''}
+                  value={inspectedComponent.config.source.firstTargetComponentId ?? ''}
                 >
                   <option value="">None</option>
                   {opticalTargets.map((component) => (
@@ -1055,15 +1140,15 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               <button
                 onClick={() =>
                   updateSelectedSource({
-                    isEnabled: !selectedComponent.config.source?.isEnabled,
+                    isEnabled: !inspectedComponent.config.source?.isEnabled,
                   })
                 }
                 type="button"
               >
-                {selectedComponent.config.source.isEnabled ? 'Turn Beam Off' : 'Turn Beam On'}
+                {inspectedComponent.config.source.isEnabled ? 'Turn Beam Off' : 'Turn Beam On'}
               </button>
               <button
-                disabled={!selectedComponent.config.source.firstTargetComponentId}
+                disabled={!inspectedComponent.config.source.firstTargetComponentId}
                 onClick={alignSelectedSourceToTarget}
                 type="button"
               >
@@ -1076,19 +1161,19 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 label="Wavelength (nm)"
                 onChange={(wavelengthNm) => updateSelectedSource({ wavelengthNm })}
                 step={1}
-                value={selectedComponent.config.source.wavelengthNm}
+                value={inspectedComponent.config.source.wavelengthNm}
               />
               <NumberField
                 label="Bandwidth (nm)"
                 onChange={(bandwidthNm) => updateSelectedSource({ bandwidthNm })}
                 step={0.1}
-                value={selectedComponent.config.source.bandwidthNm}
+                value={inspectedComponent.config.source.bandwidthNm}
               />
               <NumberField
                 label="Absolute power (mW)"
                 onChange={(powerMw) => updateSelectedSource({ powerMw })}
                 step={1}
-                value={selectedComponent.config.source.powerMw}
+                value={inspectedComponent.config.source.powerMw}
               />
               <NumberField
                 label="Normalized power (%)"
@@ -1096,19 +1181,19 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   updateSelectedSource({ normalizedPowerPercent })
                 }
                 step={1}
-                value={selectedComponent.config.source.normalizedPowerPercent}
+                value={inspectedComponent.config.source.normalizedPowerPercent}
               />
               <NumberField
                 label="Beam diameter (mm)"
                 onChange={(beamDiameterMm) => updateSelectedSource({ beamDiameterMm })}
                 step={0.1}
-                value={selectedComponent.config.source.beamDiameterMm}
+                value={inspectedComponent.config.source.beamDiameterMm}
               />
               <NumberField
                 label="Divergence (mrad)"
                 onChange={(divergenceMrad) => updateSelectedSource({ divergenceMrad })}
                 step={0.1}
-                value={selectedComponent.config.source.divergenceMrad}
+                value={inspectedComponent.config.source.divergenceMrad}
               />
             </div>
 
@@ -1121,17 +1206,17 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                     onChange={(event) =>
                       updateSelectedSource({
                         gaussianInputMode:
-                          event.target.value as typeof selectedComponent.config.source.gaussianInputMode,
+                          event.target.value as typeof inspectedComponent.config.source.gaussianInputMode,
                       })
                     }
-                    value={selectedComponent.config.source.gaussianInputMode}
+                    value={inspectedComponent.config.source.gaussianInputMode}
                   >
                     <option value="derived">Derived from diameter/divergence</option>
                     <option value="explicit-waist">Explicit waist override</option>
                   </select>
                 </Field>
 
-                {selectedComponent.config.source.gaussianInputMode === 'explicit-waist' ? (
+                {inspectedComponent.config.source.gaussianInputMode === 'explicit-waist' ? (
                   <>
                     <NumberField
                       label="Waist radius (mm)"
@@ -1140,8 +1225,8 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                       }
                       step={0.01}
                       value={
-                        selectedComponent.config.source.waistRadiusMm ??
-                        selectedComponent.config.source.beamDiameterMm / 2
+                        inspectedComponent.config.source.waistRadiusMm ??
+                        inspectedComponent.config.source.beamDiameterMm / 2
                       }
                     />
                     <NumberField
@@ -1150,7 +1235,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                         updateSelectedSource({ waistOffsetMm })
                       }
                       step={0.1}
-                      value={selectedComponent.config.source.waistOffsetMm ?? 0}
+                      value={inspectedComponent.config.source.waistOffsetMm ?? 0}
                     />
                   </>
                 ) : null}
@@ -1292,7 +1377,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           </div>
         ) : null}
 
-        {selectedComponent.type === 'lens' && selectedComponent.config.lens ? (
+        {inspectedComponent.type === 'lens' && inspectedComponent.config.lens ? (
           <div className="inspector__subsection">
             <h3>Lens</h3>
 
@@ -1301,7 +1386,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 label="Focal length (mm)"
                 onChange={(focalLengthMm) => updateSelectedLens({ focalLengthMm })}
                 step={1}
-                value={selectedComponent.config.lens.focalLengthMm}
+                value={inspectedComponent.config.lens.focalLengthMm}
               />
               <NumberField
                 label="Clear aperture (mm)"
@@ -1309,7 +1394,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   updateSelectedLens({ clearApertureMm })
                 }
                 step={0.1}
-                value={selectedComponent.config.lens.clearApertureMm}
+                value={inspectedComponent.config.lens.clearApertureMm}
               />
             </div>
 
@@ -1356,7 +1441,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           </div>
         ) : null}
 
-        {selectedComponent.type === 'beamsplitter' && selectedComponent.config.beamSplitter ? (
+        {inspectedComponent.type === 'beamsplitter' && inspectedComponent.config.beamSplitter ? (
           <div className="inspector__subsection">
             <h3>Beamsplitter</h3>
 
@@ -1367,13 +1452,13 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   updateSelectedBeamSplitter({ reflectPercent })
                 }
                 step={1}
-                value={selectedComponent.config.beamSplitter.reflectPercent}
+                value={inspectedComponent.config.beamSplitter.reflectPercent}
               />
               <NumberField
                 label="Loss (%)"
                 onChange={(lossPercent) => updateSelectedBeamSplitter({ lossPercent })}
                 step={0.5}
-                value={selectedComponent.config.beamSplitter.lossPercent}
+                value={inspectedComponent.config.beamSplitter.lossPercent}
               />
             </div>
 
@@ -1384,8 +1469,8 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   {Math.max(
                     0,
                     100 -
-                      selectedComponent.config.beamSplitter.reflectPercent -
-                      selectedComponent.config.beamSplitter.lossPercent,
+                      inspectedComponent.config.beamSplitter.reflectPercent -
+                      inspectedComponent.config.beamSplitter.lossPercent,
                   ).toFixed(1)}
                 </strong>
               </div>
@@ -1401,7 +1486,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           </div>
         ) : null}
 
-        {selectedComponent.type === 'iris' && selectedComponent.config.iris ? (
+        {inspectedComponent.type === 'iris' && inspectedComponent.config.iris ? (
           <div className="inspector__subsection">
             <h3>Iris</h3>
 
@@ -1409,12 +1494,12 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               label="Aperture (mm)"
               onChange={(apertureMm) => updateSelectedIris({ apertureMm })}
               step={0.1}
-              value={selectedComponent.config.iris.apertureMm}
+              value={inspectedComponent.config.iris.apertureMm}
             />
           </div>
         ) : null}
 
-        {selectedComponent.type === 'filter' && spec.physics.kind === 'filter' ? (
+        {inspectedComponent.type === 'filter' && spec.physics.kind === 'filter' ? (
           <div className="inspector__subsection">
             <h3>Filter Response</h3>
 
@@ -1435,11 +1520,30 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <span>Classification</span>
                 <strong>{formatFilterClass(filterReadout?.transmissionClass)}</strong>
               </div>
+              <div>
+                <span>Incoming power</span>
+                <strong>
+                  {strongestIncomingEvent
+                    ? `${strongestIncomingEvent.incomingPowerMw.toFixed(2)} mW`
+                    : 'n/a'}
+                </strong>
+              </div>
+              <div>
+                <span>Lost through filter</span>
+                <strong>
+                  {strongestIncomingEvent && filterReadout
+                    ? `${(
+                        strongestIncomingEvent.incomingPowerMw *
+                        (1 - filterReadout.transmissionPercent / 100)
+                      ).toFixed(2)} mW`
+                    : 'n/a'}
+                </strong>
+              </div>
             </div>
           </div>
         ) : null}
 
-        {selectedComponent.type === 'bbo-crystal' && selectedComponent.config.bboCrystal ? (
+        {inspectedComponent.type === 'bbo-crystal' && inspectedComponent.config.bboCrystal ? (
           <div className="inspector__subsection">
             <h3>BBO Crystal</h3>
 
@@ -1449,10 +1553,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   onChange={(event) =>
                     updateSelectedBboCrystal({
                       interactionMode:
-                        event.target.value as typeof selectedComponent.config.bboCrystal.interactionMode,
+                        event.target.value as typeof inspectedComponent.config.bboCrystal.interactionMode,
                     })
                   }
-                  value={selectedComponent.config.bboCrystal.interactionMode}
+                  value={inspectedComponent.config.bboCrystal.interactionMode}
                 >
                   <option value="estimated">Estimated</option>
                   <option value="advanced">Advanced</option>
@@ -1462,7 +1566,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 label="Thickness (µm)"
                 onChange={(thicknessUm) => updateSelectedBboCrystal({ thicknessUm })}
                 step={0.5}
-                value={selectedComponent.config.bboCrystal.thicknessUm}
+                value={inspectedComponent.config.bboCrystal.thicknessUm}
               />
               <NumberField
                 label="Phase-matching angle (deg)"
@@ -1470,7 +1574,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   updateSelectedBboCrystal({ phaseMatchingAngleDeg })
                 }
                 step={0.1}
-                value={selectedComponent.config.bboCrystal.phaseMatchingAngleDeg}
+                value={inspectedComponent.config.bboCrystal.phaseMatchingAngleDeg}
               />
               <NumberField
                 label="Polarization axis (deg)"
@@ -1478,7 +1582,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   updateSelectedBboCrystal({ polarizationAxisLocalDeg })
                 }
                 step={0.5}
-                value={selectedComponent.config.bboCrystal.polarizationAxisLocalDeg}
+                value={inspectedComponent.config.bboCrystal.polarizationAxisLocalDeg}
               />
             </div>
 
@@ -1529,8 +1633,8 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           </div>
         ) : null}
 
-        {selectedComponent.type !== 'laser-source' &&
-        selectedComponent.type !== 'lens' &&
+        {inspectedComponent.type !== 'laser-source' &&
+        inspectedComponent.type !== 'lens' &&
         strongestGaussianInteraction ? (
           <div className="inspector__subsection">
             <h3>Gaussian / Aperture</h3>
@@ -1571,7 +1675,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
             </div>
 
             {gaussianComponentWarning ? (
-              <p className="inspector__hint">
+              <p className="inspector__hint inspector__hint--warning">
                 Strongest paraxial warning: {formatGaussianStatus(gaussianComponentWarning.strongestStatus)}.
               </p>
             ) : null}

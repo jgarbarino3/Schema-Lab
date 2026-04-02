@@ -38,6 +38,7 @@ import type {
   ComponentType,
   IrisConfig,
   LensConfig,
+  PendingPlacementState,
   QuarterTurn,
   SceneBeamSettings,
   SceneDocument,
@@ -73,6 +74,7 @@ interface DragPreviewState {
 interface InteractionState {
   activeDragComponentId?: string
   dragPreview?: DragPreviewState
+  pendingPlacement?: PendingPlacementState
   hoveredComponentId?: string
   hoveredBeamSegmentId?: string
   cursorWorldMm?: Vector2Mm
@@ -85,6 +87,8 @@ interface InteractionState {
   selectedBeamSegmentId?: string
   selectedBeamInteractionId?: string
   isHelpOpen: boolean
+  isWarningsOpen: boolean
+  selectedWarningId?: string
   notice?: string
 }
 
@@ -108,6 +112,8 @@ interface EditorStore {
   selectBeamSegment: (segmentId: string, pathId: string, interactionId?: string) => void
   clearBeamInspectionSelection: () => void
   setHelpOpen: (isOpen: boolean) => void
+  setWarningsOpen: (isOpen: boolean) => void
+  setSelectedWarningId: (warningId?: string) => void
   clearNotice: () => void
   setViewportSize: (canvasSizePx: CanvasSizePx) => void
   panViewportByScreenDelta: (deltaPx: ScreenPointPx) => void
@@ -119,6 +125,8 @@ interface EditorStore {
   zoomAtScreenPoint: (pointPx: ScreenPointPx, zoomFactor: number) => void
   resetViewport: () => void
   addComponent: (type: ComponentType) => void
+  updatePendingPlacementAnchor: (anchorMm: Vector2Mm) => void
+  commitPendingPlacement: (anchorMm?: Vector2Mm) => void
   beginComponentDrag: (componentId: string) => void
   updateComponentDrag: (componentId: string, anchorMm: Vector2Mm) => void
   commitComponentDrag: (componentId: string, anchorMm?: Vector2Mm) => void
@@ -249,27 +257,99 @@ function reconcileComponentsToBreadboard(
   }))
 }
 
-function createDuplicateLabel(
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function createAutoNumberedLabel(
   components: ComponentInstance[],
-  originalLabel: string,
+  type: ComponentType,
 ) {
-  const baseLabel = `${originalLabel} Copy`
+  const baseLabel = getComponentDefinition(type).defaultLabel
+  const pattern = new RegExp(`^${escapeRegExp(baseLabel)}(?: (\\d+))?$`)
+  let highestIndex = 0
 
-  if (!components.some((component) => component.label === baseLabel)) {
-    return baseLabel
-  }
+  for (const component of components) {
+    const match = component.label.match(pattern)
 
-  let nextIndex = 2
+    if (!match) {
+      continue
+    }
 
-  while (
-    components.some(
-      (component) => component.label === `${baseLabel} ${nextIndex}`,
+    highestIndex = Math.max(
+      highestIndex,
+      match[1] ? Number(match[1]) : 1,
     )
-  ) {
-    nextIndex += 1
   }
 
-  return `${baseLabel} ${nextIndex}`
+  return `${baseLabel} ${highestIndex + 1}`
+}
+
+function createComponentDraft(
+  scene: SceneDocument,
+  selection: SelectionState,
+  type: ComponentType,
+) {
+  const definition = getComponentDefinition(type)
+  const variantId = definition.defaultVariantId
+  const selectedComponentId =
+    selection.type === 'component' ? selection.componentId : undefined
+  let selectedTarget: ComponentInstance | undefined
+
+  if (selectedComponentId) {
+    selectedTarget = scene.components.find(
+      (component) => component.id === selectedComponentId,
+    )
+  }
+
+  const targetForSource =
+    selectedTarget && isOpticalTarget(selectedTarget.type)
+      ? selectedTarget
+      : getOpticalTargetComponents(scene)[0]
+  let draft: ComponentInstance = {
+    id: createComponentId(type),
+    type,
+    label: createAutoNumberedLabel(scene.components, type),
+    variantId,
+    anchorMm: getNearestBoardCenterHole(scene.breadboard),
+    rotationQuarterTurns: 0,
+    config: createDefaultComponentConfig(type, variantId),
+  }
+
+  if (type === 'laser-source') {
+    const existingSourceConfig = draft.config.source
+
+    if (!existingSourceConfig) {
+      return draft
+    }
+
+    const nextSourceConfig: SourceConfig = {
+      ...existingSourceConfig,
+      firstTargetComponentId: targetForSource?.id,
+    }
+    draft = {
+      ...draft,
+      config: {
+        ...draft.config,
+        source: nextSourceConfig,
+      },
+    }
+
+    const aligned = applySourceLane(
+      scene,
+      draft,
+      nextSourceConfig.lane ?? 'left',
+      targetForSource?.id,
+    )
+
+    draft = {
+      ...draft,
+      anchorMm: aligned.anchorMm,
+      rotationQuarterTurns: aligned.rotationQuarterTurns,
+    }
+  }
+
+  return draft
 }
 
 function mergeComponentConfig(
@@ -347,6 +427,7 @@ const initialInteraction: InteractionState = {
   isHelpOpen: false,
   isSpacePanning: false,
   isPointerPanning: false,
+  isWarningsOpen: false,
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
@@ -364,6 +445,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         notice: undefined,
+        pendingPlacement: undefined,
       },
     }))
   },
@@ -374,6 +456,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         notice: undefined,
+        pendingPlacement: undefined,
       },
     }))
   },
@@ -486,6 +569,26 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
+  setWarningsOpen: (isOpen) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        isWarningsOpen: isOpen,
+        selectedWarningId: isOpen ? state.interaction.selectedWarningId : undefined,
+      },
+    }))
+  },
+
+  setSelectedWarningId: (warningId) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        isWarningsOpen: warningId ? true : state.interaction.isWarningsOpen,
+        selectedWarningId: warningId,
+      },
+    }))
+  },
+
   clearNotice: () => {
     set((state) => ({
       interaction: {
@@ -535,64 +638,61 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   addComponent: (type) => {
     set((state) => {
-      const definition = getComponentDefinition(type)
-      const variantId = definition.defaultVariantId
-      const selectedComponentId =
-        state.selection.type === 'component'
-          ? state.selection.componentId
-          : undefined
-      let selectedTarget: ComponentInstance | undefined
+      const draft = createComponentDraft(state.scene, state.selection, type)
 
-      if (selectedComponentId) {
-        selectedTarget = state.scene.components.find(
-          (component) => component.id === selectedComponentId,
-        )
-      }
-      const targetForSource =
-        selectedTarget && isOpticalTarget(selectedTarget.type)
-          ? selectedTarget
-          : getOpticalTargetComponents(state.scene)[0]
-      let nextComponent: ComponentInstance = {
-        id: createComponentId(type),
-        type,
-        label: definition.defaultLabel,
-        variantId,
-        anchorMm: getNearestBoardCenterHole(state.scene.breadboard),
-        rotationQuarterTurns: 0,
-        config: createDefaultComponentConfig(type, variantId),
-      }
-
-      if (type === 'laser-source') {
-        const existingSourceConfig = nextComponent.config.source
-
-        if (!existingSourceConfig) {
-          return state
-        }
-
-        const nextSourceConfig: SourceConfig = {
-          ...existingSourceConfig,
-          firstTargetComponentId: targetForSource?.id,
-        }
-        nextComponent = {
-          ...nextComponent,
-          config: {
-            ...nextComponent.config,
-            source: nextSourceConfig,
+      return {
+        selection: { type: 'breadboard' },
+        interaction: {
+          ...state.interaction,
+          pendingPlacement: {
+            draft,
+            candidateAnchorMm: draft.anchorMm,
           },
-        }
+          selectedBeamInteractionId: undefined,
+          selectedBeamPathId: undefined,
+          selectedBeamSegmentId: undefined,
+          notice: undefined,
+        },
+      }
+    })
+  },
 
-        const aligned = applySourceLane(
-          state.scene,
-          nextComponent,
-          nextSourceConfig?.lane ?? 'left',
-          targetForSource?.id,
-        )
+  updatePendingPlacementAnchor: (anchorMm) => {
+    set((state) => {
+      if (!state.interaction.pendingPlacement) {
+        return state
+      }
 
-        nextComponent = {
-          ...nextComponent,
-          anchorMm: aligned.anchorMm,
-          rotationQuarterTurns: aligned.rotationQuarterTurns,
-        }
+      return {
+        interaction: {
+          ...state.interaction,
+          pendingPlacement: {
+            ...state.interaction.pendingPlacement,
+            candidateAnchorMm: anchorMm,
+          },
+        },
+      }
+    })
+  },
+
+  commitPendingPlacement: (anchorMm) => {
+    set((state) => {
+      const pendingPlacement = state.interaction.pendingPlacement
+
+      if (!pendingPlacement) {
+        return state
+      }
+
+      const placement = resolvePlacementForScene({
+        candidateAnchorMm: anchorMm ?? pendingPlacement.candidateAnchorMm,
+        component: pendingPlacement.draft,
+        phase: 'drop',
+        scene: state.scene,
+        snapMode: state.snapMode,
+      })
+      const nextComponent: ComponentInstance = {
+        ...pendingPlacement.draft,
+        anchorMm: placement.resolvedAnchorMm,
       }
 
       return {
@@ -603,7 +703,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: { type: 'component', componentId: nextComponent.id },
         interaction: {
           ...state.interaction,
-          notice: undefined,
+          pendingPlacement: undefined,
+          notice: describePlacementReason(placement.reason),
         },
       }
     })
@@ -703,10 +804,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
         ...state.interaction,
         activeDragComponentId: undefined,
         dragPreview: undefined,
+        pendingPlacement: undefined,
         hoveredBeamSegmentId: undefined,
         isPointerPanning: false,
         isSpacePanning: false,
         isHelpOpen: false,
+        isWarningsOpen: false,
+        selectedWarningId: undefined,
         notice: undefined,
       },
     }))
@@ -764,7 +868,10 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const duplicate: ComponentInstance = {
         ...selectedComponent,
         id: createComponentId(selectedComponent.type),
-        label: createDuplicateLabel(state.scene.components, selectedComponent.label),
+        label: createAutoNumberedLabel(
+          state.scene.components,
+          selectedComponent.type,
+        ),
         anchorMm: placement.resolvedAnchorMm,
       }
 
@@ -784,6 +891,40 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedComponent: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const nextRotationQuarterTurns =
+          update.rotationQuarterTurns === undefined
+            ? pendingPlacement.draft.rotationQuarterTurns
+            : (normalizeQuarterTurns(update.rotationQuarterTurns) as QuarterTurn)
+        const nextAnchorMm = update.anchorMm ?? pendingPlacement.candidateAnchorMm
+        const nextDraft = {
+          ...pendingPlacement.draft,
+          label: update.label ?? pendingPlacement.draft.label,
+          anchorMm: nextAnchorMm,
+          rotationQuarterTurns: nextRotationQuarterTurns,
+        }
+        const placement = resolvePlacementForScene({
+          candidateAnchorMm: nextAnchorMm,
+          component: nextDraft,
+          phase: 'drop',
+          rotationQuarterTurns: nextRotationQuarterTurns,
+          scene: state.scene,
+          snapMode: state.snapMode,
+        })
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              draft: nextDraft,
+              candidateAnchorMm: nextAnchorMm,
+            },
+            notice: describePlacementReason(placement.reason),
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent) {
@@ -828,6 +969,40 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedVariant: (variantId) => {
     set((state) => {
+      if (state.interaction.pendingPlacement) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        let nextDraft: ComponentInstance = {
+          ...pendingPlacement.draft,
+          variantId,
+          config: createDefaultComponentConfig(pendingPlacement.draft.type, variantId),
+        }
+
+        if (nextDraft.config.source) {
+          const aligned = applySourceLane(
+            state.scene,
+            nextDraft,
+            nextDraft.config.source.lane,
+            nextDraft.config.source.firstTargetComponentId,
+          )
+
+          nextDraft = {
+            ...nextDraft,
+            anchorMm: aligned.anchorMm,
+            rotationQuarterTurns: aligned.rotationQuarterTurns,
+          }
+        }
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              draft: nextDraft,
+              candidateAnchorMm: nextDraft.anchorMm,
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent) {
@@ -868,14 +1043,55 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedSource: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.config.source) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const pendingSource = pendingPlacement.draft.config.source!
+        const nextSource: SourceConfig = {
+          ...pendingSource,
+          ...update,
+        }
+        const nextDraft = {
+          ...pendingPlacement.draft,
+          config: mergeComponentConfig(pendingPlacement.draft.config, {
+            source: nextSource,
+          }),
+        }
+        let resolvedDraft = nextDraft
+
+        if (update.lane || update.firstTargetComponentId) {
+          const aligned = applySourceLane(
+            state.scene,
+            nextDraft,
+            nextSource.lane,
+            nextSource.firstTargetComponentId,
+          )
+
+          resolvedDraft = {
+            ...nextDraft,
+            anchorMm: aligned.anchorMm,
+            rotationQuarterTurns: aligned.rotationQuarterTurns,
+          }
+        }
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              draft: resolvedDraft,
+              candidateAnchorMm: resolvedDraft.anchorMm,
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent?.config.source) {
         return state
       }
 
-      const nextSource = {
-        ...selectedComponent.config.source,
+      const nextSource: SourceConfig = {
+        ...selectedComponent.config.source!,
         ...update,
       }
       const nextComponent = {
@@ -914,6 +1130,36 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   applySelectedSourcePreset: (presetId) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.config.source) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const preset = getSourcePreset(presetId)
+        const pendingSource = pendingPlacement.draft.config.source!
+        const nextSource: SourceConfig = {
+          ...pendingSource,
+          presetId: preset.id,
+          wavelengthNm: preset.wavelengthNm,
+          bandwidthNm: preset.bandwidthNm,
+          powerMw: preset.powerMw,
+          beamDiameterMm: preset.beamDiameterMm,
+          divergenceMrad: preset.divergenceMrad,
+        }
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  source: nextSource,
+                }),
+              },
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent?.config.source) {
@@ -922,7 +1168,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       const preset = getSourcePreset(presetId)
       const nextSource: SourceConfig = {
-        ...selectedComponent.config.source,
+        ...selectedComponent.config.source!,
         presetId: preset.id,
         wavelengthNm: preset.wavelengthNm,
         bandwidthNm: preset.bandwidthNm,
@@ -950,6 +1196,31 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   alignSelectedSourceToTarget: () => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.config.source) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const pendingSource = pendingPlacement.draft.config.source!
+        const aligned = applySourceLane(
+          state.scene,
+          pendingPlacement.draft,
+          pendingSource.lane,
+          pendingSource.firstTargetComponentId,
+        )
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              draft: {
+                ...pendingPlacement.draft,
+                anchorMm: aligned.anchorMm,
+                rotationQuarterTurns: aligned.rotationQuarterTurns,
+              },
+              candidateAnchorMm: aligned.anchorMm,
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent?.config.source) {
@@ -982,6 +1253,28 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedBeamSplitter: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'beamsplitter') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  beamSplitter: {
+                    ...pendingPlacement.draft.config.beamSplitter,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent || selectedComponent.type !== 'beamsplitter') {
@@ -1011,6 +1304,28 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedLens: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'lens') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  lens: {
+                    ...pendingPlacement.draft.config.lens,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent || selectedComponent.type !== 'lens') {
@@ -1040,6 +1355,35 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedIris: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'iris') {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const spec = getResolvedComponentSpec(
+          pendingPlacement.draft.type,
+          pendingPlacement.draft.variantId,
+        )
+        const nextApertureMm = Math.min(
+          update.apertureMm ?? pendingPlacement.draft.config.iris?.apertureMm ?? 10,
+          spec.physics.kind === 'iris' ? spec.physics.maxApertureMm : 25,
+        )
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  iris: {
+                    apertureMm: nextApertureMm,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent || selectedComponent.type !== 'iris') {
@@ -1077,6 +1421,28 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedBboCrystal: (update) => {
     set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'bbo-crystal') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  bboCrystal: {
+                    ...pendingPlacement.draft.config.bboCrystal,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent || selectedComponent.type !== 'bbo-crystal') {
@@ -1106,6 +1472,38 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   rotateSelectedComponent: (direction) => {
     set((state) => {
+      if (state.interaction.pendingPlacement) {
+        const pendingPlacement = state.interaction.pendingPlacement
+        const nextRotationQuarterTurns =
+          pendingPlacement.draft.config.source
+            ? pendingPlacement.draft.rotationQuarterTurns
+            : (normalizeQuarterTurns(
+                pendingPlacement.draft.rotationQuarterTurns + direction,
+              ) as QuarterTurn)
+        const placement = resolvePlacementForScene({
+          candidateAnchorMm: pendingPlacement.candidateAnchorMm,
+          component: pendingPlacement.draft,
+          phase: 'drop',
+          rotationQuarterTurns: nextRotationQuarterTurns,
+          scene: state.scene,
+          snapMode: state.snapMode,
+        })
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              draft: {
+                ...pendingPlacement.draft,
+                rotationQuarterTurns: nextRotationQuarterTurns,
+              },
+              candidateAnchorMm: placement.resolvedAnchorMm,
+            },
+            notice: describePlacementReason(placement.reason),
+          },
+        }
+      }
+
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
       if (!selectedComponent) {
@@ -1168,6 +1566,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
+          pendingPlacement: undefined,
         },
       }
     })
@@ -1190,6 +1589,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
+          pendingPlacement: undefined,
         },
       }
     })

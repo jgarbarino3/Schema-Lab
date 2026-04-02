@@ -1,5 +1,7 @@
-import { Layer, Line } from 'react-konva'
+import { Fragment } from 'react'
+import { Circle, Layer, Line, Text } from 'react-konva'
 import { getBeamColor } from '../domain/beamTracing'
+import { getGaussianWaistMarkers } from '../domain/gaussian'
 import { worldToScreen } from '../domain/geometry'
 import type { BeamTraceResult, GaussianTraceResult, ViewportState } from '../domain/types'
 
@@ -27,6 +29,17 @@ export function GaussianEnvelopeLayer({
   )?.pathId
   const segmentById = new Map(
     beamTrace.segments.map((segment) => [segment.id, segment] as const),
+  )
+  const selectedPathInteractions =
+    selectedPathId === undefined
+      ? []
+      : gaussianTrace.interactionAnalyses.filter(
+          (analysis) => analysis.pathId === selectedPathId,
+        )
+  const waistMarkers = getGaussianWaistMarkers(
+    beamTrace,
+    gaussianTrace,
+    selectedPathId,
   )
 
   return (
@@ -110,6 +123,55 @@ export function GaussianEnvelopeLayer({
             strokeOpacity={strokeOpacity}
             strokeWidth={strokeWidth}
           />
+        )
+      })}
+
+      {selectedPathInteractions.map((interaction) => {
+        const event = beamTrace.events.find(
+          (candidate) => candidate.id === interaction.interactionId,
+        )
+
+        if (!event) {
+          return null
+        }
+
+        const pointPx = worldToScreen(event.hitPointMm, viewport)
+
+        return (
+          <Text
+            fill="rgba(181, 224, 238, 0.92)"
+            fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+            fontSize={8.5}
+            key={`${interaction.interactionId}-z`}
+            text={`z ${interaction.hitDistanceMm.toFixed(1)} mm`}
+            x={pointPx.x + 8}
+            y={pointPx.y + 10}
+          />
+        )
+      })}
+
+      {waistMarkers.map((marker) => {
+        const pointPx = worldToScreen(marker.pointMm, viewport)
+
+        return (
+          <Fragment key={`${marker.segmentId}-waist`}>
+            <Circle
+              fill="rgba(11, 16, 20, 0.9)"
+              radius={4.2}
+              stroke="#d9f3fb"
+              strokeWidth={1}
+              x={pointPx.x}
+              y={pointPx.y}
+            />
+            <Text
+              fill="#d9f3fb"
+              fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+              fontSize={8.4}
+              text={`w0 ${marker.waistRadiusMm.toFixed(3)} mm • z ${marker.zPositionMm.toFixed(1)} mm`}
+              x={pointPx.x + 7}
+              y={pointPx.y - 16}
+            />
+          </Fragment>
         )
       })}
     </Layer>

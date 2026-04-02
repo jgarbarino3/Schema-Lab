@@ -1,4 +1,5 @@
 import { Circle, Group, Layer, Rect, Text } from 'react-konva'
+import type { KonvaEventObject } from 'konva/lib/Node'
 import {
   getBreadboardHoleAxesMm,
   getBreadboardHoleCounts,
@@ -12,7 +13,7 @@ import type { BreadboardModel, ViewportState } from '../domain/types'
 interface BreadboardLayerProps {
   breadboard: BreadboardModel
   isSelected: boolean
-  onSelect: () => void
+  onSelect: (event: KonvaEventObject<MouseEvent | TouchEvent>) => void
   viewport: ViewportState
 }
 
@@ -48,11 +49,11 @@ export function BreadboardLayer({
         listening
         onClick={(event) => {
           event.cancelBubble = true
-          onSelect()
+          onSelect(event)
         }}
         onTap={(event) => {
           event.cancelBubble = true
-          onSelect()
+          onSelect(event)
         }}
         scaleX={viewport.zoomPxPerMm}
         scaleY={viewport.zoomPxPerMm}
