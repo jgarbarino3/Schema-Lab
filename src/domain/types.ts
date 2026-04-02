@@ -1,5 +1,8 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 1 as const
+export const SCENE_DOCUMENT_VERSION = 4 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 3 as const
+export const STAGE2_SCENE_DOCUMENT_VERSION = 2 as const
+export const LEGACY_SCENE_DOCUMENT_VERSION = 1 as const
 
 export type SceneDocumentVersion = typeof SCENE_DOCUMENT_VERSION
 
@@ -25,20 +28,92 @@ export interface BoundsMm {
   height: number
 }
 
+export interface SpectralWindowNm {
+  minNm: number
+  maxNm: number
+}
+
 export type QuarterTurn = 0 | 1 | 2 | 3
 export type BreadboardFinish = 'black-anodized' | 'clear-anodized'
 export type HoleDensity = 'single' | 'double'
 export type CounterborePattern = 'none' | 'corner-25mm'
-export type SnapMode = 'always' | 'onDrop'
+export type SnapMode = 'always' | 'onDrop' | 'none'
 export type CardinalDirection = 'north' | 'east' | 'south' | 'west'
 export type PortKind = 'beam-input' | 'beam-output' | 'beam-bidirectional'
-
-export type ComponentType =
-  | 'laser-source'
+export type MountMode = 'hole-mounted' | 'clamp-capable' | 'external-source'
+export type PlacementPhase = 'inspect' | 'drag' | 'drop'
+export type PlacementStatus = 'valid' | 'snapped' | 'warning'
+export type PlacementReason =
+  | 'none'
+  | 'off-hole'
+  | 'support-outside-board'
+  | 'footprint-overhang'
+  | 'occupied'
+  | 'snap-preview'
+  | 'outside-source-lane'
+export type ActiveTool = 'select' | 'pan'
+export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
+export type GaussianInputMode = 'derived' | 'explicit-waist'
+export type SourcePresetId =
+  | 'ti-sapphire'
+  | 'pharos'
+  | 'opa-visible-passband'
+  | 'opa-visible-broadband'
+export type PolarizationPresetId =
+  | 'linear-in-plane'
+  | 'linear-out-of-plane'
+  | 'circular-right'
+  | 'circular-left'
+  | 'elliptical'
+export type SourceLane = 'left' | 'right' | 'top' | 'bottom'
+export type BboInteractionMode = 'estimated' | 'advanced'
+export type FilterMode = 'longpass' | 'shortpass' | 'bandpass'
+export type BeamInteractionKind =
+  | 'source'
   | 'mirror'
   | 'beamsplitter'
   | 'lens'
+  | 'filter'
   | 'iris'
+  | 'bbo'
+  | 'pass-through'
+  | 'terminal'
+  | 'none'
+export type BeamBranchKind =
+  | 'root'
+  | 'continued'
+  | 'reflected'
+  | 'transmitted'
+  | 'generated-shg'
+export type BeamAttenuationClass =
+  | 'normal'
+  | 'attenuated'
+  | 'clipped'
+  | 'blocked'
+  | 'low-power'
+export type BeamOutcomeClass =
+  | 'reflected'
+  | 'transmitted'
+  | 'generated-shg'
+  | 'attenuated'
+  | 'clipped'
+  | 'blocked'
+  | 'escaped'
+  | 'low-power'
+export type BeamContentTag = 'fundamental' | 'shg' | 'mixed'
+export type FilterTransmissionClass = 'passband' | 'partial' | 'stopband'
+export type GaussianApertureStatus = 'clear' | 'near-limit' | 'overfill'
+
+export type ComponentType =
+  | 'laser-source'
+  | 'optic-mount'
+  | 'support-hardware'
+  | 'mirror'
+  | 'beamsplitter'
+  | 'lens'
+  | 'filter'
+  | 'iris'
+  | 'bbo-crystal'
   | 'sample-stage'
   | 'fiber-coupler'
   | 'spectrometer'
@@ -50,18 +125,25 @@ export type ComponentCategory =
   | 'steering'
   | 'splitting'
   | 'focusing'
+  | 'conditioning'
   | 'aperture'
+  | 'nonlinear'
   | 'sample'
   | 'coupling'
   | 'measurement'
   | 'termination'
+  | 'mounting'
 
 export type ComponentGlyph =
   | 'laser'
+  | 'mount'
+  | 'support'
   | 'mirror'
   | 'beamsplitter'
   | 'lens'
+  | 'filter'
   | 'iris'
+  | 'bbo'
   | 'sample'
   | 'fiber'
   | 'spectrometer'
@@ -83,6 +165,13 @@ export interface BreadboardModel {
   presetId?: string
 }
 
+export interface SceneBeamSettings {
+  beamFidelityMode: BeamFidelityMode
+  sharedBeamHeightMm: number
+  defaultBeamDiameterMm: number
+  defaultDivergenceMrad: number
+}
+
 export interface PortDefinition {
   id: string
   label: string
@@ -98,22 +187,199 @@ export interface ComponentRenderHint {
   glyph: ComponentGlyph
 }
 
+export interface ComponentMount {
+  mode: MountMode
+  supportBoundsMm: BoundsMm
+}
+
+export interface BeamPhysicsBase {
+  kind: BeamInteractionKind
+  opticalApertureMm?: number
+}
+
+export interface SourceBeamPhysics extends BeamPhysicsBase {
+  kind: 'source'
+  supportedWavelengthNm: SpectralWindowNm
+}
+
+export interface MirrorBeamPhysics extends BeamPhysicsBase {
+  kind: 'mirror'
+  supportedWavelengthNm: SpectralWindowNm
+  reflectivityPercent: number
+  designIncidenceDeg: number
+  absorptionPercent: number
+}
+
+export interface BeamsplitterBeamPhysics extends BeamPhysicsBase {
+  kind: 'beamsplitter'
+  supportedWavelengthNm: SpectralWindowNm
+  designIncidenceDeg: number
+  designWavelengthNm: number
+  defaultReflectPercent: number
+  defaultLossPercent: number
+  sReflectBiasPercent: number
+  pReflectBiasPercent: number
+}
+
+export interface FilterBeamPhysics extends BeamPhysicsBase {
+  kind: 'filter'
+  filterMode: FilterMode
+  peakTransmissionPercent: number
+  stopbandTransmissionPercent: number
+  cutoffNm?: number
+  centerNm?: number
+  fwhmNm?: number
+}
+
+export interface IrisBeamPhysics extends BeamPhysicsBase {
+  kind: 'iris'
+  maxApertureMm: number
+  defaultApertureMm: number
+}
+
+export interface BboBeamPhysics extends BeamPhysicsBase {
+  kind: 'bbo'
+  crystalType: 'type-i'
+  supportedFundamentalNm: SpectralWindowNm
+  defaultThicknessUm: number
+  defaultPhaseMatchingAngleDeg: number
+}
+
+export interface PassThroughBeamPhysics extends BeamPhysicsBase {
+  kind: 'pass-through'
+  supportedWavelengthNm?: SpectralWindowNm
+  transmissionPercent: number
+}
+
+export interface LensBeamPhysics extends BeamPhysicsBase {
+  kind: 'lens'
+  supportedWavelengthNm: SpectralWindowNm
+  transmissionPercent: number
+  defaultFocalLengthMm: number
+  defaultClearApertureMm: number
+}
+
+export interface TerminalBeamPhysics extends BeamPhysicsBase {
+  kind: 'terminal'
+  role: 'beam-dump' | 'detector' | 'spectrometer' | 'fiber-coupler'
+  transmissionPercent: number
+}
+
+export interface NoneBeamPhysics extends BeamPhysicsBase {
+  kind: 'none'
+}
+
+export type ComponentBeamPhysics =
+  | SourceBeamPhysics
+  | MirrorBeamPhysics
+  | BeamsplitterBeamPhysics
+  | LensBeamPhysics
+  | FilterBeamPhysics
+  | IrisBeamPhysics
+  | BboBeamPhysics
+  | PassThroughBeamPhysics
+  | TerminalBeamPhysics
+  | NoneBeamPhysics
+
+export interface ComponentVariant {
+  id: string
+  label: string
+  vendor?: string
+  sku?: string
+  description: string
+  footprintBoundsMm?: BoundsMm
+  mount?: ComponentMount
+  opticalCenterMm?: Vector2Mm
+  ports?: PortDefinition[]
+  renderHint?: Partial<ComponentRenderHint>
+  physics?: ComponentBeamPhysics
+}
+
 export interface ComponentDefinition {
   type: ComponentType
   category: ComponentCategory
   defaultLabel: string
+  familyLabel: string
+  defaultVariantId: string
   footprintBoundsMm: BoundsMm
+  mount: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
+  physics: ComponentBeamPhysics
+  variants: ComponentVariant[]
+}
+
+export interface SourceConfig {
+  isEnabled: boolean
+  presetId: SourcePresetId
+  lane: SourceLane
+  firstTargetComponentId?: string
+  wavelengthNm: number
+  bandwidthNm: number
+  powerMw: number
+  normalizedPowerPercent: number
+  beamDiameterMm: number
+  divergenceMrad: number
+  gaussianInputMode: GaussianInputMode
+  waistRadiusMm?: number
+  waistOffsetMm?: number
+  polarization: PolarizationConfig
+}
+
+export interface LensConfig {
+  focalLengthMm: number
+  clearApertureMm: number
+}
+
+export interface BeamSplitterConfig {
+  reflectPercent: number
+  lossPercent: number
+}
+
+export interface IrisConfig {
+  apertureMm: number
+}
+
+export interface BboCrystalConfig {
+  crystalType: 'type-i'
+  interactionMode: BboInteractionMode
+  thicknessUm: number
+  phaseMatchingAngleDeg: number
+  polarizationAxisLocalDeg: number
+}
+
+export interface PolarizationConfig {
+  basis: 'ray-local'
+  presetId: PolarizationPresetId
+  inPlaneAmplitude: number
+  outOfPlaneAmplitude: number
+  relativePhaseDeg: number
+}
+
+export interface PolarizationSnapshot extends PolarizationConfig {
+  inPlaneFraction: number
+  outOfPlaneFraction: number
+  dominantAxis: 'in-plane' | 'out-of-plane' | 'balanced'
+  tag: string
+}
+
+export interface ComponentConfig {
+  source?: SourceConfig
+  beamSplitter?: BeamSplitterConfig
+  lens?: LensConfig
+  iris?: IrisConfig
+  bboCrystal?: BboCrystalConfig
 }
 
 export interface ComponentInstance {
   id: string
   type: ComponentType
   label: string
+  variantId: string
   anchorMm: Vector2Mm
   rotationQuarterTurns: QuarterTurn
+  config: ComponentConfig
 }
 
 export interface SceneDocument {
@@ -123,6 +389,7 @@ export interface SceneDocument {
     name: string
   }
   breadboard: BreadboardModel
+  beamSettings: SceneBeamSettings
   components: ComponentInstance[]
 }
 
@@ -132,7 +399,293 @@ export interface ViewportState {
   canvasSizePx: CanvasSizePx
 }
 
+export interface ResolvedComponentSpec {
+  type: ComponentType
+  category: ComponentCategory
+  familyLabel: string
+  defaultLabel: string
+  variantId: string
+  variantLabel: string
+  vendor?: string
+  sku?: string
+  description: string
+  footprintBoundsMm: BoundsMm
+  mount: ComponentMount
+  opticalCenterMm?: Vector2Mm
+  ports: PortDefinition[]
+  renderHint: ComponentRenderHint
+  physics: ComponentBeamPhysics
+}
+
 export interface WorldPort extends PortDefinition {
   worldPositionMm: Vector2Mm
   worldDirection: CardinalDirection
+}
+
+export interface PlacementResult {
+  candidateAnchorMm: Vector2Mm
+  resolvedAnchorMm: Vector2Mm
+  nearestHoleMm: Vector2Mm
+  snappedHoleMm?: Vector2Mm
+  snapPreviewHoleMm?: Vector2Mm
+  distanceToNearestHoleMm: number
+  status: PlacementStatus
+  reason: PlacementReason
+  isOnHole: boolean
+  isMountSupported: boolean
+  isFootprintInsideBoard: boolean
+  isOccupied: boolean
+  sourceLane?: SourceLane
+  footprintBoundsMm: BoundsMm
+  supportBoundsMm: BoundsMm
+}
+
+export interface SourcePresetDefinition {
+  id: SourcePresetId
+  label: string
+  description: string
+  wavelengthNm: number
+  bandwidthNm: number
+  powerMw: number
+  beamDiameterMm: number
+  divergenceMrad: number
+  supportedWavelengthNm: SpectralWindowNm
+}
+
+export interface BeamSegment {
+  id: string
+  beamId: string
+  pathId: string
+  sourceComponentId: string
+  startMm: Vector2Mm
+  endMm: Vector2Mm
+  directionMm: Vector2Mm
+  wavelengthNm: number
+  bandwidthNm: number
+  powerMw: number
+  powerPercent: number
+  beamDiameterMm: number
+  generation: number
+  status: 'escaped' | 'terminated' | 'blocked' | 'propagated'
+  pathRole: 'fundamental' | 'shg'
+  branchKind: BeamBranchKind
+  attenuationClass: BeamAttenuationClass
+  outcomeClass: BeamOutcomeClass
+  polarization: PolarizationSnapshot
+  parentEventId?: string
+  parentInteractionId?: string
+}
+
+export interface BeamBranchResult {
+  beamId: string
+  pathId: string
+  branchKind: BeamBranchKind
+  outcomeClass: BeamOutcomeClass
+  pathRole: 'fundamental' | 'shg'
+  powerMw: number
+  powerPercent: number
+  wavelengthNm: number
+}
+
+export interface BeamInteractionEvent {
+  id: string
+  pathId: string
+  inputBeamId: string
+  inputSegmentId: string
+  sourceComponentId: string
+  sourceLabel: string
+  componentId: string
+  componentType: ComponentType
+  componentLabel: string
+  hitPointMm: Vector2Mm
+  incidenceAngleDeg: number
+  interactionKind:
+    | 'reflection'
+    | 'split'
+    | 'transmission'
+    | 'terminal'
+    | 'blocked'
+    | 'shg'
+  outcomeClass: BeamOutcomeClass
+  incomingPowerMw: number
+  reflectedPowerMw?: number
+  transmittedPowerMw?: number
+  generatedPowerMw?: number
+  lostPowerMw?: number
+  wavelengthNm: number
+  bandwidthNm: number
+  outputWavelengthNm?: number
+  branchResults: BeamBranchResult[]
+  polarization: PolarizationSnapshot
+  filterTransmissionClass?: FilterTransmissionClass
+  capturedPowerMw?: number
+  acceptanceFraction: number
+  wasClipped: boolean
+  partialAcceptance: boolean
+  note?: string
+}
+
+export interface BeamSourceSummary {
+  sourceComponentId: string
+  sourceLabel: string
+  wavelengthNm: number
+  bandwidthNm: number
+  powerMw: number
+  generatedShgPowerMw: number
+  terminalCount: number
+  polarizationTag: string
+}
+
+export interface BeamPathSummary {
+  pathId: string
+  sourceComponentId: string
+  sourceLabel: string
+  wavelengthNm: number
+  bandwidthNm: number
+  startPowerMw: number
+  finalPowerMw: number
+  pathRole: 'fundamental' | 'shg'
+  branchKind: BeamBranchKind
+  segmentIds: string[]
+  interactionIds: string[]
+  outcomeClass: BeamOutcomeClass
+}
+
+export interface TerminalCaptureHit {
+  interactionId: string
+  pathId: string
+  sourceComponentId: string
+  sourceLabel: string
+  beamId: string
+  wavelengthNm: number
+  bandwidthNm: number
+  powerMw: number
+  powerPercent: number
+  contentTag: BeamContentTag
+  polarizationTag: string
+  note?: string
+}
+
+export interface TerminalCaptureSummary {
+  componentId: string
+  componentLabel: string
+  componentType: ComponentType
+  role: 'beam-dump' | 'detector' | 'spectrometer' | 'fiber-coupler'
+  totalCapturedPowerMw: number
+  fundamentalCapturedPowerMw: number
+  shgCapturedPowerMw: number
+  mixedContent: boolean
+  hits: TerminalCaptureHit[]
+}
+
+export interface OpticInteractionSummary {
+  componentId: string
+  componentLabel: string
+  componentType: ComponentType
+  interactions: BeamInteractionEvent[]
+}
+
+export interface BeamTraceResult {
+  segments: BeamSegment[]
+  events: BeamInteractionEvent[]
+  summaries: BeamSourceSummary[]
+  pathSummaries: BeamPathSummary[]
+  terminalCaptures: TerminalCaptureSummary[]
+  opticInteractionSummaries: OpticInteractionSummary[]
+}
+
+export interface ComplexQMm {
+  realMm: number
+  imagMm: number
+}
+
+export interface GaussianLocalReadout {
+  wavelengthNm: number
+  q: ComplexQMm
+  spotRadiusMm: number
+  beamDiameterMm: number
+  waistRadiusMm: number
+  waistOffsetMm: number
+  rayleighRangeMm: number
+  radiusOfCurvatureMm?: number
+}
+
+export interface GaussianSourceSummary {
+  sourceComponentId: string
+  sourceLabel: string
+  inputMode: GaussianInputMode
+  launch: GaussianLocalReadout
+  warning?: string
+}
+
+export interface GaussianSegmentAnalysis {
+  segmentId: string
+  pathId: string
+  sourceComponentId: string
+  lengthMm: number
+  startDistanceMm: number
+  endDistanceMm: number
+  start: GaussianLocalReadout
+  end: GaussianLocalReadout
+}
+
+export interface GaussianInteractionAnalysis {
+  interactionId: string
+  pathId: string
+  componentId: string
+  componentLabel: string
+  componentType: ComponentType
+  pathRole: 'fundamental' | 'shg'
+  branchKind: BeamBranchKind
+  hitDistanceMm: number
+  local: GaussianLocalReadout
+  outputLocal?: GaussianLocalReadout
+  apertureMm?: number
+  apertureStatus?: GaussianApertureStatus
+  note?: string
+}
+
+export interface GaussianPathAnalysis {
+  pathId: string
+  sourceComponentId: string
+  sourceLabel: string
+  pathRole: 'fundamental' | 'shg'
+  wavelengthNm: number
+  launch: GaussianLocalReadout
+  final: GaussianLocalReadout
+  segmentIds: string[]
+  interactionIds: string[]
+}
+
+export interface GaussianComponentWarning {
+  componentId: string
+  componentLabel: string
+  componentType: ComponentType
+  strongestStatus: GaussianApertureStatus
+  interactions: GaussianInteractionAnalysis[]
+}
+
+export interface GaussianTraceResult {
+  sources: GaussianSourceSummary[]
+  pathAnalyses: GaussianPathAnalysis[]
+  segmentAnalyses: GaussianSegmentAnalysis[]
+  interactionAnalyses: GaussianInteractionAnalysis[]
+  componentWarnings: GaussianComponentWarning[]
+}
+
+export interface BboDerivedMetrics {
+  idealPhaseMatchingAngleDeg: number
+  angularDetuningDeg: number
+  angularAcceptanceDeg: number
+  acceptanceBandwidthNm: number
+  estimatedEfficiencyPercent: number
+  fundamentalTransmissionPercent: number
+  shgWavelengthNm: number
+}
+
+export interface BboPolarizationSummary {
+  axisLocalDeg: number
+  compatibilityPercent: number
+  dominantContribution: 'in-plane' | 'out-of-plane'
+  explanation: string
 }

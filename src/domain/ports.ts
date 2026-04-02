@@ -1,32 +1,31 @@
-import { getComponentDefinition } from './componentCatalog'
+import { getResolvedComponentSpec } from './componentCatalog'
 import {
   rotateBoundsQuarterTurns,
   rotateCardinalDirection,
   rotatePointQuarterTurns,
   roundMm,
 } from './geometry'
-import type {
-  BoundsMm,
-  ComponentDefinition,
-  ComponentInstance,
-  WorldPort,
-} from './types'
+import type { BoundsMm, ComponentInstance, ResolvedComponentSpec, WorldPort } from './types'
+
+export function getResolvedSpecForInstance(component: ComponentInstance) {
+  return getResolvedComponentSpec(component.type, component.variantId)
+}
 
 export function getRotatedFootprintBoundsMm(
   component: ComponentInstance,
-  definition = getComponentDefinition(component.type),
+  spec: ResolvedComponentSpec = getResolvedSpecForInstance(component),
 ): BoundsMm {
   return rotateBoundsQuarterTurns(
-    definition.footprintBoundsMm,
+    spec.footprintBoundsMm,
     component.rotationQuarterTurns,
   )
 }
 
 export function getWorldPortsForComponent(
   component: ComponentInstance,
-  definition: ComponentDefinition = getComponentDefinition(component.type),
+  spec: ResolvedComponentSpec = getResolvedSpecForInstance(component),
 ) {
-  return definition.ports.map<WorldPort>((port) => {
+  return spec.ports.map<WorldPort>((port) => {
     const rotatedPositionMm = rotatePointQuarterTurns(
       port.positionMm,
       component.rotationQuarterTurns,

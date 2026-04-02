@@ -6,6 +6,7 @@ import {
   getEffectiveHolePitchMm,
 } from '../domain/breadboard'
 import { worldToScreen } from '../domain/geometry'
+import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from '../domain/placement'
 import type { BreadboardModel, ViewportState } from '../domain/types'
 
 interface BreadboardLayerProps {
@@ -34,6 +35,12 @@ export function BreadboardLayer({
     breadboard.finish === 'black-anodized' ? '#0c1014' : '#64717a'
   const labelColor =
     breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a'
+  const sourceLanes = [
+    { key: 'left', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'left') },
+    { key: 'right', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'right') },
+    { key: 'top', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'top') },
+    { key: 'bottom', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'bottom') },
+  ]
 
   return (
     <Layer>
@@ -63,6 +70,42 @@ export function BreadboardLayer({
           strokeWidth={isSelected ? 1.25 : 0.8}
           width={breadboard.widthMm}
         />
+
+        {sourceLanes.map((lane) => (
+          <Group key={lane.key} listening={false}>
+            <Rect
+              cornerRadius={6}
+              dash={[5, 4]}
+              fill="rgba(56, 83, 97, 0.1)"
+              height={lane.height}
+              stroke="rgba(122, 193, 220, 0.28)"
+              strokeWidth={0.8}
+              width={lane.width}
+              x={lane.x}
+              y={lane.y}
+            />
+            {lane.key === 'left' || lane.key === 'right' ? (
+              <Text
+                fill="rgba(165, 199, 214, 0.7)"
+                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+                fontSize={6.5}
+                rotation={-90}
+                text={lane.label}
+                x={lane.x + lane.width / 2 - 2}
+                y={lane.y + lane.height / 2 + 18}
+              />
+            ) : (
+              <Text
+                fill="rgba(165, 199, 214, 0.7)"
+                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+                fontSize={6.5}
+                text={lane.label}
+                x={lane.x + 6}
+                y={lane.y + lane.height / 2 - 4}
+              />
+            )}
+          </Group>
+        ))}
 
         {counterboreCentersMm.map((counterbore, index) => (
           <Group
@@ -104,7 +147,7 @@ export function BreadboardLayer({
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
           fontSize={7}
           listening={false}
-          text={`${breadboard.label}  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch`}
+          text={`${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm`}
           x={8}
           y={8}
         />

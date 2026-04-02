@@ -53,6 +53,46 @@ export function ComponentGlyph({
           />
         </>
       )
+    case 'mount':
+      return (
+        <>
+          <Circle
+            radius={Math.min(boundsMm.width, boundsMm.height) / 3.4}
+            stroke={stroke}
+            strokeWidth={1}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            points={[centerX - 7, centerY, centerX + 7, centerY]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
+          <Line
+            points={[centerX, centerY - 7, centerX, centerY + 7]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
+        </>
+      )
+    case 'support':
+      return (
+        <>
+          <Rect
+            height={9}
+            stroke={stroke}
+            strokeWidth={1}
+            width={14}
+            x={centerX - 7}
+            y={centerY - 4.5}
+          />
+          <Line
+            points={[centerX, centerY - 8, centerX, centerY + 8]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
+        </>
+      )
     case 'mirror':
       return (
         <Line
@@ -125,6 +165,24 @@ export function ComponentGlyph({
           />
         </>
       )
+    case 'filter':
+      return (
+        <>
+          <Line
+            points={[centerX - 8, centerY + 8, centerX + 8, centerY - 8]}
+            stroke={stroke}
+            strokeWidth={1.1}
+          />
+          <Rect
+            height={12}
+            stroke={stroke}
+            strokeWidth={0.8}
+            width={12}
+            x={centerX - 6}
+            y={centerY - 6}
+          />
+        </>
+      )
     case 'iris':
       return (
         <>
@@ -144,6 +202,34 @@ export function ComponentGlyph({
             points={[centerX, centerY - 5, centerX, centerY + 5]}
             stroke={stroke}
             strokeWidth={0.9}
+          />
+        </>
+      )
+    case 'bbo':
+      return (
+        <>
+          <Line
+            closed
+            fillEnabled={false}
+            lineJoin="round"
+            points={[
+              centerX - 8,
+              centerY,
+              centerX,
+              centerY - 7,
+              centerX + 8,
+              centerY,
+              centerX,
+              centerY + 7,
+            ]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+          <Line
+            dash={[2, 2]}
+            points={[centerX - 8, centerY, centerX + 8, centerY]}
+            stroke={stroke}
+            strokeWidth={0.8}
           />
         </>
       )

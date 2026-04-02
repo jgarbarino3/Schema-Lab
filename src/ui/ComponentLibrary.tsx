@@ -5,14 +5,30 @@ import {
 } from '../domain/componentCatalog'
 import { useEditorStore } from '../state/editorStore'
 
+function describeMountMode(mode: string) {
+  switch (mode) {
+    case 'external-source':
+      return 'source lane'
+    case 'hole-mounted':
+      return 'hole mounted'
+    case 'clamp-capable':
+      return 'clamp capable'
+    default:
+      return mode
+  }
+}
+
 export function ComponentLibrary() {
   const addComponent = useEditorStore((state) => state.addComponent)
 
   return (
     <aside className="panel component-library">
       <div className="panel__header">
-        <h2>Component Library</h2>
-        <p>Starter Thorlabs-style footprints for Stage 1 layout studies.</p>
+        <h2>Component Families</h2>
+        <p>
+          Add generic optical families here, then pick vendor variants and tunable
+          properties in the inspector.
+        </p>
       </div>
 
       <div className="component-library__groups">
@@ -37,11 +53,12 @@ export function ComponentLibrary() {
                   type="button"
                 >
                   <span className="component-library__item-title">
-                    {definition.defaultLabel}
+                    {definition.familyLabel}
                   </span>
                   <span className="component-library__item-meta">
-                    {definition.footprintBoundsMm.width.toFixed(1)} ×{' '}
-                    {definition.footprintBoundsMm.height.toFixed(1)} mm
+                    {definition.variants.length} variant
+                    {definition.variants.length === 1 ? '' : 's'} •{' '}
+                    {describeMountMode(definition.mount.mode)}
                   </span>
                 </button>
               ))}
