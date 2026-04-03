@@ -1,6 +1,6 @@
-import { getResolvedComponentSpec } from './componentCatalog'
+import { getResolvedComponentSpecForInstance } from './componentCatalog'
 import { getGaussianPathAnalysis } from './gaussian'
-import { inspectComponentPlacement } from './placement'
+import { inspectSceneComponentPlacement } from './placement'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
@@ -20,8 +20,8 @@ export function deriveSceneWarnings(
   const warnings: SceneWarning[] = []
 
   for (const component of scene.components) {
-    const spec = getResolvedComponentSpec(component.type, component.variantId)
-    const placement = inspectComponentPlacement(scene.breadboard, component, spec)
+    const spec = getResolvedComponentSpecForInstance(component)
+    const placement = inspectSceneComponentPlacement(scene, component, spec)
 
     if (placement.reason === 'off-hole') {
       warnings.push({

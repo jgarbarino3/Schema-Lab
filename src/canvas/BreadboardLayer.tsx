@@ -8,40 +8,70 @@ import {
 } from '../domain/breadboard'
 import { worldToScreen } from '../domain/geometry'
 import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from '../domain/placement'
-import type { BreadboardModel, ViewportState } from '../domain/types'
+import type {
+  BreadboardModel,
+  QuarterTurn,
+  Vector2Mm,
+  ViewportState,
+} from '../domain/types'
+import { quarterTurnsToDegrees } from '../domain/geometry'
 
 interface BreadboardLayerProps {
+  anchorMm?: Vector2Mm
   breadboard: BreadboardModel
   isSelected: boolean
   onSelect: (event: KonvaEventObject<MouseEvent | TouchEvent>) => void
+  opacity?: number
+  palette?: {
+    boardFill: string
+    boardStroke: string
+    holeFill: string
+    labelColor: string
+  }
+  rotationQuarterTurns?: QuarterTurn
+  showSourceLanes?: boolean
   viewport: ViewportState
 }
 
 export function BreadboardLayer({
+  anchorMm = { x: 0, y: 0 },
   breadboard,
   isSelected,
   onSelect,
+  opacity = 1,
+  palette,
+  rotationQuarterTurns = 0,
+  showSourceLanes = true,
   viewport,
 }: BreadboardLayerProps) {
-  const boardOriginPx = worldToScreen({ x: 0, y: 0 }, viewport)
+  const boardOriginPx = worldToScreen(anchorMm, viewport)
   const holeAxes = getBreadboardHoleAxesMm(breadboard)
   const holeCounts = getBreadboardHoleCounts(breadboard)
   const effectivePitchMm = getEffectiveHolePitchMm(breadboard)
   const counterboreCentersMm = getCounterboreCentersMm(breadboard)
   const boardFill =
-    breadboard.finish === 'black-anodized' ? '#171d22' : '#c9d1d8'
+    palette?.boardFill ??
+    (breadboard.finish === 'black-anodized' ? '#171d22' : '#c9d1d8')
   const boardStroke =
-    breadboard.finish === 'black-anodized' ? '#5a6974' : '#7e8b95'
+    palette?.boardStroke ??
+    (breadboard.finish === 'black-anodized' ? '#5a6974' : '#7e8b95')
   const holeFill =
-    breadboard.finish === 'black-anodized' ? '#0c1014' : '#64717a'
+    palette?.holeFill ??
+    (breadboard.finish === 'black-anodized' ? '#0c1014' : '#64717a')
   const labelColor =
-    breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a'
-  const sourceLanes = [
+    palette?.labelColor ??
+    (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a')
+  const sourceLanes = showSourceLanes
+    ? [
     { key: 'left', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'left') },
     { key: 'right', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'right') },
     { key: 'top', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'top') },
     { key: 'bottom', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'bottom') },
-  ]
+      ]
+    : []
+  const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch${
+    showSourceLanes ? `  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm` : ''
+  }`
 
   return (
     <Layer>
@@ -56,8 +86,10 @@ export function BreadboardLayer({
           event.cancelBubble = true
           onSelect(event)
         }}
+        opacity={opacity}
         scaleX={viewport.zoomPxPerMm}
         scaleY={viewport.zoomPxPerMm}
+        rotation={quarterTurnsToDegrees(rotationQuarterTurns)}
         x={boardOriginPx.x}
         y={boardOriginPx.y}
       >
@@ -150,7 +182,7 @@ export function BreadboardLayer({
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
           fontSize={6.4}
           listening={false}
-          text={`${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm`}
+          text={boardLabelText}
           x={2}
           y={-10}
         />

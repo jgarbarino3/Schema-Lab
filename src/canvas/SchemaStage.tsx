@@ -3,8 +3,14 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import { Layer, Rect, Stage } from 'react-konva'
 import { screenToWorld } from '../domain/geometry'
+import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type { BeamTraceResult, GaussianTraceResult, ScreenPointPx } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
+import {
+  getBreadboardInstances,
+  getOpticalTable,
+  getWorkspacePrimaryBreadboard,
+} from '../domain/workspace'
 import { BeamLayer } from './BeamLayer'
 import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
@@ -44,6 +50,9 @@ export function SchemaStage({
     isActive: false,
   })
   const scene = useEditorStore((state) => state.scene)
+  const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
+  const opticalTable = useMemo(() => getOpticalTable(scene), [scene])
+  const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
   const renderMode = useEditorStore((state) => state.renderMode)
@@ -56,16 +65,26 @@ export function SchemaStage({
   const applyPinchViewport = useEditorStore((state) => state.applyPinchViewport)
   const zoomAtScreenPoint = useEditorStore((state) => state.zoomAtScreenPoint)
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
+  const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const beginComponentDrag = useEditorStore((state) => state.beginComponentDrag)
   const updatePendingPlacementAnchor = useEditorStore(
     (state) => state.updatePendingPlacementAnchor,
   )
+  const updatePendingBreadboardAnchor = useEditorStore(
+    (state) => state.updatePendingBreadboardAnchor,
+  )
   const commitPendingPlacement = useEditorStore(
     (state) => state.commitPendingPlacement,
   )
+  const commitPendingBreadboardPlacement = useEditorStore(
+    (state) => state.commitPendingBreadboardPlacement,
+  )
   const updateComponentDrag = useEditorStore((state) => state.updateComponentDrag)
   const commitComponentDrag = useEditorStore((state) => state.commitComponentDrag)
+  const updateSelectedGeometryOverride = useEditorStore(
+    (state) => state.updateSelectedGeometryOverride,
+  )
   const setHoveredComponentId = useEditorStore(
     (state) => state.setHoveredComponentId,
   )
@@ -419,11 +438,21 @@ export function SchemaStage({
 
     updateCursorFromStage(event)
 
-    if (!interaction.isPointerPanning && interaction.pendingPlacement && !isPanMode) {
+    if (
+      !interaction.isPointerPanning &&
+      (interaction.pendingPlacement || interaction.pendingBreadboardPlacement) &&
+      !isPanMode
+    ) {
       const pointerPosition = event.target.getStage()?.getPointerPosition()
 
       if (pointerPosition) {
-        updatePendingPlacementAnchor(screenToWorld(pointerPosition, viewport))
+        const pointerWorldMm = screenToWorld(pointerPosition, viewport)
+
+        if (interaction.pendingBreadboardPlacement) {
+          updatePendingBreadboardAnchor(pointerWorldMm)
+        } else {
+          updatePendingPlacementAnchor(pointerWorldMm)
+        }
       }
     }
 
@@ -483,6 +512,12 @@ export function SchemaStage({
       return
     }
 
+    if (interaction.pendingBreadboardPlacement) {
+      clearBeamInspectionSelection()
+      commitPendingBreadboardPlacement(getStagePointerWorldMm())
+      return
+    }
+
     if (interaction.pendingPlacement) {
       clearBeamInspectionSelection()
       commitPendingPlacement(getStagePointerWorldMm())
@@ -490,8 +525,66 @@ export function SchemaStage({
     }
 
     clearBeamInspectionSelection()
-    selectBreadboard()
+    if (scene.workspace.kind === 'optical-table') {
+      selectOpticalTable()
+      return
+    }
+
+    selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
   }
+
+  const handleOpticalTableSelect = () => {
+    if (isPanMode || panStateRef.current.didMove) {
+      panStateRef.current.didMove = false
+      return
+    }
+
+    if (interaction.pendingBreadboardPlacement) {
+      clearBeamInspectionSelection()
+      commitPendingBreadboardPlacement(getStagePointerWorldMm())
+      return
+    }
+
+    if (interaction.pendingPlacement) {
+      clearBeamInspectionSelection()
+      commitPendingPlacement(getStagePointerWorldMm())
+      return
+    }
+
+    clearBeamInspectionSelection()
+    selectOpticalTable()
+  }
+
+  const handleBreadboardSelect = (surfaceId: string) => {
+    if (isPanMode || panStateRef.current.didMove) {
+      panStateRef.current.didMove = false
+      return
+    }
+
+    if (interaction.pendingPlacement) {
+      clearBeamInspectionSelection()
+      commitPendingPlacement(getStagePointerWorldMm())
+      return
+    }
+
+    clearBeamInspectionSelection()
+    selectBreadboard(surfaceId)
+  }
+
+  const opticalTableBoard =
+    opticalTable
+      ? {
+          label: opticalTable.label,
+          widthMm: opticalTable.widthMm,
+          heightMm: opticalTable.heightMm,
+          holeSpacingMm: opticalTable.holeSpacingMm,
+          edgeMarginMm: opticalTable.edgeMarginMm,
+          thicknessMm: opticalTable.thicknessMm,
+          finish: 'clear-anodized' as const,
+          holeDensity: opticalTable.holeDensity,
+          counterborePattern: opticalTable.counterborePattern,
+        }
+      : undefined
 
   return (
     <div className="schema-stage" ref={containerRef} style={{ cursor: stageCursor }}>
@@ -533,12 +626,74 @@ export function SchemaStage({
             />
           </Layer>
 
-          <BreadboardLayer
-            breadboard={scene.breadboard}
-            isSelected={selection.type === 'breadboard'}
-            onSelect={handleBackgroundSelect}
-            viewport={viewport}
-          />
+          {opticalTableBoard ? (
+            <BreadboardLayer
+              anchorMm={{ x: 0, y: 0 }}
+              breadboard={opticalTableBoard}
+              isSelected={selection.type === 'optical-table'}
+              onSelect={handleOpticalTableSelect}
+              palette={{
+                boardFill: '#a8b0b6',
+                boardStroke: '#d4dae0',
+                holeFill: '#6f777f',
+                labelColor: '#16202a',
+              }}
+              showSourceLanes={false}
+              viewport={viewport}
+            />
+          ) : (
+            <BreadboardLayer
+              anchorMm={{ x: 0, y: 0 }}
+              breadboard={primaryBreadboard}
+              isSelected={
+                selection.type === 'breadboard' &&
+                selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
+              }
+              onSelect={(event) => {
+                handleBackgroundSelect(event)
+              }}
+              viewport={viewport}
+            />
+          )}
+
+          {breadboardInstances.map((breadboard) => (
+            <BreadboardLayer
+              anchorMm={breadboard.anchorMm}
+              breadboard={{
+                ...breadboard.model,
+                label: breadboard.label,
+              }}
+              isSelected={
+                selection.type === 'breadboard' &&
+                selection.surfaceId === breadboard.id
+              }
+              key={breadboard.id}
+              onSelect={() => handleBreadboardSelect(breadboard.id)}
+              rotationQuarterTurns={breadboard.rotationQuarterTurns}
+              viewport={viewport}
+            />
+          ))}
+
+          {interaction.pendingBreadboardPlacement ? (
+            <BreadboardLayer
+              anchorMm={interaction.pendingBreadboardPlacement.candidateAnchorMm}
+              breadboard={interaction.pendingBreadboardPlacement.model}
+              isSelected
+              onSelect={() => undefined}
+              opacity={0.72}
+              palette={{
+                boardFill: '#25313a',
+                boardStroke: '#8fd4ef',
+                holeFill: '#111820',
+                labelColor: '#d7edf6',
+              }}
+              rotationQuarterTurns={
+                interaction.pendingBreadboardPlacement.rotationQuarterTurns
+              }
+              showSourceLanes={false}
+              viewport={viewport}
+            />
+          ) : null}
 
           {interaction.showGaussianEnvelope ? (
             <GaussianEnvelopeLayer
@@ -566,7 +721,6 @@ export function SchemaStage({
           />
 
           <ComponentsLayer
-            breadboard={scene.breadboard}
             components={scene.components}
             dragPreview={interaction.dragPreview}
             hoveredComponentId={interaction.hoveredComponentId}
@@ -575,10 +729,12 @@ export function SchemaStage({
             onBeginComponentDrag={beginComponentDrag}
             onCommitComponentDrag={commitComponentDrag}
             onHoverComponent={setHoveredComponentId}
+            onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
             onSelectComponent={selectComponent}
             onUpdateComponentDrag={updateComponentDrag}
             pendingPlacement={interaction.pendingPlacement}
             renderMode={renderMode}
+            scene={scene}
             selectedComponentId={
               selection.type === 'component' ? selection.componentId : undefined
             }

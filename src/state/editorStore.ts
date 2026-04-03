@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { getBreadboardCenterMm, getNearestBoardCenterHole } from '../domain/breadboard'
+import { getNearestBoardCenterHole } from '../domain/breadboard'
 import {
   createBreadboardFromPreset,
   findBreadboardPresetId,
@@ -17,18 +17,29 @@ import {
   fitZoomPxPerMm,
   normalizeQuarterTurns,
   panViewportByScreenDelta as panViewportByDelta,
+  roundMm,
   zoomViewportAtScreenPoint,
 } from '../domain/geometry'
 import {
   alignExternalSourceToTarget,
-  annotatePlacementOccupancy,
   findDuplicatePlacement,
   getSceneWorldBoundsMm,
-  reconcileComponentAnchorForBreadboard,
-  resolveComponentPlacement,
+  getSurfacePlacementModel,
+  reconcileComponentAnchorForScene,
+  resolveScenePlacement,
+  annotateScenePlacementOccupancy,
 } from '../domain/placement'
 import { getDefaultBeamSettings, createEmptyScene } from '../domain/serialization'
 import { getSourcePreset } from '../domain/sourcePresets'
+import {
+  convertSceneToOpticalTable,
+  convertSceneToSingleBreadboard,
+  createBreadboardInstance,
+  getBreadboardAnchorForCenterMm,
+  getBreadboardWorldBoundsMm,
+  getDefaultSurfaceId,
+  getWorkspaceWorldBoundsMm,
+} from '../domain/workspace'
 import type {
   ActiveTool,
   BeamSplitterConfig,
@@ -38,8 +49,10 @@ import type {
   ComponentConfig,
   ComponentInstance,
   ComponentType,
+  OpticalTableModel,
   IrisConfig,
   LensConfig,
+  PendingBreadboardPlacementState,
   PendingPlacementState,
   QuarterTurn,
   RenderMode,
@@ -53,9 +66,11 @@ import type {
   Vector2Mm,
   ViewportState,
 } from '../domain/types'
+import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
 
 export type SelectionState =
-  | { type: 'breadboard' }
+  | { type: 'breadboard'; surfaceId: string }
+  | { type: 'optical-table' }
   | { type: 'component'; componentId: string }
 
 type ComponentUpdate = Partial<
@@ -82,6 +97,7 @@ interface InteractionState {
   activeDragComponentId?: string
   dragPreview?: DragPreviewState
   pendingPlacement?: PendingPlacementState
+  pendingBreadboardPlacement?: PendingBreadboardPlacementState
   hoveredComponentId?: string
   hoveredBeamSegmentId?: string
   cursorWorldMm?: Vector2Mm
@@ -96,6 +112,8 @@ interface InteractionState {
   isHelpOpen: boolean
   isWarningsOpen: boolean
   selectedWarningId?: string
+  activeHostSurfaceId?: string
+  dismissedWarningIds: string[]
   notice?: string
 }
 
@@ -116,7 +134,8 @@ interface EditorStore {
   openToolbarMenu?: ToolbarMenu
   mountVisibilityDefaults: MountVisibilityDefaults
   interaction: InteractionState
-  selectBreadboard: () => void
+  selectBreadboard: (surfaceId?: string) => void
+  selectOpticalTable: () => void
   selectComponent: (componentId: string) => void
   setSnapMode: (snapMode: SnapMode) => void
   setActiveTool: (tool: ActiveTool) => void
@@ -147,8 +166,11 @@ interface EditorStore {
   zoomAtScreenPoint: (pointPx: ScreenPointPx, zoomFactor: number) => void
   resetViewport: () => void
   addComponent: (type: ComponentType) => void
+  addBreadboardInstance: (presetId: string) => void
   updatePendingPlacementAnchor: (anchorMm: Vector2Mm) => void
   commitPendingPlacement: (anchorMm?: Vector2Mm) => void
+  updatePendingBreadboardAnchor: (anchorMm: Vector2Mm) => void
+  commitPendingBreadboardPlacement: (anchorMm?: Vector2Mm) => void
   beginComponentDrag: (componentId: string) => void
   updateComponentDrag: (componentId: string, anchorMm: Vector2Mm) => void
   commitComponentDrag: (componentId: string, anchorMm?: Vector2Mm) => void
@@ -165,11 +187,25 @@ interface EditorStore {
   updateSelectedIris: (update: Partial<IrisConfig>) => void
   updateSelectedBboCrystal: (update: Partial<BboCrystalConfig>) => void
   updateSelectedSupport: (includeMount: boolean) => void
+  updateSelectedGeometryOverride: (update: {
+    widthMm?: number
+    heightMm?: number
+  }) => void
   applySupportToType: (type: ComponentType, includeMount: boolean) => void
   setMountDefaultForType: (type: ComponentType, includeMount: boolean) => void
   rotateSelectedComponent: (direction: -1 | 1) => void
   updateBreadboard: (update: Partial<BreadboardModel>) => void
   applyBreadboardPreset: (presetId: string) => void
+  updateOpticalTable: (update: Partial<OpticalTableModel>) => void
+  convertWorkspaceToOpticalTable: () => void
+  convertWorkspaceToSingleBreadboard: (args: {
+    breadboardId?: string
+    createFresh?: boolean
+  }) => void
+  setActiveHostSurfaceId: (surfaceId?: string) => void
+  dismissWarning: (warningId: string) => void
+  dismissVisibleWarnings: (warningIds: string[]) => void
+  restoreDismissedWarnings: () => void
   updateBeamSettings: (update: Partial<SceneBeamSettings>) => void
   loadScene: (scene: SceneDocument) => void
 }
@@ -267,14 +303,19 @@ function createViewportForScene(
     width: canvasSizePx.width > 0 ? canvasSizePx.width : DEFAULT_CANVAS_SIZE.width,
     height: canvasSizePx.height > 0 ? canvasSizePx.height : DEFAULT_CANVAS_SIZE.height,
   }
-  const worldBounds = getSceneWorldBoundsMm(scene.breadboard)
+  const worldBounds = getSceneWorldBoundsMm(scene)
+  const workspaceBounds = getWorkspaceWorldBoundsMm(scene)
+  const centerMm = {
+    x: workspaceBounds.x + workspaceBounds.width / 2,
+    y: workspaceBounds.y + workspaceBounds.height / 2,
+  }
 
   return {
     zoomPxPerMm: fitZoomPxPerMm(
       { width: worldBounds.width, height: worldBounds.height },
       safeCanvasSize,
     ),
-    cameraCenterMm: getBreadboardCenterMm(scene.breadboard),
+    cameraCenterMm: centerMm,
     canvasSizePx: safeCanvasSize,
   }
 }
@@ -303,6 +344,22 @@ function getSelectedComponent(
   }
 
   return scene.components.find((component) => component.id === selection.componentId)
+}
+
+function getDefaultSelection(scene: SceneDocument): SelectionState {
+  if (scene.workspace.kind === 'optical-table') {
+    return scene.workspace.breadboards[0]
+      ? {
+          type: 'breadboard',
+          surfaceId: scene.workspace.breadboards[0].id,
+        }
+      : { type: 'optical-table' }
+  }
+
+  return {
+    type: 'breadboard',
+    surfaceId: getDefaultSurfaceId(scene),
+  }
 }
 
 function getOpticalTargetComponents(scene: SceneDocument) {
@@ -339,12 +396,13 @@ function resolvePlacementForScene(args: {
   const { candidateAnchorMm, component, rotationQuarterTurns, scene, snapMode, phase } =
     args
 
-  return annotatePlacementOccupancy({
-    breadboard: scene.breadboard,
+  return annotateScenePlacementOccupancy({
+    scene,
     components: scene.components,
     ignoreComponentId: component.id,
-    result: resolveComponentPlacement({
-      breadboard: scene.breadboard,
+    hostSurfaceId: component.hostSurfaceId,
+    result: resolveScenePlacement({
+      scene,
       candidateAnchorMm,
       component,
       phase,
@@ -354,13 +412,13 @@ function resolvePlacementForScene(args: {
   })
 }
 
-function reconcileComponentsToBreadboard(
+function reconcileComponentsToScene(
   components: ComponentInstance[],
-  breadboard: BreadboardModel,
+  scene: SceneDocument,
 ) {
   return components.map((component) => ({
     ...component,
-    anchorMm: reconcileComponentAnchorForBreadboard(component, breadboard),
+    anchorMm: reconcileComponentAnchorForScene(component, scene),
   }))
 }
 
@@ -392,6 +450,27 @@ function createAutoNumberedLabel(
   return `${baseLabel} ${highestIndex + 1}`
 }
 
+function createAutoNumberedBreadboardLabel(scene: SceneDocument) {
+  if (scene.workspace.kind !== 'optical-table') {
+    return 'Breadboard 1'
+  }
+
+  const pattern = /^Breadboard(?: (\d+))?$/
+  let highestIndex = 0
+
+  for (const breadboard of scene.workspace.breadboards) {
+    const match = breadboard.label.match(pattern)
+
+    if (!match) {
+      continue
+    }
+
+    highestIndex = Math.max(highestIndex, match[1] ? Number(match[1]) : 1)
+  }
+
+  return `Breadboard ${highestIndex + 1}`
+}
+
 function applyMountVisibilityDefault(
   component: ComponentInstance,
   mountVisibilityDefaults: MountVisibilityDefaults,
@@ -415,14 +494,59 @@ function applyMountVisibilityDefault(
   }
 }
 
+function normalizeGeometryOverride(
+  component: ComponentInstance,
+  update: {
+    widthMm?: number
+    heightMm?: number
+  },
+) {
+  const baseSpec = getResolvedComponentSpec(component.type, component.variantId)
+  const minimumWidthMm = Math.max(6, baseSpec.footprintBoundsMm.width * 0.35)
+  const minimumHeightMm = Math.max(6, baseSpec.footprintBoundsMm.height * 0.35)
+  const requestedWidthMm = update.widthMm ?? component.geometryOverride?.widthMm
+  const requestedHeightMm =
+    update.heightMm ?? component.geometryOverride?.heightMm
+  const normalizedWidthMm =
+    requestedWidthMm !== undefined
+      ? roundMm(Math.max(minimumWidthMm, requestedWidthMm))
+      : undefined
+  const normalizedHeightMm =
+    requestedHeightMm !== undefined
+      ? roundMm(Math.max(minimumHeightMm, requestedHeightMm))
+      : undefined
+  const widthOverrideMm =
+    normalizedWidthMm !== undefined &&
+    Math.abs(normalizedWidthMm - baseSpec.footprintBoundsMm.width) > 0.01
+      ? normalizedWidthMm
+      : undefined
+  const heightOverrideMm =
+    normalizedHeightMm !== undefined &&
+    Math.abs(normalizedHeightMm - baseSpec.footprintBoundsMm.height) > 0.01
+      ? normalizedHeightMm
+      : undefined
+
+  return widthOverrideMm !== undefined || heightOverrideMm !== undefined
+    ? {
+        widthMm: widthOverrideMm,
+        heightMm: heightOverrideMm,
+      }
+    : undefined
+}
+
 function createComponentDraft(
   scene: SceneDocument,
   selection: SelectionState,
   type: ComponentType,
   mountVisibilityDefaults: MountVisibilityDefaults,
+  activeHostSurfaceId?: string,
 ) {
   const definition = getComponentDefinition(type)
-  const variantId = definition.defaultVariantId
+  const defaultSurfaceId = activeHostSurfaceId ?? getDefaultSurfaceId(scene)
+  const variantId =
+    type === 'laser-source' && defaultSurfaceId === OPTICAL_TABLE_SURFACE_ID
+      ? 'libra'
+      : definition.defaultVariantId
   const selectedComponentId =
     selection.type === 'component' ? selection.componentId : undefined
   let selectedTarget: ComponentInstance | undefined
@@ -442,7 +566,15 @@ function createComponentDraft(
     type,
     label: createAutoNumberedLabel(scene.components, type),
     variantId,
-    anchorMm: getNearestBoardCenterHole(scene.breadboard),
+    anchorMm: (() => {
+      const surface = getSurfacePlacementModel(scene, activeHostSurfaceId)
+      const center = getNearestBoardCenterHole(surface.breadboard)
+      return {
+        x: center.x + surface.originMm.x,
+        y: center.y + surface.originMm.y,
+      }
+    })(),
+    hostSurfaceId: defaultSurfaceId,
     rotationQuarterTurns: 0,
     config: createDefaultComponentConfig(type, variantId),
   }
@@ -483,6 +615,34 @@ function createComponentDraft(
   }
 
   return draft
+}
+
+function createBreadboardPlacementDraft(
+  scene: SceneDocument,
+  presetId: string,
+): PendingBreadboardPlacementState | undefined {
+  if (scene.workspace.kind !== 'optical-table') {
+    return undefined
+  }
+
+  const model = createBreadboardFromPreset(presetId)
+  const tableCenterMm = {
+    x: scene.workspace.table.widthMm / 2,
+    y: scene.workspace.table.heightMm / 2,
+  }
+  const offsetMm = scene.workspace.breadboards.length * 40
+  const centerMm = {
+    x: roundMm(tableCenterMm.x + offsetMm),
+    y: roundMm(tableCenterMm.y + offsetMm),
+  }
+
+  return {
+    presetId,
+    label: createAutoNumberedBreadboardLabel(scene),
+    model,
+    candidateAnchorMm: getBreadboardAnchorForCenterMm(model, centerMm, 0),
+    rotationQuarterTurns: 0,
+  }
 }
 
 function mergeComponentConfig(
@@ -549,22 +709,45 @@ function applySourceLane(
   lane: SourceLane,
   targetId?: string,
 ) {
+  const spec = getResolvedComponentSpec(component.type, component.variantId)
+
+  if (spec.mount.mode !== 'external-source') {
+    return {
+      anchorMm: component.anchorMm,
+      rotationQuarterTurns: component.rotationQuarterTurns,
+    }
+  }
+
   const target = scene.components.find((item) => item.id === targetId)
+  const surface = getSurfacePlacementModel(
+    scene,
+    component.hostSurfaceId ?? getDefaultSurfaceId(scene),
+  )
   const aligned = alignExternalSourceToTarget({
-    breadboard: scene.breadboard,
+    breadboard: surface.breadboard,
     lane,
-    source: component,
+    source: {
+      ...component,
+      anchorMm: {
+        x: component.anchorMm.x - surface.originMm.x,
+        y: component.anchorMm.y - surface.originMm.y,
+      },
+    },
     target,
   })
 
   return {
-    anchorMm: aligned.anchorMm,
+    anchorMm: {
+      x: aligned.anchorMm.x + surface.originMm.x,
+      y: aligned.anchorMm.y + surface.originMm.y,
+    },
     rotationQuarterTurns: aligned.rotationQuarterTurns,
   }
 }
 
 const initialInteraction: InteractionState = {
   activeTool: 'select',
+  dismissedWarningIds: [],
   isHelpOpen: false,
   isSpacePanning: false,
   isPointerPanning: false,
@@ -578,22 +761,43 @@ const initialMountVisibilityDefaults = readMountVisibilityDefaults()
 
 export const useEditorStore = create<EditorStore>((set) => ({
   scene: initialScene,
-  selection: { type: 'breadboard' },
+  selection: getDefaultSelection(initialScene),
   snapMode: 'onDrop',
   viewport: createViewportForScene(initialScene),
   renderMode: initialRenderMode,
   warningFilters: initialWarningFilters,
   mountVisibilityDefaults: initialMountVisibilityDefaults,
   openToolbarMenu: undefined,
-  interaction: initialInteraction,
+  interaction: {
+    ...initialInteraction,
+    activeHostSurfaceId: getDefaultSurfaceId(initialScene),
+  },
 
-  selectBreadboard: () => {
+  selectBreadboard: (surfaceId) => {
     set((state) => ({
-      selection: { type: 'breadboard' },
+      selection: {
+        type: 'breadboard',
+        surfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
+      },
       interaction: {
         ...state.interaction,
+        activeHostSurfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
         notice: undefined,
         pendingPlacement: undefined,
+        pendingBreadboardPlacement: undefined,
+      },
+    }))
+  },
+
+  selectOpticalTable: () => {
+    set((state) => ({
+      selection: { type: 'optical-table' },
+      interaction: {
+        ...state.interaction,
+        activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+        notice: undefined,
+        pendingPlacement: undefined,
+        pendingBreadboardPlacement: undefined,
       },
     }))
   },
@@ -603,8 +807,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
       selection: { type: 'component', componentId },
       interaction: {
         ...state.interaction,
+        activeHostSurfaceId:
+          state.scene.components.find((component) => component.id === componentId)
+            ?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
         notice: undefined,
         pendingPlacement: undefined,
+        pendingBreadboardPlacement: undefined,
       },
     }))
   },
@@ -822,16 +1030,45 @@ export const useEditorStore = create<EditorStore>((set) => ({
         state.selection,
         type,
         state.mountVisibilityDefaults,
+        state.interaction.activeHostSurfaceId ?? getDefaultSurfaceId(state.scene),
       )
 
       return {
-        selection: { type: 'breadboard' },
+        selection: getDefaultSelection(state.scene),
         interaction: {
           ...state.interaction,
           pendingPlacement: {
             draft,
             candidateAnchorMm: draft.anchorMm,
           },
+          pendingBreadboardPlacement: undefined,
+          selectedBeamInteractionId: undefined,
+          selectedBeamPathId: undefined,
+          selectedBeamSegmentId: undefined,
+          notice: undefined,
+        },
+      }
+    })
+  },
+
+  addBreadboardInstance: (presetId) => {
+    set((state) => {
+      const pendingBreadboardPlacement = createBreadboardPlacementDraft(
+        state.scene,
+        presetId,
+      )
+
+      if (!pendingBreadboardPlacement) {
+        return state
+      }
+
+      return {
+        selection: { type: 'optical-table' as const },
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement,
           selectedBeamInteractionId: undefined,
           selectedBeamPathId: undefined,
           selectedBeamSegmentId: undefined,
@@ -852,6 +1089,24 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           pendingPlacement: {
             ...state.interaction.pendingPlacement,
+            candidateAnchorMm: anchorMm,
+          },
+        },
+      }
+    })
+  },
+
+  updatePendingBreadboardAnchor: (anchorMm) => {
+    set((state) => {
+      if (!state.interaction.pendingBreadboardPlacement) {
+        return state
+      }
+
+      return {
+        interaction: {
+          ...state.interaction,
+          pendingBreadboardPlacement: {
+            ...state.interaction.pendingBreadboardPlacement,
             candidateAnchorMm: anchorMm,
           },
         },
@@ -888,7 +1143,44 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
           notice: describePlacementReason(placement.reason),
+        },
+      }
+    })
+  },
+
+  commitPendingBreadboardPlacement: (anchorMm) => {
+    set((state) => {
+      const pendingBreadboardPlacement = state.interaction.pendingBreadboardPlacement
+
+      if (!pendingBreadboardPlacement || state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const nextInstance = createBreadboardInstance({
+        label: pendingBreadboardPlacement.label,
+        model: pendingBreadboardPlacement.model,
+        anchorMm: anchorMm ?? pendingBreadboardPlacement.candidateAnchorMm,
+        rotationQuarterTurns: pendingBreadboardPlacement.rotationQuarterTurns,
+      })
+
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        workspace: {
+          ...state.scene.workspace,
+          breadboards: [...state.scene.workspace.breadboards, nextInstance],
+        },
+      }
+
+      return {
+        scene: nextScene,
+        selection: { type: 'breadboard' as const, surfaceId: nextInstance.id },
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: nextInstance.id,
+          pendingBreadboardPlacement: undefined,
+          notice: `Placed ${nextInstance.label} on the optical table.`,
         },
       }
     })
@@ -989,6 +1281,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         activeDragComponentId: undefined,
         dragPreview: undefined,
         pendingPlacement: undefined,
+        pendingBreadboardPlacement: undefined,
         hoveredBeamSegmentId: undefined,
         isPointerPanning: false,
         isSpacePanning: false,
@@ -1015,11 +1308,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
             (component) => component.id !== selectedComponentId,
           ),
         },
-        selection: { type: 'breadboard' },
+        selection: getDefaultSelection(state.scene),
         interaction: {
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
+          pendingBreadboardPlacement: undefined,
           notice: undefined,
         },
       }
@@ -1034,10 +1328,32 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const surface = getSurfacePlacementModel(
+        state.scene,
+        selectedComponent.hostSurfaceId ?? getDefaultSurfaceId(state.scene),
+      )
       const placement = findDuplicatePlacement({
-        breadboard: state.scene.breadboard,
-        component: selectedComponent,
-        components: state.scene.components,
+        breadboard: surface.breadboard,
+        component: {
+          ...selectedComponent,
+          anchorMm: {
+            x: selectedComponent.anchorMm.x - surface.originMm.x,
+            y: selectedComponent.anchorMm.y - surface.originMm.y,
+          },
+        },
+        components: state.scene.components
+          .filter(
+            (component) =>
+              (component.hostSurfaceId ?? undefined) ===
+              (selectedComponent.hostSurfaceId ?? undefined),
+          )
+          .map((component) => ({
+            ...component,
+            anchorMm: {
+              x: component.anchorMm.x - surface.originMm.x,
+              y: component.anchorMm.y - surface.originMm.y,
+            },
+          })),
       })
 
       if (!placement) {
@@ -1056,7 +1372,10 @@ export const useEditorStore = create<EditorStore>((set) => ({
           state.scene.components,
           selectedComponent.type,
         ),
-        anchorMm: placement.resolvedAnchorMm,
+        anchorMm: {
+          x: placement.resolvedAnchorMm.x + surface.originMm.x,
+          y: placement.resolvedAnchorMm.y + surface.originMm.y,
+        },
       }
 
       return {
@@ -1723,6 +2042,30 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  updateSelectedGeometryOverride: (update) => {
+    set((state) => {
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent) {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  geometryOverride: normalizeGeometryOverride(component, update),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
   applySupportToType: (type, includeMount) => {
     set((state) => ({
       scene: {
@@ -1798,6 +2141,38 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   rotateSelectedComponent: (direction) => {
     set((state) => {
+      if (state.interaction.pendingBreadboardPlacement) {
+        const pendingBreadboardPlacement = state.interaction.pendingBreadboardPlacement
+        const nextRotationQuarterTurns = normalizeQuarterTurns(
+          pendingBreadboardPlacement.rotationQuarterTurns + direction,
+        ) as QuarterTurn
+        const currentBounds = getBreadboardWorldBoundsMm(
+          pendingBreadboardPlacement.model,
+          pendingBreadboardPlacement.candidateAnchorMm,
+          pendingBreadboardPlacement.rotationQuarterTurns,
+        )
+        const currentCenterMm = {
+          x: currentBounds.x + currentBounds.width / 2,
+          y: currentBounds.y + currentBounds.height / 2,
+        }
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingBreadboardPlacement: {
+              ...pendingBreadboardPlacement,
+              rotationQuarterTurns: nextRotationQuarterTurns,
+              candidateAnchorMm: getBreadboardAnchorForCenterMm(
+                pendingBreadboardPlacement.model,
+                currentCenterMm,
+                nextRotationQuarterTurns,
+              ),
+            },
+            notice: 'Breadboard preview rotated.',
+          },
+        }
+      }
+
       if (state.interaction.pendingPlacement) {
         const pendingPlacement = state.interaction.pendingPlacement
         const nextRotationQuarterTurns =
@@ -1874,25 +2249,87 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateBreadboard: (update) => {
     set((state) => {
-      const nextBreadboard = syncBreadboardPresetId({
-        ...state.scene.breadboard,
-        ...update,
-      })
+      if (state.interaction.pendingBreadboardPlacement) {
+        const pendingBreadboardPlacement = state.interaction.pendingBreadboardPlacement
+        const nextModel = syncBreadboardPresetId({
+          ...pendingBreadboardPlacement.model,
+          ...update,
+        })
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingBreadboardPlacement: {
+              ...pendingBreadboardPlacement,
+              label: update.label ?? pendingBreadboardPlacement.label,
+              model: nextModel,
+            },
+          },
+        }
+      }
+
+      if (state.scene.workspace.kind === 'single-breadboard') {
+        const nextBreadboard = syncBreadboardPresetId({
+          ...state.scene.workspace.breadboard,
+          ...update,
+        })
+        const nextScene: SceneDocument = {
+          ...state.scene,
+          workspace: {
+            kind: 'single-breadboard',
+            breadboard: nextBreadboard,
+          },
+        }
+
+        return {
+          scene: {
+            ...nextScene,
+            components: reconcileComponentsToScene(state.scene.components, nextScene),
+          },
+          interaction: {
+            ...state.interaction,
+            activeDragComponentId: undefined,
+            dragPreview: undefined,
+            pendingPlacement: undefined,
+            pendingBreadboardPlacement: undefined,
+          },
+        }
+      }
+
+      const activeBreadboardId =
+        state.interaction.activeHostSurfaceId ?? state.scene.workspace.breadboards[0]?.id
+      const nextBreadboards = state.scene.workspace.breadboards.map((breadboard) =>
+        breadboard.id === activeBreadboardId
+          ? {
+              ...breadboard,
+              label: update.label ?? breadboard.label,
+              model: syncBreadboardPresetId({
+                ...breadboard.model,
+                ...update,
+                label: update.label ?? breadboard.model.label,
+              }),
+            }
+          : breadboard,
+      )
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        workspace: {
+          ...state.scene.workspace,
+          breadboards: nextBreadboards,
+        },
+      }
 
       return {
         scene: {
-          ...state.scene,
-          breadboard: nextBreadboard,
-          components: reconcileComponentsToBreadboard(
-            state.scene.components,
-            nextBreadboard,
-          ),
+          ...nextScene,
+          components: reconcileComponentsToScene(state.scene.components, nextScene),
         },
         interaction: {
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
           pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
         },
       }
     })
@@ -1901,24 +2338,180 @@ export const useEditorStore = create<EditorStore>((set) => ({
   applyBreadboardPreset: (presetId) => {
     set((state) => {
       const nextBreadboard = createBreadboardFromPreset(presetId)
+      if (state.interaction.pendingBreadboardPlacement) {
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingBreadboardPlacement: {
+              ...state.interaction.pendingBreadboardPlacement,
+              presetId,
+              model: nextBreadboard,
+            },
+          },
+        }
+      }
+
+      if (state.scene.workspace.kind === 'single-breadboard') {
+        const nextScene: SceneDocument = {
+          ...state.scene,
+          workspace: {
+            kind: 'single-breadboard',
+            breadboard: nextBreadboard,
+          },
+        }
+
+        return {
+          scene: {
+            ...nextScene,
+            components: reconcileComponentsToScene(state.scene.components, nextScene),
+          },
+          interaction: {
+            ...state.interaction,
+            activeDragComponentId: undefined,
+            dragPreview: undefined,
+            pendingPlacement: undefined,
+            pendingBreadboardPlacement: undefined,
+          },
+        }
+      }
+
+      const activeBreadboardId =
+        state.interaction.activeHostSurfaceId ?? state.scene.workspace.breadboards[0]?.id
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        workspace: {
+          ...state.scene.workspace,
+          breadboards: state.scene.workspace.breadboards.map((breadboard) =>
+            breadboard.id === activeBreadboardId
+              ? {
+                  ...breadboard,
+                  label: nextBreadboard.label,
+                  model: nextBreadboard,
+                }
+              : breadboard,
+          ),
+        },
+      }
 
       return {
         scene: {
-          ...state.scene,
-          breadboard: nextBreadboard,
-          components: reconcileComponentsToBreadboard(
-            state.scene.components,
-            nextBreadboard,
-          ),
+          ...nextScene,
+          components: reconcileComponentsToScene(state.scene.components, nextScene),
         },
         interaction: {
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
           pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
         },
       }
     })
+  },
+
+  updateOpticalTable: (update) => {
+    set((state) => {
+      if (state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        workspace: {
+          ...state.scene.workspace,
+          table: {
+            ...state.scene.workspace.table,
+            ...update,
+          },
+        },
+      }
+
+      return {
+        scene: nextScene,
+      }
+    })
+  },
+
+  convertWorkspaceToOpticalTable: () => {
+    set((state) => {
+      const nextScene = convertSceneToOpticalTable(state.scene)
+
+      return {
+        scene: nextScene,
+        selection: getDefaultSelection(nextScene),
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+          notice: undefined,
+        },
+      }
+    })
+  },
+
+  convertWorkspaceToSingleBreadboard: ({ breadboardId, createFresh }) => {
+    set((state) => {
+      const nextScene = convertSceneToSingleBreadboard({
+        scene: state.scene,
+        breadboardId,
+        createFresh,
+      })
+
+      return {
+        scene: nextScene,
+        selection: getDefaultSelection(nextScene),
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+          notice: undefined,
+        },
+      }
+    })
+  },
+
+  setActiveHostSurfaceId: (surfaceId) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        activeHostSurfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
+      },
+    }))
+  },
+
+  dismissWarning: (warningId) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        dismissedWarningIds: state.interaction.dismissedWarningIds.includes(warningId)
+          ? state.interaction.dismissedWarningIds
+          : [...state.interaction.dismissedWarningIds, warningId],
+      },
+    }))
+  },
+
+  dismissVisibleWarnings: (warningIds) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        dismissedWarningIds: [
+          ...new Set([...state.interaction.dismissedWarningIds, ...warningIds]),
+        ],
+      },
+    }))
+  },
+
+  restoreDismissedWarnings: () => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        dismissedWarningIds: [],
+      },
+    }))
   },
 
   updateBeamSettings: (update) => {
@@ -1935,19 +2528,20 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   loadScene: (scene) => {
     set((state) => {
-      const nextBreadboard = syncBreadboardPresetId(scene.breadboard)
       const nextScene: SceneDocument = {
         ...scene,
-        breadboard: nextBreadboard,
         beamSettings: scene.beamSettings ?? getDefaultBeamSettings(),
-        components: reconcileComponentsToBreadboard(scene.components, nextBreadboard),
+        components: reconcileComponentsToScene(scene.components, scene),
       }
 
       return {
         scene: nextScene,
-        selection: { type: 'breadboard' },
+        selection: getDefaultSelection(nextScene),
         viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
-        interaction: initialInteraction,
+        interaction: {
+          ...initialInteraction,
+          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
+        },
       }
     })
   },

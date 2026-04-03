@@ -7,19 +7,30 @@ import {
 } from './breadboard'
 import {
   getEffectiveSupportBoundsMm,
-  getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
   shouldIncludeDefaultMount,
 } from './componentCatalog'
 import { quarterTurnsToDegrees, worldToScreen } from './geometry'
 import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from './placement'
+import {
+  getBreadboardInstance,
+  getBreadboardInstances,
+  getHostSurfaceIdForComponent,
+  getOpticalTable,
+  getWorkspacePrimaryBreadboard,
+} from './workspace'
+import type { ExportScope } from './exportLayout'
 import type {
   BeamSegment,
   BeamTraceResult,
+  BreadboardModel,
   BoundsMm,
   ComponentInstance,
   GaussianTraceResult,
+  QuarterTurn,
   RenderMode,
   SceneDocument,
+  Vector2Mm,
   ViewportState,
 } from './types'
 
@@ -179,7 +190,7 @@ function renderRealisticHardware(
   mountStroke: string,
   mountFill: string,
 ) {
-  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const spec = getResolvedComponentSpecForInstance(component)
   const bodyBounds = localBounds(spec.visualBodyBoundsMm, zoomPxPerMm)
   const mountBounds = localBounds(
     spec.mountVisualBoundsMm ?? spec.mount.supportBoundsMm,
@@ -290,7 +301,7 @@ function renderComponentSvg(
   viewport: ViewportState,
   renderMode: RenderMode,
 ) {
-  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const spec = getResolvedComponentSpecForInstance(component)
   const supportBounds = getEffectiveSupportBoundsMm(component, spec)
   const anchorPx = worldToScreen(component.anchorMm, viewport)
   const labelY = localX(supportBounds.y + supportBounds.height + 4.5, viewport.zoomPxPerMm)
@@ -322,6 +333,94 @@ function renderComponentSvg(
   return `<g transform="translate(${anchorPx.x} ${anchorPx.y}) rotate(${quarterTurnsToDegrees(component.rotationQuarterTurns)})">
     ${hardwareMarkup}
     <text x="${-labelWidth / 2}" y="${labelY}" width="${labelWidth}" fill="rgba(230,237,242,0.88)" font-size="13" font-family="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif" text-anchor="start">${escapeXml(component.label)}</text>
+  </g>`
+}
+
+function renderBoardSurfaceSvg(args: {
+  breadboard: BreadboardModel
+  anchorMm?: Vector2Mm
+  palette?: {
+    boardFill: string
+    boardStroke: string
+    holeFill: string
+    labelColor: string
+  }
+  rotationQuarterTurns?: QuarterTurn
+  showSourceLanes?: boolean
+  viewport: ViewportState
+}) {
+  const {
+    breadboard,
+    anchorMm = { x: 0, y: 0 },
+    palette,
+    rotationQuarterTurns = 0,
+    showSourceLanes = true,
+    viewport,
+  } = args
+  const holeAxes = getBreadboardHoleAxesMm(breadboard)
+  const holeCounts = getBreadboardHoleCounts(breadboard)
+  const counterboreCentersMm = getCounterboreCentersMm(breadboard)
+  const effectivePitchMm = getEffectiveHolePitchMm(breadboard)
+  const boardFill =
+    palette?.boardFill ??
+    (breadboard.finish === 'black-anodized' ? '#171d22' : '#c9d1d8')
+  const boardStroke =
+    palette?.boardStroke ??
+    (breadboard.finish === 'black-anodized' ? '#5a6974' : '#7e8b95')
+  const holeFill =
+    palette?.holeFill ??
+    (breadboard.finish === 'black-anodized' ? '#0c1014' : '#64717a')
+  const labelColor =
+    palette?.labelColor ??
+    (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a')
+  const sourceLanes = showSourceLanes
+    ? [
+        { key: 'left', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'left') },
+        { key: 'right', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'right') },
+        { key: 'top', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'top') },
+        { key: 'bottom', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'bottom') },
+      ]
+    : []
+  const anchorPx = worldToScreen(anchorMm, viewport)
+
+  return `<g transform="translate(${anchorPx.x} ${anchorPx.y}) rotate(${quarterTurnsToDegrees(rotationQuarterTurns)})">
+    ${svgRect(
+      {
+        x: 0,
+        y: 0,
+        width: localX(breadboard.widthMm, viewport.zoomPxPerMm),
+        height: localX(breadboard.heightMm, viewport.zoomPxPerMm),
+      },
+      `rx="8" fill="${boardFill}" stroke="${boardStroke}" stroke-width="1.2"`,
+    )}
+    ${sourceLanes
+      .map((lane) => {
+        const laneBounds = localBounds(lane, viewport.zoomPxPerMm)
+
+        return `${svgRect(
+          laneBounds,
+          `rx="8" fill="rgba(56,83,97,0.1)" stroke="rgba(122,193,220,0.28)" stroke-width="0.8" stroke-dasharray="5 4"`,
+        )}<text x="${laneBounds.x + 6}" y="${laneBounds.y + laneBounds.height / 2 + 3}" fill="rgba(165,199,214,0.7)" font-family="IBM Plex Mono, SFMono-Regular, monospace" font-size="8">${escapeXml(lane.label)}</text>`
+      })
+      .join('')}
+    ${counterboreCentersMm
+      .map((counterbore) =>
+        `${svgCircle(localX(counterbore.x, viewport.zoomPxPerMm), localX(counterbore.y, viewport.zoomPxPerMm), 6.2 * viewport.zoomPxPerMm * 0.22, `fill="#2c343b" stroke="#56616b" stroke-width="0.6"`)}${svgCircle(localX(counterbore.x, viewport.zoomPxPerMm), localX(counterbore.y, viewport.zoomPxPerMm), 2.1 * viewport.zoomPxPerMm * 0.22, `fill="${holeFill}"`)}`,
+      )
+      .join('')}
+    ${holeAxes.xPositionsMm
+      .flatMap((xPositionMm) =>
+        holeAxes.yPositionsMm.map((yPositionMm) =>
+          svgCircle(
+            localX(xPositionMm, viewport.zoomPxPerMm),
+            localX(yPositionMm, viewport.zoomPxPerMm),
+            1.5 * viewport.zoomPxPerMm * 0.3,
+            `fill="${holeFill}"`,
+          ),
+        ),
+      )
+      .join('')}
+    <text x="2" y="-14" fill="${labelColor}" font-family="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif" font-size="12">${escapeXml(`${breadboard.label} • ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm • ${holeCounts.xCount} × ${holeCounts.yCount} holes • ${effectivePitchMm.toFixed(1)} mm pitch${showSourceLanes ? ` • sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm` : ''}`)}</text>
   </g>`
 }
 
@@ -419,88 +518,97 @@ function renderBeamSvg(beamTrace: BeamTraceResult, viewport: ViewportState) {
 
 export function createSceneSvg(args: {
   beamTrace: BeamTraceResult
+  breadboardSurfaceId?: string
   gaussianTrace: GaussianTraceResult
   renderMode: RenderMode
   scene: SceneDocument
+  scope: ExportScope
   showGaussianEnvelope: boolean
   viewport: ViewportState
 }) {
-  const { beamTrace, gaussianTrace, renderMode, scene, showGaussianEnvelope, viewport } = args
-  const boardOriginPx = worldToScreen({ x: 0, y: 0 }, viewport)
-  const holeAxes = getBreadboardHoleAxesMm(scene.breadboard)
-  const holeCounts = getBreadboardHoleCounts(scene.breadboard)
-  const counterboreCentersMm = getCounterboreCentersMm(scene.breadboard)
-  const effectivePitchMm = getEffectiveHolePitchMm(scene.breadboard)
-  const boardFill =
-    scene.breadboard.finish === 'black-anodized' ? '#171d22' : '#c9d1d8'
-  const boardStroke =
-    scene.breadboard.finish === 'black-anodized' ? '#5a6974' : '#7e8b95'
-  const holeFill =
-    scene.breadboard.finish === 'black-anodized' ? '#0c1014' : '#64717a'
-  const labelColor =
-    scene.breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a'
-  const sourceLanes = [
-    { key: 'left', label: 'Source Lane', ...getSourceLaneBoundsMm(scene.breadboard, 'left') },
-    { key: 'right', label: 'Source Lane', ...getSourceLaneBoundsMm(scene.breadboard, 'right') },
-    { key: 'top', label: 'Source Lane', ...getSourceLaneBoundsMm(scene.breadboard, 'top') },
-    { key: 'bottom', label: 'Source Lane', ...getSourceLaneBoundsMm(scene.breadboard, 'bottom') },
-  ]
-
-  const board = `<g transform="translate(${boardOriginPx.x} ${boardOriginPx.y})">
-    ${svgRect(
-      {
-        x: 0,
-        y: 0,
-        width: localX(scene.breadboard.widthMm, viewport.zoomPxPerMm),
-        height: localX(scene.breadboard.heightMm, viewport.zoomPxPerMm),
-      },
-      `rx="8" fill="${boardFill}" stroke="${boardStroke}" stroke-width="1.2"`,
-    )}
-    ${sourceLanes
-      .map((lane) => {
-        const laneBounds = localBounds(lane, viewport.zoomPxPerMm)
-
-        return `${svgRect(
-          laneBounds,
-          `rx="8" fill="rgba(56,83,97,0.1)" stroke="rgba(122,193,220,0.28)" stroke-width="0.8" stroke-dasharray="5 4"`,
-        )}<text x="${laneBounds.x + 6}" y="${laneBounds.y + laneBounds.height / 2 + 3}" fill="rgba(165,199,214,0.7)" font-family="IBM Plex Mono, SFMono-Regular, monospace" font-size="8">${escapeXml(lane.label)}</text>`
+  const {
+    beamTrace,
+    breadboardSurfaceId,
+    gaussianTrace,
+    renderMode,
+    scene,
+    scope,
+    showGaussianEnvelope,
+    viewport,
+  } = args
+  const breadboard = getWorkspacePrimaryBreadboard(scene)
+  const opticalTable = getOpticalTable(scene)
+  const breadboardInstances = getBreadboardInstances(scene)
+  const exportBreadboardInstance =
+    scene.workspace.kind === 'optical-table'
+      ? getBreadboardInstance(scene, breadboardSurfaceId) ?? breadboardInstances[0]
+      : undefined
+  const showTableSurface = !(
+    scope === 'breadboard-only' && scene.workspace.kind === 'optical-table'
+  )
+  const breadboardsToRender =
+    scope === 'breadboard-only' && exportBreadboardInstance
+      ? [exportBreadboardInstance]
+      : breadboardInstances
+  const boards = opticalTable
+    ? [
+        ...(showTableSurface
+          ? [
+              renderBoardSurfaceSvg({
+                breadboard: {
+                  label: opticalTable.label,
+                  widthMm: opticalTable.widthMm,
+                  heightMm: opticalTable.heightMm,
+                  holeSpacingMm: opticalTable.holeSpacingMm,
+                  edgeMarginMm: opticalTable.edgeMarginMm,
+                  thicknessMm: opticalTable.thicknessMm,
+                  finish: 'clear-anodized',
+                  holeDensity: opticalTable.holeDensity,
+                  counterborePattern: opticalTable.counterborePattern,
+                },
+                palette: {
+                  boardFill: '#a8b0b6',
+                  boardStroke: '#d4dae0',
+                  holeFill: '#6f777f',
+                  labelColor: '#16202a',
+                },
+                showSourceLanes: false,
+                viewport,
+              }),
+            ]
+          : []),
+        ...breadboardsToRender.map((breadboardInstance) =>
+          renderBoardSurfaceSvg({
+            anchorMm: breadboardInstance.anchorMm,
+            breadboard: {
+              ...breadboardInstance.model,
+              label: breadboardInstance.label,
+            },
+            rotationQuarterTurns: breadboardInstance.rotationQuarterTurns,
+            viewport,
+          }),
+        ),
+      ].join('')
+    : renderBoardSurfaceSvg({
+        breadboard,
+        viewport,
       })
-      .join('')}
-    ${counterboreCentersMm
-      .map((counterbore) => {
-        const pointPx = worldToScreen(counterbore, viewport)
-        const localPoint = {
-          x: pointPx.x - boardOriginPx.x,
-          y: pointPx.y - boardOriginPx.y,
-        }
 
-        return `${svgCircle(localPoint.x, localPoint.y, 6.2 * viewport.zoomPxPerMm * 0.22, `fill="#2c343b" stroke="#56616b" stroke-width="0.6"`)}${svgCircle(localPoint.x, localPoint.y, 2.1 * viewport.zoomPxPerMm * 0.22, `fill="${holeFill}"`)}`
-      })
-      .join('')}
-    ${holeAxes.xPositionsMm
-      .flatMap((xPositionMm) =>
-        holeAxes.yPositionsMm.map((yPositionMm) => {
-          const pointPx = worldToScreen({ x: xPositionMm, y: yPositionMm }, viewport)
-          const localPoint = {
-            x: pointPx.x - boardOriginPx.x,
-            y: pointPx.y - boardOriginPx.y,
-          }
-
-          return svgCircle(localPoint.x, localPoint.y, 1.5 * viewport.zoomPxPerMm * 0.3, `fill="${holeFill}"`)
-        }),
-      )
-      .join('')}
-    <text x="2" y="-14" fill="${labelColor}" font-family="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif" font-size="12">${escapeXml(`${scene.breadboard.label} • ${scene.breadboard.widthMm.toFixed(0)} × ${scene.breadboard.heightMm.toFixed(0)} mm • ${holeCounts.xCount} × ${holeCounts.yCount} holes • ${effectivePitchMm.toFixed(1)} mm pitch • sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm`)}</text>
-  </g>`
-
-  const components = scene.components
+  const components = (
+    scope === 'breadboard-only' && exportBreadboardInstance
+      ? scene.components.filter(
+          (component) =>
+            getHostSurfaceIdForComponent(scene, component) === exportBreadboardInstance.id,
+        )
+      : scene.components
+  )
     .map((component) => renderComponentSvg(component, viewport, renderMode))
     .join('')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${viewport.canvasSizePx.width}" height="${viewport.canvasSizePx.height}" viewBox="0 0 ${viewport.canvasSizePx.width} ${viewport.canvasSizePx.height}">
   <rect x="0" y="0" width="${viewport.canvasSizePx.width}" height="${viewport.canvasSizePx.height}" fill="#0b1014" />
-  <g id="breadboard-layer">${board}</g>
+  <g id="breadboard-layer">${boards}</g>
   ${
     showGaussianEnvelope
       ? `<g id="gaussian-layer">${renderGaussianEnvelopeSvg(beamTrace, gaussianTrace, viewport)}</g>`

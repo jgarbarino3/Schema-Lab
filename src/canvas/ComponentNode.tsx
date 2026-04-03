@@ -2,6 +2,7 @@ import { Circle, Ellipse, Group, Line, Rect, Text } from 'react-konva'
 import {
   getEffectiveSupportBoundsMm,
   getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
   shouldIncludeDefaultMount,
 } from '../domain/componentCatalog'
 import { quarterTurnsToDegrees, worldToScreen } from '../domain/geometry'
@@ -35,11 +36,49 @@ interface ComponentNodeProps {
   onDragMove?: (componentId: string, screenPointPx: ScreenPointPx) => void
   onDragStart?: (componentId: string) => void
   onHoverChange?: (componentId?: string) => void
+  onResize?: (
+    componentId: string,
+    update: { widthMm?: number; heightMm?: number },
+  ) => void
   onSelect?: (componentId: string) => void
   placementStatus?: PlacementStatus
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
   viewport: ViewportState
+}
+
+type ResizeHandleDirection =
+  | 'nw'
+  | 'n'
+  | 'ne'
+  | 'e'
+  | 'se'
+  | 's'
+  | 'sw'
+  | 'w'
+
+function getResizeHandlePosition(direction: ResizeHandleDirection, boundsMm: BoundsMm) {
+  const centerX = boundsMm.x + boundsMm.width / 2
+  const centerY = boundsMm.y + boundsMm.height / 2
+
+  switch (direction) {
+    case 'nw':
+      return { x: boundsMm.x, y: boundsMm.y }
+    case 'n':
+      return { x: centerX, y: boundsMm.y }
+    case 'ne':
+      return { x: boundsMm.x + boundsMm.width, y: boundsMm.y }
+    case 'e':
+      return { x: boundsMm.x + boundsMm.width, y: centerY }
+    case 'se':
+      return { x: boundsMm.x + boundsMm.width, y: boundsMm.y + boundsMm.height }
+    case 's':
+      return { x: centerX, y: boundsMm.y + boundsMm.height }
+    case 'sw':
+      return { x: boundsMm.x, y: boundsMm.y + boundsMm.height }
+    case 'w':
+      return { x: boundsMm.x, y: centerY }
+  }
 }
 
 function renderFootprintShape(
@@ -340,6 +379,177 @@ function renderRealisticHardware(
           />
         </>
       )
+    case 'laser-source':
+      return (
+        <>
+          <Rect
+            cornerRadius={4}
+            fill={opticFill}
+            height={bodyBoundsMm.height}
+            stroke={opticStroke}
+            strokeWidth={1}
+            width={bodyBoundsMm.width}
+            x={bodyBoundsMm.x}
+            y={bodyBoundsMm.y}
+          />
+          <Rect
+            cornerRadius={3}
+            fill="rgba(255, 255, 255, 0.08)"
+            height={Math.max(8, bodyBoundsMm.height * 0.18)}
+            stroke="rgba(255, 255, 255, 0.18)"
+            strokeWidth={0.45}
+            width={bodyBoundsMm.width * 0.72}
+            x={bodyBoundsMm.x + bodyBoundsMm.width * 0.12}
+            y={bodyBoundsMm.y + bodyBoundsMm.height * 0.08}
+          />
+          <Rect
+            cornerRadius={2}
+            fill="rgba(12, 18, 22, 0.4)"
+            height={bodyBoundsMm.height * 0.76}
+            stroke="rgba(220, 227, 223, 0.2)"
+            strokeWidth={0.4}
+            width={Math.max(16, bodyBoundsMm.width * 0.08)}
+            x={bodyBoundsMm.x + bodyBoundsMm.width - Math.max(16, bodyBoundsMm.width * 0.12)}
+            y={bodyBoundsMm.y + bodyBoundsMm.height * 0.12}
+          />
+          <Circle
+            fill="#d7f1ff"
+            radius={Math.max(2.2, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.02)}
+            stroke="#10222a"
+            strokeWidth={0.45}
+            x={bodyBoundsMm.x + bodyBoundsMm.width - Math.max(6, bodyBoundsMm.width * 0.03)}
+            y={centerY}
+          />
+        </>
+      )
+    case 'sample-stage':
+      if (instance.variantId === 'pi-ls-180') {
+        const plateWidth = Math.min(210, bodyBoundsMm.width * 0.32)
+        const plateHeight = Math.min(118, bodyBoundsMm.height * 0.78)
+        const chainStartX = bodyBoundsMm.x + bodyBoundsMm.width * 0.4
+        const chainEndX = bodyBoundsMm.x + bodyBoundsMm.width * 0.55
+
+        return (
+          <>
+            <Rect
+              cornerRadius={5}
+              fill="#bfc4c7"
+              height={bodyBoundsMm.height}
+              stroke="#e7ecef"
+              strokeWidth={1}
+              width={bodyBoundsMm.width}
+              x={bodyBoundsMm.x}
+              y={bodyBoundsMm.y}
+            />
+            <Rect
+              cornerRadius={4}
+              fill="#181d22"
+              height={plateHeight}
+              stroke="#59626c"
+              strokeWidth={0.9}
+              width={plateWidth}
+              x={centerX - plateWidth / 2}
+              y={centerY - plateHeight / 2}
+            />
+            <Line
+              lineCap="round"
+              lineJoin="round"
+              points={[
+                chainStartX,
+                bodyBoundsMm.y + bodyBoundsMm.height * 0.42,
+                bodyBoundsMm.x + bodyBoundsMm.width * 0.72,
+                bodyBoundsMm.y + bodyBoundsMm.height * 0.26,
+                bodyBoundsMm.x + bodyBoundsMm.width * 0.92,
+                centerY,
+                bodyBoundsMm.x + bodyBoundsMm.width * 0.72,
+                bodyBoundsMm.y + bodyBoundsMm.height * 0.74,
+                chainEndX,
+                bodyBoundsMm.y + bodyBoundsMm.height * 0.58,
+              ]}
+              stroke="#161b1f"
+              strokeWidth={Math.max(4, bodyBoundsMm.height * 0.08)}
+            />
+            <Rect
+              cornerRadius={3}
+              fill="rgba(255, 255, 255, 0.1)"
+              height={Math.max(10, bodyBoundsMm.height * 0.16)}
+              stroke="rgba(255, 255, 255, 0.2)"
+              strokeWidth={0.4}
+              width={bodyBoundsMm.width * 0.22}
+              x={bodyBoundsMm.x + bodyBoundsMm.width * 0.39}
+              y={bodyBoundsMm.y + bodyBoundsMm.height * 0.07}
+            />
+          </>
+        )
+      }
+
+      return (
+        <>
+          <Rect
+            cornerRadius={4}
+            fill={opticFill}
+            height={bodyBoundsMm.height}
+            stroke={opticStroke}
+            strokeWidth={0.95}
+            width={bodyBoundsMm.width}
+            x={bodyBoundsMm.x}
+            y={bodyBoundsMm.y}
+          />
+          <Rect
+            cornerRadius={3}
+            fill="rgba(255, 255, 255, 0.08)"
+            height={bodyBoundsMm.height * 0.58}
+            stroke="rgba(255, 255, 255, 0.18)"
+            strokeWidth={0.4}
+            width={bodyBoundsMm.width * 0.26}
+            x={centerX - bodyBoundsMm.width * 0.13}
+            y={centerY - bodyBoundsMm.height * 0.29}
+          />
+        </>
+      )
+    case 'spectrometer':
+      return (
+        <>
+          <Rect
+            cornerRadius={5}
+            fill={opticFill}
+            height={bodyBoundsMm.height}
+            stroke={opticStroke}
+            strokeWidth={1}
+            width={bodyBoundsMm.width}
+            x={bodyBoundsMm.x}
+            y={bodyBoundsMm.y}
+          />
+          <Rect
+            cornerRadius={3}
+            fill="#14191e"
+            height={Math.max(14, bodyBoundsMm.height * 0.28)}
+            stroke="#48525d"
+            strokeWidth={0.7}
+            width={Math.max(18, bodyBoundsMm.width * 0.2)}
+            x={bodyBoundsMm.x - Math.max(14, bodyBoundsMm.width * 0.16)}
+            y={centerY - Math.max(14, bodyBoundsMm.height * 0.28) / 2}
+          />
+          <Rect
+            cornerRadius={3}
+            fill="rgba(255, 255, 255, 0.08)"
+            height={Math.max(12, bodyBoundsMm.height * 0.16)}
+            stroke="rgba(255, 255, 255, 0.18)"
+            strokeWidth={0.4}
+            width={bodyBoundsMm.width * 0.5}
+            x={bodyBoundsMm.x + bodyBoundsMm.width * 0.18}
+            y={bodyBoundsMm.y + bodyBoundsMm.height * 0.12}
+          />
+          <Circle
+            fill="#11161b"
+            radius={Math.max(4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.09)}
+            stroke="#b6b0ff"
+            strokeWidth={0.8}
+            x={centerX}
+            y={centerY}
+          />
+        </>
+      )
     default:
       return (
         <>
@@ -351,12 +561,16 @@ function renderRealisticHardware(
                 strokeWidth: 0.9,
               })
             : null}
-          {renderFootprintShape(instance.type === 'sample-stage' ? 'rect' : 'capsule', bodyBoundsMm, {
-            fill: opticFill,
-            opacity: 0.95,
-            stroke: opticStroke,
-            strokeWidth: 0.9,
-          })}
+          {renderFootprintShape(
+            'capsule',
+            bodyBoundsMm,
+            {
+              fill: opticFill,
+              opacity: 0.95,
+              stroke: opticStroke,
+              strokeWidth: 0.9,
+            },
+          )}
           <ComponentGlyph
             boundsMm={bodyBoundsMm}
             fill="rgba(255, 255, 255, 0.1)"
@@ -402,15 +616,18 @@ export function ComponentNode({
   onDragMove,
   onDragStart,
   onHoverChange,
+  onResize,
   onSelect,
   placementStatus,
   renderMode,
   resolveDragPositionPx,
   viewport,
 }: ComponentNodeProps) {
-  const spec = getResolvedComponentSpec(instance.type, instance.variantId)
+  const baseSpec = getResolvedComponentSpec(instance.type, instance.variantId)
+  const spec = getResolvedComponentSpecForInstance(instance)
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
   const bodyBoundsMm = spec.visualBodyBoundsMm
+  const footprintBoundsMm = spec.footprintBoundsMm
   const boundsMm = spec.hitBoundsMm
   const supportBoundsMm = getEffectiveSupportBoundsMm(instance, spec)
   const mountBoundsMm = spec.mountVisualBoundsMm ?? spec.mount.supportBoundsMm
@@ -438,9 +655,52 @@ export function ComponentNode({
         ? '#f5d28c'
         : '#6e8794'
   const labelWidth = Math.max(supportBoundsMm.width, mountBoundsMm.width, 42)
+  const resizeHandleDirections: ResizeHandleDirection[] = [
+    'nw',
+    'n',
+    'ne',
+    'e',
+    'se',
+    's',
+    'sw',
+    'w',
+  ]
 
   const handleSelect = () => {
     onSelect?.(instance.id)
+  }
+
+  const handleResize = (
+    direction: ResizeHandleDirection,
+    positionMm: { x: number; y: number },
+  ) => {
+    if (!onResize) {
+      return
+    }
+
+    const centerX = footprintBoundsMm.x + footprintBoundsMm.width / 2
+    const centerY = footprintBoundsMm.y + footprintBoundsMm.height / 2
+    const nextWidthMm =
+      direction.includes('e') || direction.includes('w')
+        ? Math.max(
+            6,
+            Math.abs(positionMm.x - centerX) * 2,
+            baseSpec.footprintBoundsMm.width * 0.35,
+          )
+        : undefined
+    const nextHeightMm =
+      direction.includes('n') || direction.includes('s')
+        ? Math.max(
+            6,
+            Math.abs(positionMm.y - centerY) * 2,
+            baseSpec.footprintBoundsMm.height * 0.35,
+          )
+        : undefined
+
+    onResize(instance.id, {
+      widthMm: nextWidthMm,
+      heightMm: nextHeightMm,
+    })
   }
 
   return (
@@ -625,6 +885,52 @@ export function ComponentNode({
           x={0}
           y={0}
         />
+      ) : null}
+
+      {isSelected && !isPreview && onResize ? (
+        <>
+          {resizeHandleDirections.map((direction) => {
+            const handlePosition = getResizeHandlePosition(direction, footprintBoundsMm)
+
+            return (
+              <Rect
+                cornerRadius={1.2}
+                draggable
+                fill="#f4fbff"
+                height={4.8}
+                key={direction}
+                onDragEnd={(event) => {
+                  event.cancelBubble = true
+                  handleResize(direction, {
+                    x: event.target.x(),
+                    y: event.target.y(),
+                  })
+                }}
+                onDragMove={(event) => {
+                  event.cancelBubble = true
+                  handleResize(direction, {
+                    x: event.target.x(),
+                    y: event.target.y(),
+                  })
+                }}
+                onDragStart={(event) => {
+                  event.cancelBubble = true
+                }}
+                onMouseDown={(event) => {
+                  event.cancelBubble = true
+                }}
+                onTouchStart={(event) => {
+                  event.cancelBubble = true
+                }}
+                stroke="#10222a"
+                strokeWidth={0.45}
+                width={4.8}
+                x={handlePosition.x - 2.4}
+                y={handlePosition.y - 2.4}
+              />
+            )
+          })}
+        </>
       ) : null}
 
       {!isPreview ? (

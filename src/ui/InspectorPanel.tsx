@@ -18,11 +18,11 @@ import {
   COMPONENT_CATEGORY_LABELS,
   getComponentDefinition,
   getComponentVariants,
-  getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
   isOpticalTarget,
   supportsMountToggle,
 } from '../domain/componentCatalog'
-import { inspectComponentPlacement } from '../domain/placement'
+import { inspectSceneComponentPlacement } from '../domain/placement'
 import {
   applyPolarizationPreset,
   createDefaultPolarizationConfig,
@@ -30,6 +30,12 @@ import {
 } from '../domain/polarization'
 import { getRotatedFootprintBoundsMm, getWorldPortsForComponent } from '../domain/ports'
 import { SOURCE_PRESETS } from '../domain/sourcePresets'
+import {
+  getBreadboardInstances,
+  getOpticalTable,
+  getSingleBreadboard,
+  getWorkspacePrimaryBreadboard,
+} from '../domain/workspace'
 import type {
   BeamInteractionEvent,
   BeamTraceResult,
@@ -537,12 +543,24 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
   const interactionNotice = useEditorStore((state) => state.interaction.notice)
+  const activeHostSurfaceId = useEditorStore(
+    (state) => state.interaction.activeHostSurfaceId,
+  )
   const pendingPlacement = useEditorStore(
     (state) => state.interaction.pendingPlacement,
+  )
+  const pendingBreadboardPlacement = useEditorStore(
+    (state) => state.interaction.pendingBreadboardPlacement,
   )
   const updateBreadboard = useEditorStore((state) => state.updateBreadboard)
   const applyBreadboardPreset = useEditorStore(
     (state) => state.applyBreadboardPreset,
+  )
+  const updateOpticalTable = useEditorStore((state) => state.updateOpticalTable)
+  const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
+  const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
+  const setActiveHostSurfaceId = useEditorStore(
+    (state) => state.setActiveHostSurfaceId,
   )
   const updateBeamSettings = useEditorStore((state) => state.updateBeamSettings)
   const updateSelectedComponent = useEditorStore(
@@ -569,6 +587,9 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   const updateSelectedSupport = useEditorStore(
     (state) => state.updateSelectedSupport,
   )
+  const updateSelectedGeometryOverride = useEditorStore(
+    (state) => state.updateSelectedGeometryOverride,
+  )
   const applySupportToType = useEditorStore((state) => state.applySupportToType)
   const setMountDefaultForType = useEditorStore(
     (state) => state.setMountDefaultForType,
@@ -589,15 +610,35 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
         anchorMm: pendingPlacement.candidateAnchorMm,
       }
     : selectedComponent
-  const inspectorMode = pendingPlacement
+  const inspectorMode = pendingPlacement || pendingBreadboardPlacement
     ? 'Pending Placement'
     : inspectedComponent
       ? 'Selected Component'
-      : 'Breadboard'
+      : selection.type === 'optical-table'
+        ? 'Optical Table'
+        : 'Breadboard'
+  const primaryBreadboard = getWorkspacePrimaryBreadboard(scene)
+  const opticalTable = getOpticalTable(scene)
+  const breadboardInstances = getBreadboardInstances(scene)
+  const activeBreadboardInstance =
+    scene.workspace.kind === 'optical-table'
+      ? breadboardInstances.find((breadboard) => breadboard.id === activeHostSurfaceId) ??
+        breadboardInstances[0]
+      : undefined
+  const activeBreadboard =
+    pendingBreadboardPlacement?.model ??
+    getSingleBreadboard(scene) ??
+    activeBreadboardInstance?.model ??
+    primaryBreadboard
+  const boardLabel =
+    pendingBreadboardPlacement?.label ??
+    getSingleBreadboard(scene)?.label ??
+    activeBreadboardInstance?.label ??
+    activeBreadboard.label
 
   if (!inspectedComponent) {
-    const holeCounts = getBreadboardHoleCounts(scene.breadboard)
-    const effectivePitchMm = getEffectiveHolePitchMm(scene.breadboard)
+    const holeCounts = getBreadboardHoleCounts(activeBreadboard)
+    const effectivePitchMm = getEffectiveHolePitchMm(activeBreadboard)
     const activeSourceCount = scene.components.filter(
       (component) => component.config.source?.isEnabled,
     ).length
@@ -606,15 +647,89 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
       <aside className="panel inspector" data-tour="inspector">
         <div className="panel__header">
           <span className="panel__eyebrow">{inspectorMode}</span>
-          <h2>Breadboard Inspector</h2>
-          <p>Board geometry, source-lane defaults, and deterministic beam-scene settings.</p>
+          <h2>{pendingBreadboardPlacement ? 'Pending Breadboard' : 'Breadboard Inspector'}</h2>
+          <p>
+            {pendingBreadboardPlacement
+              ? 'Adjust the breadboard preset or dimensions before you place it on the optical table.'
+              : 'Board geometry, source-lane defaults, and deterministic beam-scene settings.'}
+          </p>
         </div>
 
         <div className="inspector__content">
           <BeamInspectionSection beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
 
           <div className="inspector__subsection">
-            <h3>Board</h3>
+            <h3>{opticalTable && selection.type === 'optical-table' ? 'Optical Table' : 'Board'}</h3>
+
+            {opticalTable ? (
+              <div className="inspector__notice">
+                {pendingBreadboardPlacement ? (
+                  <>
+                    Optical table mode is active. You are editing a pending breadboard preview for{' '}
+                    <strong>{boardLabel}</strong>.
+                  </>
+                ) : (
+                  <>
+                    Optical table mode is active. You are editing{' '}
+                    <strong>{boardLabel}</strong> as the current breadboard surface.
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            {opticalTable && selection.type === 'optical-table' ? (
+              <>
+                <div className="inspector__grid">
+                  <NumberField
+                    label="Table width (mm)"
+                    onChange={(widthMm) => updateOpticalTable({ widthMm })}
+                    step={10}
+                    value={opticalTable.widthMm}
+                  />
+                  <NumberField
+                    label="Table height (mm)"
+                    onChange={(heightMm) => updateOpticalTable({ heightMm })}
+                    step={10}
+                    value={opticalTable.heightMm}
+                  />
+                  <NumberField
+                    label="Hole spacing (mm)"
+                    onChange={(holeSpacingMm) => updateOpticalTable({ holeSpacingMm })}
+                    step={0.5}
+                    value={opticalTable.holeSpacingMm}
+                  />
+                  <NumberField
+                    label="Edge margin (mm)"
+                    onChange={(edgeMarginMm) => updateOpticalTable({ edgeMarginMm })}
+                    step={0.5}
+                    value={opticalTable.edgeMarginMm}
+                  />
+                </div>
+
+                <div className="inspector__grid">
+                  <NumberField
+                    label="Thickness (mm)"
+                    onChange={(thicknessMm) => updateOpticalTable({ thicknessMm })}
+                    step={0.5}
+                    value={opticalTable.thicknessMm}
+                  />
+                  <Field label="Hole density">
+                    <select
+                      onChange={(event) =>
+                        updateOpticalTable({
+                          holeDensity:
+                            event.target.value as typeof opticalTable.holeDensity,
+                        })
+                      }
+                      value={opticalTable.holeDensity}
+                    >
+                      <option value="single">Single density</option>
+                      <option value="double">Double density</option>
+                    </select>
+                  </Field>
+                </div>
+              </>
+            ) : null}
 
             <Field label="Preset">
               <select
@@ -623,7 +738,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                     applyBreadboardPreset(event.target.value)
                   }
                 }}
-                value={scene.breadboard.presetId ?? 'custom'}
+                value={activeBreadboard.presetId ?? 'custom'}
               >
                 {BREADBOARD_PRESETS.map((preset) => (
                   <option key={preset.id} value={preset.id}>
@@ -642,7 +757,7 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   })
                 }
                 type="text"
-                value={scene.breadboard.label}
+                value={boardLabel}
               />
             </Field>
 
@@ -651,31 +766,31 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 label="Width (mm)"
                 onChange={(widthMm) => updateBreadboard({ widthMm })}
                 step={1}
-                value={scene.breadboard.widthMm}
+                value={activeBreadboard.widthMm}
               />
               <NumberField
                 label="Height (mm)"
                 onChange={(heightMm) => updateBreadboard({ heightMm })}
                 step={1}
-                value={scene.breadboard.heightMm}
+                value={activeBreadboard.heightMm}
               />
               <NumberField
                 label="Hole spacing (mm)"
                 onChange={(holeSpacingMm) => updateBreadboard({ holeSpacingMm })}
                 step={0.5}
-                value={scene.breadboard.holeSpacingMm}
+                value={activeBreadboard.holeSpacingMm}
               />
               <NumberField
                 label="Edge margin (mm)"
                 onChange={(edgeMarginMm) => updateBreadboard({ edgeMarginMm })}
                 step={0.5}
-                value={scene.breadboard.edgeMarginMm}
+                value={activeBreadboard.edgeMarginMm}
               />
               <NumberField
                 label="Thickness (mm)"
                 onChange={(thicknessMm) => updateBreadboard({ thicknessMm })}
                 step={0.1}
-                value={scene.breadboard.thicknessMm}
+                value={activeBreadboard.thicknessMm}
               />
             </div>
 
@@ -684,10 +799,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <select
                   onChange={(event) =>
                     updateBreadboard({
-                      finish: event.target.value as typeof scene.breadboard.finish,
+                      finish: event.target.value as typeof activeBreadboard.finish,
                     })
                   }
-                  value={scene.breadboard.finish}
+                  value={activeBreadboard.finish}
                 >
                   <option value="black-anodized">Black anodized</option>
                   <option value="clear-anodized">Clear anodized</option>
@@ -699,10 +814,10 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   onChange={(event) =>
                     updateBreadboard({
                       holeDensity:
-                        event.target.value as typeof scene.breadboard.holeDensity,
+                        event.target.value as typeof activeBreadboard.holeDensity,
                     })
                   }
-                  value={scene.breadboard.holeDensity}
+                  value={activeBreadboard.holeDensity}
                 >
                   <option value="single">Single density</option>
                   <option value="double">Double density</option>
@@ -714,16 +829,66 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                   onChange={(event) =>
                     updateBreadboard({
                       counterborePattern:
-                        event.target.value as typeof scene.breadboard.counterborePattern,
+                        event.target.value as typeof activeBreadboard.counterborePattern,
                     })
                   }
-                  value={scene.breadboard.counterborePattern}
+                  value={activeBreadboard.counterborePattern}
                 >
                   <option value="corner-25mm">Corner 25 mm inset</option>
                   <option value="none">None</option>
                 </select>
               </Field>
             </div>
+
+            {opticalTable ? (
+              <div className="inspector__readout">
+                <div>
+                  <span>Table size</span>
+                  <strong>
+                    {opticalTable.widthMm.toFixed(0)} × {opticalTable.heightMm.toFixed(0)} mm
+                  </strong>
+                </div>
+                <div>
+                  <span>Breadboards on table</span>
+                  <strong>{breadboardInstances.length}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            {opticalTable ? (
+              <div className="inspector__subsection">
+                <h3>Host Surfaces</h3>
+                <div className="inspector__list">
+                  <button
+                    className="inspector__list-item"
+                    onClick={() => {
+                      setActiveHostSurfaceId('optical-table')
+                      selectOpticalTable()
+                    }}
+                    type="button"
+                  >
+                    <strong>{opticalTable.label}</strong>
+                    <span>Optical table surface</span>
+                  </button>
+                  {breadboardInstances.map((breadboard) => (
+                    <button
+                      className="inspector__list-item"
+                      key={breadboard.id}
+                      onClick={() => {
+                        setActiveHostSurfaceId(breadboard.id)
+                        selectBreadboard(breadboard.id)
+                      }}
+                      type="button"
+                    >
+                      <strong>{breadboard.label}</strong>
+                      <span>
+                        {breadboard.model.widthMm.toFixed(0)} × {breadboard.model.heightMm.toFixed(0)} mm
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="inspector__subsection">
@@ -840,14 +1005,11 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   }
 
   const definition = getComponentDefinition(inspectedComponent.type)
-  const spec = getResolvedComponentSpec(
-    inspectedComponent.type,
-    inspectedComponent.variantId,
-  )
+  const spec = getResolvedComponentSpecForInstance(inspectedComponent)
   const variants = getComponentVariants(inspectedComponent.type)
   const worldPorts = getWorldPortsForComponent(inspectedComponent, spec)
   const rotatedFootprint = getRotatedFootprintBoundsMm(inspectedComponent, spec)
-  const placement = inspectComponentPlacement(scene.breadboard, inspectedComponent, spec)
+  const placement = inspectSceneComponentPlacement(scene, inspectedComponent, spec)
   const beamEvents = beamTrace.events.filter(
     (event) => event.componentId === inspectedComponent.id,
   )
@@ -1084,6 +1246,42 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               </div>
             </div>
           ) : null}
+          <div className="inspector__subsection">
+            <h3>Geometry Overrides</h3>
+
+            <div className="inspector__grid">
+              <NumberField
+                label="Footprint width (mm)"
+                onChange={(widthMm) =>
+                  updateSelectedGeometryOverride({
+                    widthMm,
+                    heightMm:
+                      inspectedComponent.geometryOverride?.heightMm ??
+                      spec.footprintBoundsMm.height,
+                  })
+                }
+                step={0.5}
+                value={spec.footprintBoundsMm.width}
+              />
+              <NumberField
+                label="Footprint height (mm)"
+                onChange={(heightMm) =>
+                  updateSelectedGeometryOverride({
+                    widthMm:
+                      inspectedComponent.geometryOverride?.widthMm ??
+                      spec.footprintBoundsMm.width,
+                    heightMm,
+                  })
+                }
+                step={0.5}
+                value={spec.footprintBoundsMm.height}
+              />
+            </div>
+            <p className="inspector__hint">
+              Canvas resize handles and these numeric fields update the same
+              per-instance geometry override.
+            </p>
+          </div>
           {supportsMountToggle(inspectedComponent.type) ? (
             <div className="inspector__subsection">
               <h3>Integrated Mount</h3>

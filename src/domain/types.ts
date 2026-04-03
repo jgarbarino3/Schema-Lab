@@ -1,11 +1,13 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 5 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 4 as const
+export const SCENE_DOCUMENT_VERSION = 6 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 5 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
 export const STAGE1_SCENE_DOCUMENT_VERSION = 1 as const
 
 export type SceneDocumentVersion = typeof SCENE_DOCUMENT_VERSION
+export const SINGLE_BREADBOARD_SURFACE_ID = 'single-breadboard' as const
+export const OPTICAL_TABLE_SURFACE_ID = 'optical-table' as const
 
 export interface Vector2Mm {
   x: number
@@ -38,6 +40,7 @@ export type QuarterTurn = 0 | 1 | 2 | 3
 export type BreadboardFinish = 'black-anodized' | 'clear-anodized'
 export type HoleDensity = 'single' | 'double'
 export type CounterborePattern = 'none' | 'corner-25mm'
+export type WorkspaceKind = 'single-breadboard' | 'optical-table'
 export type SnapMode = 'always' | 'onDrop' | 'none'
 export type CardinalDirection = 'north' | 'east' | 'south' | 'west'
 export type PortKind = 'beam-input' | 'beam-output' | 'beam-bidirectional'
@@ -57,9 +60,12 @@ export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
 export type ToolbarMenu = 'import' | 'export' | 'beam'
+export type WorkspaceSurfaceKind = 'breadboard' | 'optical-table'
 export type SourcePresetId =
   | 'ti-sapphire'
+  | 'libra'
   | 'pharos'
+  | 'clark-ti-sapphire'
   | 'opa-visible-passband'
   | 'opa-visible-broadband'
 export type PolarizationPresetId =
@@ -77,6 +83,7 @@ export type BeamInteractionKind =
   | 'beamsplitter'
   | 'lens'
   | 'filter'
+  | 'attenuator'
   | 'iris'
   | 'bbo'
   | 'pass-through'
@@ -125,6 +132,7 @@ export type ComponentType =
   | 'beamsplitter'
   | 'lens'
   | 'filter'
+  | 'attenuator'
   | 'iris'
   | 'bbo-crystal'
   | 'sample-stage'
@@ -137,6 +145,7 @@ export type ComponentCategory =
   | 'source'
   | 'steering'
   | 'splitting'
+  | 'attenuation'
   | 'focusing'
   | 'conditioning'
   | 'aperture'
@@ -155,6 +164,7 @@ export type ComponentGlyph =
   | 'beamsplitter'
   | 'lens'
   | 'filter'
+  | 'attenuator'
   | 'iris'
   | 'bbo'
   | 'sample'
@@ -177,6 +187,39 @@ export interface BreadboardModel {
   counterborePattern: CounterborePattern
   presetId?: string
 }
+
+export interface OpticalTableModel {
+  label: string
+  widthMm: number
+  heightMm: number
+  holeSpacingMm: number
+  edgeMarginMm: number
+  thicknessMm: number
+  finish: 'silver'
+  holeDensity: HoleDensity
+  counterborePattern: CounterborePattern
+}
+
+export interface BreadboardInstance {
+  id: string
+  label: string
+  model: BreadboardModel
+  anchorMm: Vector2Mm
+  rotationQuarterTurns: QuarterTurn
+}
+
+export interface SingleBreadboardWorkspace {
+  kind: 'single-breadboard'
+  breadboard: BreadboardModel
+}
+
+export interface OpticalTableWorkspace {
+  kind: 'optical-table'
+  table: OpticalTableModel
+  breadboards: BreadboardInstance[]
+}
+
+export type WorkspaceModel = SingleBreadboardWorkspace | OpticalTableWorkspace
 
 export interface SceneBeamSettings {
   beamFidelityMode: BeamFidelityMode
@@ -250,6 +293,13 @@ export interface FilterBeamPhysics extends BeamPhysicsBase {
   fwhmNm?: number
 }
 
+export interface AttenuatorBeamPhysics extends BeamPhysicsBase {
+  kind: 'pass-through'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  orientation: 'horizontal' | 'vertical'
+}
+
 export interface IrisBeamPhysics extends BeamPhysicsBase {
   kind: 'iris'
   maxApertureMm: number
@@ -294,6 +344,7 @@ export type ComponentBeamPhysics =
   | BeamsplitterBeamPhysics
   | LensBeamPhysics
   | FilterBeamPhysics
+  | AttenuatorBeamPhysics
   | IrisBeamPhysics
   | BboBeamPhysics
   | PassThroughBeamPhysics
@@ -401,6 +452,10 @@ export interface ComponentConfig {
   source?: SourceConfig
   beamSplitter?: BeamSplitterConfig
   lens?: LensConfig
+  attenuator?: {
+    transmissionPercent: number
+    orientation: 'horizontal' | 'vertical'
+  }
   iris?: IrisConfig
   bboCrystal?: BboCrystalConfig
   support?: ComponentSupportConfig
@@ -412,7 +467,12 @@ export interface ComponentInstance {
   label: string
   variantId: string
   anchorMm: Vector2Mm
+  hostSurfaceId?: string
   rotationQuarterTurns: QuarterTurn
+  geometryOverride?: {
+    widthMm?: number
+    heightMm?: number
+  }
   config: ComponentConfig
 }
 
@@ -422,7 +482,7 @@ export interface SceneDocument {
   metadata: {
     name: string
   }
-  breadboard: BreadboardModel
+  workspace: WorkspaceModel
   beamSettings: SceneBeamSettings
   components: ComponentInstance[]
 }
@@ -461,6 +521,14 @@ export interface PendingPlacementState {
   candidateAnchorMm: Vector2Mm
 }
 
+export interface PendingBreadboardPlacementState {
+  presetId: string
+  label: string
+  model: BreadboardModel
+  candidateAnchorMm: Vector2Mm
+  rotationQuarterTurns: QuarterTurn
+}
+
 export interface SceneWarning {
   id: string
   category: SceneWarningCategory
@@ -472,6 +540,12 @@ export interface SceneWarning {
   interactionId?: string
   sourceComponentId?: string
   highlightTarget?: WarningHighlightTarget
+}
+
+export interface WorkspaceSurfaceSummary {
+  id: string
+  kind: WorkspaceSurfaceKind
+  label: string
 }
 
 export interface WorldPort extends PortDefinition {

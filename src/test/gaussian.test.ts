@@ -36,7 +36,10 @@ function makeComponent(
 function makeScene(components: ComponentInstance[]): SceneDocument {
   const scene = createEmptyScene()
 
-  scene.breadboard = createBreadboardFromPreset('metric-300-square')
+  scene.workspace = {
+    kind: 'single-breadboard',
+    breadboard: createBreadboardFromPreset('metric-300-square'),
+  }
   scene.components = components
 
   return scene

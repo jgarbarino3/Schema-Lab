@@ -465,7 +465,7 @@ function getBeamDiameterAtDistanceMm(
 }
 
 function getEscapedSegmentEndMm(scene: SceneDocument, ray: RayState) {
-  const bounds = getSceneWorldBoundsMm(scene.breadboard)
+  const bounds = getSceneWorldBoundsMm(scene)
   const candidates: number[] = []
 
   if (ray.directionMm.x > 0) {

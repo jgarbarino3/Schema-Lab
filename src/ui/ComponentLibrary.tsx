@@ -3,6 +3,7 @@ import {
   COMPONENT_CATEGORY_ORDER,
   COMPONENT_DEFINITIONS,
 } from '../domain/componentCatalog'
+import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { useEditorStore } from '../state/editorStore'
 
 function describeMountMode(mode: string) {
@@ -20,8 +21,13 @@ function describeMountMode(mode: string) {
 
 export function ComponentLibrary() {
   const addComponent = useEditorStore((state) => state.addComponent)
+  const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
+  const workspaceKind = useEditorStore((state) => state.scene.workspace.kind)
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
+  )
+  const pendingBreadboardPresetId = useEditorStore(
+    (state) => state.interaction.pendingBreadboardPlacement?.presetId,
   )
 
   return (
@@ -35,6 +41,31 @@ export function ComponentLibrary() {
       </div>
 
       <div className="component-library__groups">
+        {workspaceKind === 'optical-table' ? (
+          <section className="component-library__group">
+            <h3>Breadboards</h3>
+
+            {BREADBOARD_PRESETS.map((preset) => (
+              <button
+                className={`component-library__item${pendingBreadboardPresetId === preset.id ? ' is-armed' : ''}`}
+                key={preset.id}
+                onClick={() => addBreadboardInstance(preset.id)}
+                type="button"
+              >
+                <span className="component-library__item-title">{preset.label}</span>
+                <span className="component-library__item-meta">
+                  Arm breadboard placement on the optical table
+                </span>
+                {pendingBreadboardPresetId === preset.id ? (
+                  <span className="component-library__item-state">
+                    Pending placement
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </section>
+        ) : null}
+
         {COMPONENT_CATEGORY_ORDER.map((category) => {
           const definitions = COMPONENT_DEFINITIONS.filter(
             (definition) => definition.category === category,

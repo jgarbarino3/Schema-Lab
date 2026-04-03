@@ -1,11 +1,14 @@
 import { Circle, Layer, Rect } from 'react-konva'
-import { annotatePlacementOccupancy, resolveComponentPlacement } from '../domain/placement'
+import {
+  annotateScenePlacementOccupancy,
+  resolveScenePlacement,
+} from '../domain/placement'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
 import type {
-  BreadboardModel,
   ComponentInstance,
   PendingPlacementState,
   RenderMode,
+  SceneDocument,
   ScreenPointPx,
   SnapMode,
   ViewportState,
@@ -18,7 +21,6 @@ interface DragPreviewState {
 }
 
 interface ComponentsLayerProps {
-  breadboard: BreadboardModel
   components: ComponentInstance[]
   dragPreview?: DragPreviewState
   hoveredComponentId?: string
@@ -31,12 +33,17 @@ interface ComponentsLayerProps {
   ) => void
   onHoverComponent: (componentId?: string) => void
   onSelectComponent: (componentId: string) => void
+  onResizeComponent?: (
+    componentId: string,
+    update: { widthMm?: number; heightMm?: number },
+  ) => void
   onUpdateComponentDrag: (
     componentId: string,
     anchorMm: { x: number; y: number },
   ) => void
   pendingPlacement?: PendingPlacementState
   renderMode: RenderMode
+  scene: SceneDocument
   selectedComponentId?: string
   snapMode: SnapMode
   viewport: ViewportState
@@ -55,7 +62,6 @@ function getPreviewAccent(status: 'valid' | 'snapped' | 'warning') {
 }
 
 export function ComponentsLayer({
-  breadboard,
   components,
   dragPreview,
   hoveredComponentId,
@@ -64,10 +70,12 @@ export function ComponentsLayer({
   onBeginComponentDrag,
   onCommitComponentDrag,
   onHoverComponent,
+  onResizeComponent,
   onSelectComponent,
   onUpdateComponentDrag,
   pendingPlacement,
   renderMode,
+  scene,
   selectedComponentId,
   snapMode,
   viewport,
@@ -77,12 +85,13 @@ export function ComponentsLayer({
     : undefined
   const previewPlacement =
     previewedComponent && dragPreview
-      ? annotatePlacementOccupancy({
-          breadboard,
+      ? annotateScenePlacementOccupancy({
+          scene,
           components,
           ignoreComponentId: previewedComponent.id,
-          result: resolveComponentPlacement({
-            breadboard,
+          hostSurfaceId: previewedComponent.hostSurfaceId,
+          result: resolveScenePlacement({
+            scene,
             candidateAnchorMm: dragPreview.candidateAnchorMm,
             component: previewedComponent,
             phase: 'drag',
@@ -96,12 +105,13 @@ export function ComponentsLayer({
     ? getPreviewAccent(previewPlacement.status)
     : undefined
   const pendingPlacementResult = pendingPlacement
-    ? annotatePlacementOccupancy({
-        breadboard,
+    ? annotateScenePlacementOccupancy({
+        scene,
         components,
         ignoreComponentId: pendingPlacement.draft.id,
-        result: resolveComponentPlacement({
-          breadboard,
+        hostSurfaceId: pendingPlacement.draft.hostSurfaceId,
+        result: resolveScenePlacement({
+          scene,
           candidateAnchorMm: pendingPlacement.candidateAnchorMm,
           component: pendingPlacement.draft,
           phase: 'drag',
@@ -134,6 +144,7 @@ export function ComponentsLayer({
           }}
           onDragStart={onBeginComponentDrag}
           onHoverChange={isPanMode ? undefined : onHoverComponent}
+          onResize={isPanMode ? undefined : onResizeComponent}
           onSelect={isPanMode ? undefined : onSelectComponent}
           placementStatus={
             dragPreview?.componentId === component.id
@@ -144,8 +155,8 @@ export function ComponentsLayer({
           resolveDragPositionPx={
             snapMode === 'always'
               ? (screenPointPx: ScreenPointPx) => {
-                  const placement = resolveComponentPlacement({
-                    breadboard,
+                  const placement = resolveScenePlacement({
+                    scene,
                     candidateAnchorMm: screenToWorld(screenPointPx, viewport),
                     component,
                     phase: 'drag',

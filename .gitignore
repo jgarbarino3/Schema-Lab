@@ -13,6 +13,7 @@ dist-ssr
 *.local
 output/playwright/
 .playwright-cli/
+.serena/
 
 # Editor directories and files
 .vscode/*

@@ -20,6 +20,15 @@ import { createSingleImagePptxBlob } from './domain/pptxExport'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
 import { createSceneSvg } from './domain/svgExport'
+import {
+  getBreadboardInstances,
+  getWorkspacePrimaryBreadboard,
+} from './domain/workspace'
+import type { WorkspaceKind } from './domain/types'
+import {
+  OPTICAL_TABLE_SURFACE_ID,
+  SINGLE_BREADBOARD_SURFACE_ID,
+} from './domain/types'
 import { useEditorStore } from './state/editorStore'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { InspectorPanel } from './ui/InspectorPanel'
@@ -27,11 +36,13 @@ import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { WarningReviewModal } from './ui/WarningReviewModal'
+import { WorkspaceModeModal } from './ui/WorkspaceModeModal'
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
 const LEFT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.left-panel-collapsed'
 const RIGHT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.right-panel-collapsed'
+const OPTICAL_TABLE_SNAPSHOT_KEY = 'schema-lab.workspace.optical-table-snapshot'
 const EXPORT_CANVAS_WIDTH_PX = 1800
 const EXPORT_CANVAS_HEIGHT_PX = 1200
 
@@ -39,6 +50,15 @@ interface ExportRequestState {
   action: ExportAction
   scope: ExportScope
 }
+
+type WorkspaceModalState =
+  | {
+      mode: 'to-optical-table'
+      hasSavedSnapshot: boolean
+    }
+  | {
+      mode: 'to-single-breadboard'
+    }
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -84,14 +104,44 @@ function writeStoredFlag(key: string, value: boolean) {
   window.localStorage.setItem(key, value ? '1' : '0')
 }
 
+function readStoredSnapshot(key: string) {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  return window.localStorage.getItem(key) ?? undefined
+}
+
+function writeStoredSnapshot(key: string, value?: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  if (value === undefined) {
+    window.localStorage.removeItem(key)
+    return
+  }
+
+  window.localStorage.setItem(key, value)
+}
+
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const interaction = useEditorStore((state) => state.interaction)
+  const dismissedWarningIds = useEditorStore(
+    (state) => state.interaction.dismissedWarningIds,
+  )
   const renderMode = useEditorStore((state) => state.renderMode)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const loadScene = useEditorStore((state) => state.loadScene)
+  const convertWorkspaceToOpticalTable = useEditorStore(
+    (state) => state.convertWorkspaceToOpticalTable,
+  )
+  const convertWorkspaceToSingleBreadboard = useEditorStore(
+    (state) => state.convertWorkspaceToSingleBreadboard,
+  )
   const setSpacePanning = useEditorStore((state) => state.setSpacePanning)
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
@@ -123,7 +173,11 @@ function App() {
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() =>
     readStoredFlag(RIGHT_PANEL_COLLAPSED_KEY),
   )
+  const [workspaceModalState, setWorkspaceModalState] =
+    useState<WorkspaceModalState>()
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
+  const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
+  const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
   const beamTrace = useMemo(() => traceSceneBeams(scene), [scene])
   const gaussianTrace = useMemo(
     () => analyzeGaussianPaths(scene, beamTrace),
@@ -133,14 +187,21 @@ function App() {
     () => deriveSceneWarnings(scene, beamTrace, gaussianTrace),
     [beamTrace, gaussianTrace, scene],
   )
+  const visibleSceneWarnings = useMemo(
+    () =>
+      sceneWarnings.filter(
+        (warning) => !dismissedWarningIds.includes(warning.id),
+      ),
+    [dismissedWarningIds, sceneWarnings],
+  )
   const filteredSceneWarnings = useMemo(
     () =>
-      sceneWarnings.filter((warning) =>
+      visibleSceneWarnings.filter((warning) =>
         warning.tier === 'simple'
           ? warningFilters.simple
           : warningFilters.advanced,
       ),
-    [sceneWarnings, warningFilters.advanced, warningFilters.simple],
+    [visibleSceneWarnings, warningFilters.advanced, warningFilters.simple],
   )
   const selectedBeam = useMemo(
     () =>
@@ -168,7 +229,18 @@ function App() {
     (component) => component.config.source?.isEnabled,
   )
   const pendingPlacement = interaction.pendingPlacement
+  const pendingBreadboardPlacement = interaction.pendingBreadboardPlacement
   const isWarningReviewOpen = pendingExportAction !== undefined
+  const isWorkspaceModalOpen = workspaceModalState !== undefined
+  const exportBreadboardSurfaceId =
+    scene.workspace.kind === 'single-breadboard'
+      ? SINGLE_BREADBOARD_SURFACE_ID
+      : selection.type === 'breadboard'
+        ? selection.surfaceId
+        : interaction.activeHostSurfaceId &&
+            interaction.activeHostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+          ? interaction.activeHostSurfaceId
+          : breadboardInstances[0]?.id
   const exportViewport = useMemo(() => {
     if (!exportRequest) {
       return undefined
@@ -181,8 +253,9 @@ function App() {
         width: EXPORT_CANVAS_WIDTH_PX,
         height: EXPORT_CANVAS_HEIGHT_PX,
       },
+      exportBreadboardSurfaceId,
     )
-  }, [exportRequest, scene])
+  }, [exportBreadboardSurfaceId, exportRequest, scene])
   const selectedComponent =
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
@@ -191,12 +264,14 @@ function App() {
     filteredSceneWarnings.find(
       (warning) => warning.id === interaction.selectedWarningId,
     ) ??
-    sceneWarnings.find(
+    visibleSceneWarnings.find(
     (warning) => warning.id === interaction.selectedWarningId,
   )
   const highlightedWarning =
     selectedWarning ??
-    (interaction.isWarningsOpen ? filteredSceneWarnings[0] ?? sceneWarnings[0] : undefined)
+    (interaction.isWarningsOpen
+      ? filteredSceneWarnings[0] ?? visibleSceneWarnings[0]
+      : undefined)
   const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
   const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
   const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
@@ -210,8 +285,8 @@ function App() {
           <>
             <p>
               The Help menu is your quick reference for controls, snap behavior, sources,
-              realistic vs simple view modes, Gaussian overlays, side-panel collapse,
-              and warning review.
+              workspace switching, realistic vs simple view modes, Gaussian overlays,
+              side-panel collapse, and warning review.
             </p>
             <p>
               When the scene needs attention, warnings appear in the top toolbar near this area,
@@ -234,6 +309,11 @@ function App() {
               <code>R</code>, then click or tap the board to commit.
             </p>
             <p>
+              In optical-table mode, click a breadboard to make it the active host for smaller
+              optics, or click the table for large table-mounted hardware such as laser bodies
+              and long stages.
+            </p>
+            <p>
               Use Realistic for mounted hardware silhouettes or Simple for cleaner symbolic
               optics while keeping the same mechanical footprint logic underneath.
             </p>
@@ -247,11 +327,11 @@ function App() {
           <>
             <p>
               The right panel tells you whether you are editing the breadboard, a pending
-              placement, or a selected component already on the board.
+              placement, the optical table, or a selected component already on the board.
             </p>
             <p>
               This is also where variants, lens values, BBO thickness and phase matching,
-              mount defaults, and recommended hardware appear.
+              mount defaults, recommended hardware, and table or breadboard dimensions appear.
             </p>
             <p>
               Collapse either side panel from the toolbar whenever you need more room in the
@@ -283,8 +363,8 @@ function App() {
           <>
             <p>
               Export will pause if critical scene warnings remain. Review them in the
-              warning center, filter simple vs advanced warnings, or bypass intentionally when
-              you are ready.
+              warning center, filter simple vs advanced warnings, dismiss low-priority items for
+              the current session, or bypass intentionally when you are ready.
             </p>
             <p>
               Export menus now group JSON, PNG, PDF, SVG, and PPTX. Reopen this guide anytime
@@ -311,7 +391,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (sceneWarnings.length === 0) {
+    if (visibleSceneWarnings.length === 0) {
       setSelectedWarningId(undefined)
       setWarningsOpen(false)
       return
@@ -319,14 +399,18 @@ function App() {
 
     if (
       interaction.selectedWarningId &&
-      !sceneWarnings.some((warning) => warning.id === interaction.selectedWarningId)
+      !visibleSceneWarnings.some(
+        (warning) => warning.id === interaction.selectedWarningId,
+      )
     ) {
-      setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
+      setSelectedWarningId(
+        filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
+      )
     }
   }, [
     filteredSceneWarnings,
     interaction.selectedWarningId,
-    sceneWarnings,
+    visibleSceneWarnings,
     setSelectedWarningId,
     setWarningsOpen,
   ])
@@ -376,9 +460,11 @@ function App() {
   }
 
   const handleExportAction = (action: ExportAction) => {
-    if (sceneWarnings.length > 0) {
+    if (visibleSceneWarnings.length > 0) {
       setPendingExportAction(action)
-      setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
+      setSelectedWarningId(
+        filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
+      )
       return
     }
 
@@ -393,6 +479,64 @@ function App() {
         ? 'breadboard-only'
         : 'full-scheme',
     })
+  }
+
+  const handleRequestWorkspaceKind = (workspaceKind: WorkspaceKind) => {
+    if (workspaceKind === scene.workspace.kind) {
+      return
+    }
+
+    if (workspaceKind === 'optical-table') {
+      setWorkspaceModalState({
+        mode: 'to-optical-table',
+        hasSavedSnapshot: Boolean(readStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY)),
+      })
+      return
+    }
+
+    setWorkspaceModalState({
+      mode: 'to-single-breadboard',
+    })
+  }
+
+  const handleConvertCurrentToOpticalTable = () => {
+    convertWorkspaceToOpticalTable()
+    setWorkspaceModalState(undefined)
+  }
+
+  const handleRestoreSavedTable = () => {
+    const snapshot = readStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY)
+
+    if (!snapshot) {
+      handleConvertCurrentToOpticalTable()
+      return
+    }
+
+    const restoredScene = parseSceneDocument(snapshot)
+
+    startTransition(() => {
+      loadScene(restoredScene)
+    })
+
+    setWorkspaceModalState(undefined)
+  }
+
+  const handleConvertToSingleBreadboard = (args: {
+    breadboardId?: string
+    createFresh: boolean
+    preserveSnapshot: boolean
+  }) => {
+    if (args.preserveSnapshot && scene.workspace.kind === 'optical-table') {
+      writeStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY, sceneJson)
+    } else if (!args.preserveSnapshot) {
+      writeStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY, undefined)
+    }
+
+    convertWorkspaceToSingleBreadboard({
+      breadboardId: args.breadboardId,
+      createFresh: args.createFresh,
+    })
+    setWorkspaceModalState(undefined)
   }
 
   const handleToggleLibrary = () => {
@@ -418,9 +562,11 @@ function App() {
       if (request.action.endsWith('svg')) {
         const svgMarkup = createSceneSvg({
           beamTrace,
+          breadboardSurfaceId: exportBreadboardSurfaceId,
           gaussianTrace,
           renderMode,
           scene,
+          scope: request.scope,
           showGaussianEnvelope: interaction.showGaussianEnvelope,
           viewport: exportViewport!,
         })
@@ -480,7 +626,15 @@ function App() {
 
       setExportRequest(undefined)
     },
-    [beamTrace, exportViewport, gaussianTrace, interaction.showGaussianEnvelope, renderMode, scene],
+    [
+      beamTrace,
+      exportBreadboardSurfaceId,
+      exportViewport,
+      gaussianTrace,
+      interaction.showGaussianEnvelope,
+      renderMode,
+      scene,
+    ],
   )
 
   useEffect(() => {
@@ -524,6 +678,12 @@ function App() {
         if (isOnboardingOpen) {
           event.preventDefault()
           handleCloseOnboarding()
+          return
+        }
+
+        if (isWorkspaceModalOpen) {
+          event.preventDefault()
+          setWorkspaceModalState(undefined)
           return
         }
 
@@ -585,6 +745,7 @@ function App() {
     interaction.isHelpOpen,
     isOnboardingOpen,
     isJsonModalOpen,
+    isWorkspaceModalOpen,
     isWarningReviewOpen,
     openToolbarMenu,
     pendingPlacement,
@@ -593,6 +754,7 @@ function App() {
     setHelpOpen,
     setOpenToolbarMenu,
     setSpacePanning,
+    setWorkspaceModalState,
   ])
 
   const openJsonModal = (rawText = sceneJson, error?: string) => {
@@ -644,6 +806,7 @@ function App() {
     <div className="app-shell">
       <Toolbar
         beamTrace={beamTrace}
+        dismissedWarningCount={dismissedWarningIds.length}
         isInspectorCollapsed={isInspectorCollapsed}
         isLibraryCollapsed={isLibraryCollapsed}
         isWarningPulse={isWarningReviewOpen}
@@ -651,9 +814,11 @@ function App() {
         onImportSceneJson={() => fileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
+        onRequestWorkspaceKind={handleRequestWorkspaceKind}
         onToggleInspector={handleToggleInspector}
         onToggleLibrary={handleToggleLibrary}
-        warnings={sceneWarnings}
+        warnings={visibleSceneWarnings}
+        workspaceKind={scene.workspace.kind}
       />
 
       <div
@@ -669,7 +834,7 @@ function App() {
               <h1>Schema-Lab</h1>
               <p>
                 Millimeter-first optical layout editor with deterministic 2D beam
-                tracing, source-lane placement, scalar power bookkeeping, and BBO
+                tracing, workspace-scale planning, scalar power bookkeeping, and BBO
                 SHG planning for FROG-style experiments.
               </p>
             </div>
@@ -681,10 +846,17 @@ function App() {
             </div>
           </div>
 
-          {pendingPlacement ? (
+          {pendingPlacement || pendingBreadboardPlacement ? (
             <div className="placement-banner">
-              <strong>Placing: {pendingPlacement.draft.label}</strong>
-              <span>Click or tap the board to place</span>
+              <strong>
+                Placing:{' '}
+                {pendingBreadboardPlacement?.label ?? pendingPlacement?.draft.label}
+              </strong>
+              <span>
+                {pendingBreadboardPlacement
+                  ? 'Click or tap the optical table to place'
+                  : 'Click or tap the board to place'}
+              </span>
               <span>R rotate • Esc cancel</span>
             </div>
           ) : null}
@@ -699,11 +871,11 @@ function App() {
 
           <div className="canvas-status">
             <span>
-              Board {scene.breadboard.widthMm.toFixed(0)} ×{' '}
-              {scene.breadboard.heightMm.toFixed(0)} mm
+              {scene.workspace.kind === 'optical-table' ? 'Table host' : 'Board'}{' '}
+              {primaryBreadboard.widthMm.toFixed(0)} × {primaryBreadboard.heightMm.toFixed(0)} mm
             </span>
             <span>
-              Pitch {getEffectiveHolePitchMm(scene.breadboard).toFixed(1)} mm
+              Pitch {getEffectiveHolePitchMm(primaryBreadboard).toFixed(1)} mm
             </span>
             <span>Beam mode {scene.beamSettings.beamFidelityMode}</span>
             <span>View {renderMode === 'realistic' ? 'Realistic' : 'Simple'}</span>
@@ -719,10 +891,18 @@ function App() {
             <span>
               Selection{' '}
               {pendingPlacement
-                ? `${pendingPlacement.draft.label} (pending)`
+                  ? `${pendingPlacement.draft.label} (pending)`
                 : selectedComponent
                   ? selectedComponent.label
-                  : scene.breadboard.label}
+                  : selection.type === 'optical-table'
+                    ? scene.workspace.kind === 'optical-table'
+                      ? scene.workspace.table.label
+                      : primaryBreadboard.label
+                    : selection.type === 'breadboard'
+                      ? breadboardInstances.find(
+                          (breadboard) => breadboard.id === selection.surfaceId,
+                        )?.label ?? primaryBreadboard.label
+                      : primaryBreadboard.label}
             </span>
             {selectedBeam.segment ? (
               <span>
@@ -793,10 +973,12 @@ function App() {
         onReviewWarnings={() => {
           setPendingExportAction(undefined)
           setWarningsOpen(true)
-          setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
+          setSelectedWarningId(
+            filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
+          )
         }}
         exportLabel={pendingExportAction}
-        warnings={sceneWarnings}
+        warnings={visibleSceneWarnings}
       />
 
       <OnboardingTour
@@ -809,9 +991,30 @@ function App() {
         steps={onboardingSteps}
       />
 
+      <WorkspaceModeModal
+        isOpen={isWorkspaceModalOpen}
+        onCancel={() => setWorkspaceModalState(undefined)}
+        onConvertCurrentToTable={handleConvertCurrentToOpticalTable}
+        onConvertToSingleBreadboard={handleConvertToSingleBreadboard}
+        onRestoreSavedTable={handleRestoreSavedTable}
+        state={
+          workspaceModalState?.mode === 'to-single-breadboard'
+            ? {
+                mode: 'to-single-breadboard',
+                breadboards: breadboardInstances.map((breadboard) => ({
+                  id: breadboard.id,
+                  label: breadboard.label,
+                  dimensionsLabel: `${breadboard.model.widthMm.toFixed(0)} × ${breadboard.model.heightMm.toFixed(0)} mm`,
+                })),
+              }
+            : workspaceModalState
+        }
+      />
+
       {exportRequest && exportViewport ? (
         <ExportStage
           beamTrace={beamTrace}
+          breadboardSurfaceId={exportBreadboardSurfaceId}
           gaussianTrace={gaussianTrace}
           onReady={(stage) => {
             if (stage && exportRequest) {
@@ -820,6 +1023,7 @@ function App() {
           }}
           renderMode={renderMode}
           scene={scene}
+          scope={exportRequest.scope}
           showGaussianEnvelope={interaction.showGaussianEnvelope}
           viewport={exportViewport}
         />

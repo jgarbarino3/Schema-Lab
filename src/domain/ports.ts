@@ -1,4 +1,4 @@
-import { getResolvedComponentSpec } from './componentCatalog'
+import { getResolvedComponentSpecForInstance } from './componentCatalog'
 import {
   rotateBoundsQuarterTurns,
   rotateCardinalDirection,
@@ -8,7 +8,7 @@ import {
 import type { BoundsMm, ComponentInstance, ResolvedComponentSpec, WorldPort } from './types'
 
 export function getResolvedSpecForInstance(component: ComponentInstance) {
-  return getResolvedComponentSpec(component.type, component.variantId)
+  return getResolvedComponentSpecForInstance(component)
 }
 
 export function getRotatedFootprintBoundsMm(

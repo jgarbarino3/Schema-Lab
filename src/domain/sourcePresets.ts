@@ -16,6 +16,20 @@ export const SOURCE_PRESETS: SourcePresetDefinition[] = [
     },
   },
   {
+    id: 'libra',
+    label: 'Libra',
+    description: 'Coherent Libra-class Ti:Sapphire amplifier body for table-mounted OPA workflows.',
+    wavelengthNm: 800,
+    bandwidthNm: 28,
+    powerMw: 2500,
+    beamDiameterMm: 5,
+    divergenceMrad: 0.45,
+    supportedWavelengthNm: {
+      minNm: 760,
+      maxNm: 840,
+    },
+  },
+  {
     id: 'pharos',
     label: 'Pharos',
     description: 'Yb-based industrial ultrafast source, commonly around 1030 nm.',
@@ -27,6 +41,20 @@ export const SOURCE_PRESETS: SourcePresetDefinition[] = [
     supportedWavelengthNm: {
       minNm: 1020,
       maxNm: 1040,
+    },
+  },
+  {
+    id: 'clark-ti-sapphire',
+    label: 'Clark Ti:Sapph',
+    description: 'Clark-MXR-style Ti:Sapphire oscillator or amplifier defaults for tabletop ultrafast work.',
+    wavelengthNm: 800,
+    bandwidthNm: 32,
+    powerMw: 900,
+    beamDiameterMm: 3.2,
+    divergenceMrad: 0.9,
+    supportedWavelengthNm: {
+      minNm: 760,
+      maxNm: 840,
     },
   },
   {

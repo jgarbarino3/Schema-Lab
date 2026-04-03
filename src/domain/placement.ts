@@ -1,19 +1,34 @@
 import { getBreadboardHoleAxesMm, getEffectiveHolePitchMm, getNearestHole } from './breadboard'
 import {
   getEffectiveSupportBoundsMm,
-  getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
   isOpticalTarget,
 } from './componentCatalog'
 import { rotateBoundsQuarterTurns, roundMm } from './geometry'
 import { getWorldPortsForComponent } from './ports'
+import {
+  getBreadboardWorldBoundsMm,
+  getDefaultSurfaceId,
+  getHostSurfaceIdForComponent,
+  getOpticalTableWorldBoundsMm,
+  getSurfaceAnchorMm,
+  getSurfaceModel,
+  getSurfaceRotationQuarterTurns,
+  getWorkspaceWorldBoundsMm,
+  surfaceLocalToWorld,
+  surfaceWorldToLocal,
+  transformSurfaceLocalBoundsToWorld,
+} from './workspace'
 import type {
   BoundsMm,
   BreadboardModel,
   ComponentInstance,
+  OpticalTableModel,
   PlacementPhase,
   PlacementResult,
   QuarterTurn,
   ResolvedComponentSpec,
+  SceneDocument,
   SnapMode,
   SourceLane,
   Vector2Mm,
@@ -49,12 +64,22 @@ function getBoardBoundsMm(breadboard: BreadboardModel): BoundsMm {
   }
 }
 
-export function getSceneWorldBoundsMm(breadboard: BreadboardModel): BoundsMm {
+export function getSceneWorldBoundsMm(input: BreadboardModel | SceneDocument): BoundsMm {
+  const bounds =
+    'kind' in input
+      ? getWorkspaceWorldBoundsMm(input)
+      : {
+          x: 0,
+          y: 0,
+          width: input.widthMm,
+          height: input.heightMm,
+        }
+
   return {
-    x: -SCENE_WORLD_PADDING_MM,
-    y: -SCENE_WORLD_PADDING_MM,
-    width: breadboard.widthMm + SCENE_WORLD_PADDING_MM * 2,
-    height: breadboard.heightMm + SCENE_WORLD_PADDING_MM * 2,
+    x: bounds.x - SCENE_WORLD_PADDING_MM,
+    y: bounds.y - SCENE_WORLD_PADDING_MM,
+    width: bounds.width + SCENE_WORLD_PADDING_MM * 2,
+    height: bounds.height + SCENE_WORLD_PADDING_MM * 2,
   }
 }
 
@@ -91,6 +116,79 @@ export function getSourceLaneBoundsMm(
         width: breadboard.widthMm,
         height: SOURCE_LANE_HALF_WIDTH_MM * 2,
       }
+  }
+}
+
+function tableToBreadboardModel(table: OpticalTableModel): BreadboardModel {
+  return {
+    label: table.label,
+    widthMm: table.widthMm,
+    heightMm: table.heightMm,
+    holeSpacingMm: table.holeSpacingMm,
+    edgeMarginMm: table.edgeMarginMm,
+    thicknessMm: table.thicknessMm,
+    finish: 'clear-anodized',
+    holeDensity: table.holeDensity,
+    counterborePattern: table.counterborePattern,
+  }
+}
+
+export function getSurfacePlacementModel(
+  scene: SceneDocument,
+  surfaceId?: string,
+): {
+  breadboard: BreadboardModel
+  boundsMm: BoundsMm
+  hostSurfaceId: string
+  originMm: Vector2Mm
+  rotationQuarterTurns: QuarterTurn
+} {
+  const resolvedSurfaceId = surfaceId ?? getDefaultSurfaceId(scene)
+  const surfaceModel = getSurfaceModel(scene, resolvedSurfaceId)
+  const originMm = getSurfaceAnchorMm(scene, resolvedSurfaceId)
+  const rotationQuarterTurns = getSurfaceRotationQuarterTurns(
+    scene,
+    resolvedSurfaceId,
+  )
+
+  if (!surfaceModel) {
+    const fallbackBreadboard =
+      scene.workspace.kind === 'single-breadboard'
+        ? scene.workspace.breadboard
+        : tableToBreadboardModel(scene.workspace.table)
+
+    return {
+      breadboard: fallbackBreadboard,
+      boundsMm:
+        scene.workspace.kind === 'single-breadboard'
+          ? getBreadboardWorldBoundsMm(scene.workspace.breadboard)
+          : getOpticalTableWorldBoundsMm(scene.workspace.table),
+      hostSurfaceId: getDefaultSurfaceId(scene),
+      originMm: { x: 0, y: 0 },
+      rotationQuarterTurns: 0,
+    }
+  }
+
+  if (resolvedSurfaceId === 'optical-table' && scene.workspace.kind === 'optical-table') {
+    return {
+      breadboard: tableToBreadboardModel(scene.workspace.table),
+      boundsMm: getOpticalTableWorldBoundsMm(scene.workspace.table),
+      hostSurfaceId: resolvedSurfaceId,
+      originMm,
+      rotationQuarterTurns,
+    }
+  }
+
+  return {
+    breadboard: surfaceModel as BreadboardModel,
+    boundsMm: getBreadboardWorldBoundsMm(
+      surfaceModel as BreadboardModel,
+      originMm,
+      rotationQuarterTurns,
+    ),
+    hostSurfaceId: resolvedSurfaceId,
+    originMm,
+    rotationQuarterTurns,
   }
 }
 
@@ -212,7 +310,7 @@ export function resolveComponentPlacement(args: {
     snapMode,
     dropSnapCaptureRadiusMm = DROP_SNAP_CAPTURE_RADIUS_MM,
   } = args
-  const spec = args.spec ?? getResolvedComponentSpec(component.type, component.variantId)
+  const spec = args.spec ?? getResolvedComponentSpecForInstance(component)
   const rotationQuarterTurns =
     args.rotationQuarterTurns ??
     (spec.mount.mode === 'external-source'
@@ -337,13 +435,123 @@ export function resolveComponentPlacement(args: {
 export function inspectComponentPlacement(
   breadboard: BreadboardModel,
   component: ComponentInstance,
-  spec: ResolvedComponentSpec = getResolvedComponentSpec(
-    component.type,
-    component.variantId,
-  ),
+  spec: ResolvedComponentSpec = getResolvedComponentSpecForInstance(component),
 ) {
   return resolveComponentPlacement({
     breadboard,
+    candidateAnchorMm: component.anchorMm,
+    component,
+    phase: 'inspect',
+    rotationQuarterTurns: component.rotationQuarterTurns,
+    snapMode: 'none',
+    spec,
+  })
+}
+
+export function resolveScenePlacement(args: {
+  scene: SceneDocument
+  candidateAnchorMm: Vector2Mm
+  component: ComponentInstance
+  dropSnapCaptureRadiusMm?: number
+  phase: PlacementPhase
+  rotationQuarterTurns?: QuarterTurn
+  snapMode: SnapMode
+  spec?: ResolvedComponentSpec
+}) {
+  const { scene, component } = args
+  const hostSurfaceId = getHostSurfaceIdForComponent(scene, component)
+  const surface = getSurfacePlacementModel(scene, hostSurfaceId)
+  const localRotationQuarterTurns = (
+    ((component.rotationQuarterTurns - surface.rotationQuarterTurns + 4) % 4) as QuarterTurn
+  )
+  const requestedRotationQuarterTurns =
+    args.rotationQuarterTurns === undefined
+      ? undefined
+      : (((args.rotationQuarterTurns - surface.rotationQuarterTurns + 4) % 4) as QuarterTurn)
+  const localComponent = {
+    ...component,
+    anchorMm: surfaceWorldToLocal(scene, hostSurfaceId, component.anchorMm),
+    rotationQuarterTurns: localRotationQuarterTurns,
+    hostSurfaceId,
+  }
+
+  if (
+    hostSurfaceId === 'optical-table' &&
+    getResolvedComponentSpecForInstance(component).mount.mode === 'external-source'
+  ) {
+    const localCandidateAnchorMm = surfaceWorldToLocal(
+      scene,
+      hostSurfaceId,
+      args.candidateAnchorMm,
+    )
+    const footprintBoundsMm = transformSurfaceLocalBoundsToWorld(
+      scene,
+      hostSurfaceId,
+      getWorldBounds(
+        getResolvedComponentSpecForInstance(component).footprintBoundsMm,
+        localCandidateAnchorMm,
+        requestedRotationQuarterTurns ?? localRotationQuarterTurns,
+      ),
+    )
+
+    return {
+      candidateAnchorMm: args.candidateAnchorMm,
+      resolvedAnchorMm: args.candidateAnchorMm,
+      nearestHoleMm: args.candidateAnchorMm,
+      distanceToNearestHoleMm: 0,
+      status: 'warning' as const,
+      reason: 'outside-source-lane' as const,
+      isOnHole: false,
+      isMountSupported: false,
+      isFootprintInsideBoard: false,
+      isOccupied: false,
+      footprintBoundsMm,
+      supportBoundsMm: footprintBoundsMm,
+    }
+  }
+
+  const result = resolveComponentPlacement({
+    breadboard: surface.breadboard,
+    candidateAnchorMm: surfaceWorldToLocal(scene, hostSurfaceId, args.candidateAnchorMm),
+    component: localComponent,
+    dropSnapCaptureRadiusMm: args.dropSnapCaptureRadiusMm,
+    phase: args.phase,
+    rotationQuarterTurns: requestedRotationQuarterTurns,
+    snapMode: args.snapMode,
+    spec: args.spec,
+  })
+
+  return {
+    ...result,
+    candidateAnchorMm: surfaceLocalToWorld(scene, hostSurfaceId, result.candidateAnchorMm),
+    resolvedAnchorMm: surfaceLocalToWorld(scene, hostSurfaceId, result.resolvedAnchorMm),
+    nearestHoleMm: surfaceLocalToWorld(scene, hostSurfaceId, result.nearestHoleMm),
+    snappedHoleMm: result.snappedHoleMm
+      ? surfaceLocalToWorld(scene, hostSurfaceId, result.snappedHoleMm)
+      : undefined,
+    snapPreviewHoleMm: result.snapPreviewHoleMm
+      ? surfaceLocalToWorld(scene, hostSurfaceId, result.snapPreviewHoleMm)
+      : undefined,
+    footprintBoundsMm: transformSurfaceLocalBoundsToWorld(
+      scene,
+      hostSurfaceId,
+      result.footprintBoundsMm,
+    ),
+    supportBoundsMm: transformSurfaceLocalBoundsToWorld(
+      scene,
+      hostSurfaceId,
+      result.supportBoundsMm,
+    ),
+  }
+}
+
+export function inspectSceneComponentPlacement(
+  scene: SceneDocument,
+  component: ComponentInstance,
+  spec: ResolvedComponentSpec = getResolvedComponentSpecForInstance(component),
+) {
+  return resolveScenePlacement({
+    scene,
     candidateAnchorMm: component.anchorMm,
     component,
     phase: 'inspect',
@@ -389,11 +597,55 @@ export function annotatePlacementOccupancy(args: {
   }
 }
 
+export function annotateScenePlacementOccupancy(args: {
+  scene: SceneDocument
+  components: ComponentInstance[]
+  ignoreComponentId?: string
+  result: PlacementResult
+  hostSurfaceId?: string
+}) {
+  const { scene, components, ignoreComponentId, result } = args
+  const resolvedHostSurfaceId = args.hostSurfaceId ?? getDefaultSurfaceId(scene)
+  const isOccupied = components.some((component) => {
+    if (component.id === ignoreComponentId) {
+      return false
+    }
+
+    if (
+      getHostSurfaceIdForComponent(scene, component) !== resolvedHostSurfaceId
+    ) {
+      return false
+    }
+
+    const existingPlacement = inspectSceneComponentPlacement(scene, component)
+
+    return doBoundsIntersect(result.supportBoundsMm, existingPlacement.supportBoundsMm)
+  })
+
+  if (!isOccupied) {
+    return result
+  }
+
+  if (result.status === 'warning') {
+    return {
+      ...result,
+      isOccupied: true,
+    }
+  }
+
+  return {
+    ...result,
+    isOccupied: true,
+    status: 'warning' as const,
+    reason: 'occupied' as const,
+  }
+}
+
 export function reconcileComponentAnchorForBreadboard(
   component: ComponentInstance,
   breadboard: BreadboardModel,
 ) {
-  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const spec = getResolvedComponentSpecForInstance(component)
 
   return resolveComponentPlacement({
     breadboard,
@@ -403,6 +655,22 @@ export function reconcileComponentAnchorForBreadboard(
     rotationQuarterTurns: component.rotationQuarterTurns,
     snapMode: spec.mount.mode === 'hole-mounted' ? 'always' : 'none',
     spec,
+  }).resolvedAnchorMm
+}
+
+export function reconcileComponentAnchorForScene(
+  component: ComponentInstance,
+  scene: SceneDocument,
+) {
+  const spec = getResolvedComponentSpecForInstance(component)
+
+  return resolveScenePlacement({
+    scene,
+    candidateAnchorMm: component.anchorMm,
+    component,
+    phase: 'drop',
+    rotationQuarterTurns: component.rotationQuarterTurns,
+    snapMode: spec.mount.mode === 'hole-mounted' ? 'always' : 'none',
   }).resolvedAnchorMm
 }
 
@@ -447,7 +715,7 @@ export function findDuplicatePlacement(args: {
   components: ComponentInstance[]
 }) {
   const { breadboard, component, components } = args
-  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const spec = getResolvedComponentSpecForInstance(component)
   const candidates = createOffsetCandidates(component.anchorMm, breadboard, component)
   let firstWarningResult: PlacementResult | undefined
 
@@ -488,6 +756,72 @@ export function findDuplicatePlacement(args: {
   return firstWarningResult
 }
 
+export function findDuplicateScenePlacement(args: {
+  component: ComponentInstance
+  components: ComponentInstance[]
+  scene: SceneDocument
+}) {
+  const { component, components, scene } = args
+  const surface = getSurfacePlacementModel(
+    scene,
+    getHostSurfaceIdForComponent(scene, component),
+  )
+  const localAnchorMm = surfaceWorldToLocal(
+    scene,
+    surface.hostSurfaceId,
+    component.anchorMm,
+  )
+  const localComponent = {
+    ...component,
+    anchorMm: localAnchorMm,
+    rotationQuarterTurns:
+      ((component.rotationQuarterTurns - surface.rotationQuarterTurns + 4) %
+        4) as QuarterTurn,
+  }
+  const candidates = createOffsetCandidates(
+    localAnchorMm,
+    surface.breadboard,
+    localComponent,
+  )
+  let firstWarningResult: PlacementResult | undefined
+
+  for (const localCandidateMm of candidates) {
+    const worldCandidateMm = surfaceLocalToWorld(
+      scene,
+      surface.hostSurfaceId,
+      localCandidateMm,
+    )
+    const placement = annotateScenePlacementOccupancy({
+      scene,
+      components,
+      ignoreComponentId: component.id,
+      result: resolveScenePlacement({
+        scene,
+        candidateAnchorMm: worldCandidateMm,
+        component,
+        phase: 'drop',
+        rotationQuarterTurns: component.rotationQuarterTurns,
+        snapMode:
+          getResolvedComponentSpecForInstance(component).mount.mode ===
+          'hole-mounted'
+            ? 'always'
+            : 'none',
+      }),
+      hostSurfaceId: surface.hostSurfaceId,
+    })
+
+    if (placement.status !== 'warning' && !placement.isOccupied) {
+      return placement
+    }
+
+    if (!firstWarningResult && !placement.isOccupied) {
+      firstWarningResult = placement
+    }
+  }
+
+  return firstWarningResult
+}
+
 function getPrimaryTargetPoint(component: ComponentInstance) {
   const ports = getWorldPortsForComponent(component)
   const inputPort = ports.find((port) => port.kind === 'beam-input')
@@ -496,7 +830,7 @@ function getPrimaryTargetPoint(component: ComponentInstance) {
     return inputPort.worldPositionMm
   }
 
-  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const spec = getResolvedComponentSpecForInstance(component)
 
   if (spec.opticalCenterMm) {
     return {
@@ -532,6 +866,35 @@ export function alignExternalSourceToTarget(args: {
   return {
     anchorMm: getLaneAnchorMm(breadboard, lane, targetPoint),
     rotationQuarterTurns: getRotationForSourceLane(lane),
+  }
+}
+
+export function alignSceneSourceToTarget(args: {
+  lane: SourceLane
+  scene: SceneDocument
+  source: ComponentInstance
+  target?: ComponentInstance
+}) {
+  const { lane, scene, source, target } = args
+  const hostSurfaceId = getHostSurfaceIdForComponent(scene, source)
+  const surface = getSurfacePlacementModel(scene, hostSurfaceId)
+  const defaultAnchorLocalMm = getLaneAnchorMm(surface.breadboard, lane, {
+    x: surface.breadboard.widthMm / 2,
+    y: surface.breadboard.heightMm / 2,
+  })
+  const targetPointLocalMm =
+    target && isOpticalTarget(target.type)
+      ? surfaceWorldToLocal(scene, hostSurfaceId, getPrimaryTargetPoint(target))
+      : undefined
+  const localAnchorMm = targetPointLocalMm
+    ? getLaneAnchorMm(surface.breadboard, lane, targetPointLocalMm)
+    : defaultAnchorLocalMm
+  const localRotationQuarterTurns = getRotationForSourceLane(lane)
+
+  return {
+    anchorMm: surfaceLocalToWorld(scene, hostSurfaceId, localAnchorMm),
+    rotationQuarterTurns:
+      ((localRotationQuarterTurns + surface.rotationQuarterTurns) % 4) as QuarterTurn,
   }
 }
 

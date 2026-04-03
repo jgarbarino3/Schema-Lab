@@ -324,12 +324,25 @@ textarea {
 
 .toolbar__warning-item {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: start;
+  border: 1px solid rgba(136, 160, 174, 0.14);
+  border-radius: 12px;
+  padding: 0.72rem 0.76rem;
+  background: rgba(8, 12, 16, 0.5);
+}
+
+.toolbar__warning-item-main {
+  display: grid;
   gap: 0.22rem;
   align-items: start;
   justify-items: start;
   text-align: left;
-  border-radius: 12px;
-  padding: 0.72rem 0.76rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
 }
 
 .toolbar__warning-item.is-selected {
@@ -337,11 +350,11 @@ textarea {
   background: linear-gradient(180deg, rgba(54, 44, 25, 0.96), rgba(38, 30, 17, 0.96));
 }
 
-.toolbar__warning-item strong {
+.toolbar__warning-item-main strong {
   line-height: 1.35;
 }
 
-.toolbar__warning-item span:last-child,
+.toolbar__warning-item-main span:last-child,
 .toolbar__warning-empty {
   color: var(--muted);
   font-size: 0.8rem;
@@ -353,6 +366,16 @@ textarea {
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.toolbar__warning-item-actions {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar__warning-item-actions button {
+  font-size: 0.75rem;
+  padding: 0.38rem 0.56rem;
 }
 
 .toolbar__menu-header {
@@ -901,15 +924,22 @@ textarea {
 }
 
 .modal-shell__list-item {
-  display: grid;
-  gap: 0.18rem;
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
   padding: 0.78rem 0.84rem;
   border: 1px solid rgba(136, 160, 174, 0.12);
   border-radius: 12px;
   background: rgba(8, 12, 16, 0.36);
 }
 
+.modal-shell__list-item input {
+  margin-top: 0.15rem;
+}
+
 .modal-shell__list-item span {
+  display: grid;
+  gap: 0.18rem;
   color: var(--muted);
   font-size: 0.8rem;
 }

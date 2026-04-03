@@ -33,6 +33,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      scope: 'breadboard-only',
       showGaussianEnvelope: false,
       viewport,
     })

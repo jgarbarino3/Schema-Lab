@@ -1,5 +1,8 @@
-import { findBreadboardPresetId, getDefaultBreadboard } from './breadboardPresets'
+import { findBreadboardPresetId } from './breadboardPresets'
 import { createDefaultPolarizationConfig } from './polarization'
+import {
+  createFreshSingleBreadboardWorkspace,
+} from './workspace'
 import {
   COMPONENT_DEFINITIONS_BY_TYPE,
   createDefaultComponentConfig,
@@ -8,17 +11,20 @@ import {
 import type {
   BreadboardFinish,
   BreadboardModel,
+  BreadboardInstance,
   ComponentConfig,
   ComponentInstance,
   ComponentType,
   CounterborePattern,
   HoleDensity,
+  OpticalTableModel,
   QuarterTurn,
   SceneBeamSettings,
   SceneDocument,
   PolarizationPresetId,
   SourceLane,
   Vector2Mm,
+  WorkspaceModel,
 } from './types'
 import {
   LEGACY_SCENE_DOCUMENT_VERSION,
@@ -38,7 +44,9 @@ const COUNTERBORE_PATTERN_VALUES: CounterborePattern[] = ['none', 'corner-25mm']
 const SOURCE_LANE_VALUES: SourceLane[] = ['left', 'right', 'top', 'bottom']
 const SOURCE_PRESET_VALUES = [
   'ti-sapphire',
+  'libra',
   'pharos',
+  'clark-ti-sapphire',
   'opa-visible-passband',
   'opa-visible-broadband',
 ] as const
@@ -148,6 +156,93 @@ function parseBreadboard(value: unknown): BreadboardModel {
   return {
     ...breadboard,
     presetId: findBreadboardPresetId(breadboard),
+  }
+}
+
+function parseOpticalTable(value: unknown): OpticalTableModel {
+  if (!isRecord(value)) {
+    throw new Error('workspace.table must be an object.')
+  }
+
+  return {
+    label: expectString(value, 'label'),
+    widthMm: expectNumber(value, 'widthMm'),
+    heightMm: expectNumber(value, 'heightMm'),
+    holeSpacingMm: expectNumber(value, 'holeSpacingMm'),
+    edgeMarginMm: expectNumber(value, 'edgeMarginMm'),
+    thicknessMm: expectNumber(value, 'thicknessMm'),
+    finish: 'silver',
+    holeDensity: expectEnum(value, 'holeDensity', HOLE_DENSITY_VALUES),
+    counterborePattern: expectEnum(
+      value,
+      'counterborePattern',
+      COUNTERBORE_PATTERN_VALUES,
+    ),
+  }
+}
+
+function parseBreadboardInstance(value: unknown): BreadboardInstance {
+  if (!isRecord(value)) {
+    throw new Error('workspace.breadboards entries must be objects.')
+  }
+
+  return {
+    id: expectString(value, 'id'),
+    label: expectString(value, 'label'),
+    model: parseBreadboard(value.model),
+    anchorMm: expectVector2(value, 'anchorMm'),
+    rotationQuarterTurns: parseQuarterTurn(
+      typeof value.rotationQuarterTurns === 'number'
+        ? value.rotationQuarterTurns
+        : 0,
+    ),
+  }
+}
+
+function parseWorkspace(
+  parsedValue: Record<string, unknown>,
+  version: number,
+): WorkspaceModel {
+  if (
+    version === PREVIOUS_SCENE_DOCUMENT_VERSION ||
+    version === STAGE2_SCENE_DOCUMENT_VERSION ||
+    version === LEGACY_SCENE_DOCUMENT_VERSION ||
+    version === STAGE1_SCENE_DOCUMENT_VERSION
+  ) {
+    return {
+      kind: 'single-breadboard',
+      breadboard: parseBreadboard(parsedValue.breadboard),
+    }
+  }
+
+  const workspaceValue = parsedValue.workspace
+
+  if (!isRecord(workspaceValue)) {
+    throw new Error('workspace must be an object.')
+  }
+
+  const kind = expectEnum(workspaceValue, 'kind', [
+    'single-breadboard',
+    'optical-table',
+  ])
+
+  if (kind === 'single-breadboard') {
+    return {
+      kind,
+      breadboard: parseBreadboard(workspaceValue.breadboard),
+    }
+  }
+
+  const breadboardsValue = workspaceValue.breadboards
+
+  if (!Array.isArray(breadboardsValue)) {
+    throw new Error('workspace.breadboards must be an array.')
+  }
+
+  return {
+    kind,
+    table: parseOpticalTable(workspaceValue.table),
+    breadboards: breadboardsValue.map((item) => parseBreadboardInstance(item)),
   }
 }
 
@@ -272,6 +367,21 @@ function parseComponentConfig(
             clearApertureMm: expectNumber(value.lens, 'clearApertureMm'),
           }
         : defaults.lens,
+    attenuator:
+      isRecord(value.attenuator) && type === 'attenuator'
+        ? {
+            transmissionPercent: expectNumber(
+              value.attenuator,
+              'transmissionPercent',
+            ),
+            orientation:
+              typeof value.attenuator.orientation === 'string' &&
+              (value.attenuator.orientation === 'horizontal' ||
+                value.attenuator.orientation === 'vertical')
+                ? value.attenuator.orientation
+                : 'horizontal',
+          }
+        : defaults.attenuator,
     iris:
       isRecord(value.iris) && type === 'iris'
         ? {
@@ -334,9 +444,26 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
     label: expectString(value, 'label'),
     variantId,
     anchorMm: expectVector2(value, 'anchorMm'),
+    hostSurfaceId:
+      typeof value.hostSurfaceId === 'string' ? value.hostSurfaceId : undefined,
     rotationQuarterTurns: parseQuarterTurn(
       expectNumber(value, 'rotationQuarterTurns'),
     ),
+    geometryOverride:
+      isRecord(value.geometryOverride) &&
+      (typeof value.geometryOverride.widthMm === 'number' ||
+        typeof value.geometryOverride.heightMm === 'number')
+        ? {
+            widthMm:
+              typeof value.geometryOverride.widthMm === 'number'
+                ? expectNumber(value.geometryOverride, 'widthMm')
+                : undefined,
+            heightMm:
+              typeof value.geometryOverride.heightMm === 'number'
+                ? expectNumber(value.geometryOverride, 'heightMm')
+                : undefined,
+          }
+        : undefined,
     config:
       version === LEGACY_SCENE_DOCUMENT_VERSION ||
       version === STAGE1_SCENE_DOCUMENT_VERSION
@@ -368,7 +495,7 @@ export function createEmptyScene(): SceneDocument {
     metadata: {
       name: 'Untitled Schema-Lab Scene',
     },
-    breadboard: getDefaultBreadboard(),
+    workspace: createFreshSingleBreadboardWorkspace(),
     beamSettings: cloneBeamSettings(),
     components: [],
   }
@@ -430,11 +557,22 @@ export function parseSceneDocument(rawText: string): SceneDocument {
     metadata: {
       name: expectString(metadataValue, 'name'),
     },
-    breadboard: parseBreadboard(parsedValue.breadboard),
+    workspace: parseWorkspace(parsedValue, version),
     beamSettings:
       version === LEGACY_SCENE_DOCUMENT_VERSION
         ? cloneBeamSettings()
         : parseBeamSettings(parsedValue.beamSettings),
-    components: componentsValue.map((component) => parseComponent(component, version)),
+    components: componentsValue.map((component) => {
+      const nextComponent = parseComponent(component, version)
+
+      if (version === PREVIOUS_SCENE_DOCUMENT_VERSION) {
+        return {
+          ...nextComponent,
+          hostSurfaceId: undefined,
+        }
+      }
+
+      return nextComponent
+    }),
   }
 }

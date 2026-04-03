@@ -36,6 +36,33 @@ function insetBounds(
   )
 }
 
+function scaleBounds(
+  source: BoundsMm | undefined,
+  scaleX: number,
+  scaleY: number,
+) {
+  if (!source) {
+    return undefined
+  }
+
+  return bounds(
+    source.x * scaleX,
+    source.y * scaleY,
+    source.width * scaleX,
+    source.height * scaleY,
+  )
+}
+
+function scalePorts(ports: PortDefinition[], scaleX: number, scaleY: number) {
+  return ports.map((item) => ({
+    ...item,
+    positionMm: {
+      x: item.positionMm.x * scaleX,
+      y: item.positionMm.y * scaleY,
+    },
+  }))
+}
+
 function port(
   id: string,
   label: string,
@@ -314,6 +341,7 @@ export const COMPONENT_CATEGORY_LABELS: Record<ComponentCategory, string> = {
   source: 'Sources',
   steering: 'Steering',
   splitting: 'Splitters',
+  attenuation: 'Attenuation',
   focusing: 'Focusing',
   conditioning: 'Filters',
   aperture: 'Apertures',
@@ -329,6 +357,7 @@ export const COMPONENT_CATEGORY_ORDER: ComponentCategory[] = [
   'source',
   'steering',
   'splitting',
+  'attenuation',
   'conditioning',
   'aperture',
   'nonlinear',
@@ -363,6 +392,63 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'fs-source-head',
         label: 'Femtosecond Source Head',
         description: 'External off-board ultrafast source head for FROG and SHG planning.',
+      },
+      {
+        id: 'libra',
+        label: 'Coherent Libra',
+        vendor: 'Coherent',
+        sku: 'LIBRA',
+        description: 'Table-mounted Libra class laser body.',
+        footprintBoundsMm: bounds(-625, -400, 1250, 800),
+        visualBodyBoundsMm: bounds(-610, -385, 1220, 770),
+        hitBoundsMm: bounds(-640, -415, 1280, 830),
+        mount: mount('hole-mounted', -625, -400, 1250, 800),
+        opticalCenterMm: { x: 560, y: 0 },
+        ports: [port('output', 'Output', 'beam-output', 625, 0, 'east')],
+        renderHint: {
+          shape: 'rect',
+          fill: '#8b928f',
+          stroke: '#dce3df',
+          glyph: 'laser',
+        },
+      },
+      {
+        id: 'pharos-body',
+        label: 'Light Conversion Pharos',
+        vendor: 'Light Conversion',
+        sku: 'PHAROS',
+        description: 'Table-mounted Pharos laser body with practical default footprint.',
+        footprintBoundsMm: bounds(-500, -250, 1000, 500),
+        visualBodyBoundsMm: bounds(-488, -238, 976, 476),
+        hitBoundsMm: bounds(-516, -266, 1032, 532),
+        mount: mount('hole-mounted', -500, -250, 1000, 500),
+        opticalCenterMm: { x: 445, y: 0 },
+        ports: [port('output', 'Output', 'beam-output', 500, 0, 'east')],
+        renderHint: {
+          shape: 'rect',
+          fill: '#798892',
+          stroke: '#c7d7e2',
+          glyph: 'laser',
+        },
+      },
+      {
+        id: 'clark-ti-sapphire',
+        label: 'Clark Ti:Sapphire',
+        vendor: 'Clark',
+        sku: 'TI-SAPPHIRE',
+        description: 'Table-mounted Ti:sapphire oscillator or amplifier body.',
+        footprintBoundsMm: bounds(-450, -225, 900, 450),
+        visualBodyBoundsMm: bounds(-438, -213, 876, 426),
+        hitBoundsMm: bounds(-468, -243, 936, 486),
+        mount: mount('hole-mounted', -450, -225, 900, 450),
+        opticalCenterMm: { x: 395, y: 0 },
+        ports: [port('output', 'Output', 'beam-output', 450, 0, 'east')],
+        renderHint: {
+          shape: 'rect',
+          fill: '#6d7d88',
+          stroke: '#c8d7df',
+          glyph: 'laser',
+        },
       },
     ],
   },
@@ -447,6 +533,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'CF125C/M',
         description: 'Clamping fork for 1.25 in pedestal bases; standard choice.',
+        footprintBoundsMm: bounds(-37.5, -18, 75, 36),
       },
       {
         id: 'cf175c-m',
@@ -479,6 +566,62 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'RSHT1.5/M',
         description: '25 mm post holder with flexure lock, 38 mm long.',
         footprintBoundsMm: bounds(-11, -11, 22, 22),
+      },
+      {
+        id: 'pedestal-assembly-31.8',
+        label: 'Pedestal Assembly',
+        vendor: 'Generic',
+        sku: 'PED-31.8',
+        description: 'Pedestal base, post, and post-holder style assembly for mounted optics.',
+        footprintBoundsMm: bounds(-18, -18, 36, 36),
+      },
+      {
+        id: 'linear-slide-mini',
+        label: 'Linear Slide',
+        vendor: 'Generic',
+        sku: 'LIN-SLIDE-MINI',
+        description: 'Small translation or positioning base used under compact optics.',
+        footprintBoundsMm: bounds(-28, -16, 56, 32),
+      },
+      {
+        id: 'beam-block-plate',
+        label: 'Beam Block / Plate Holder',
+        vendor: 'Generic',
+        sku: 'PLATE-BLOCK',
+        description: 'Opaque plate or beam-block style hardware.',
+        footprintBoundsMm: bounds(-20, -14, 40, 28),
+      },
+      {
+        id: 'manual-delay-axis',
+        label: 'Manual Delay Axis',
+        vendor: 'Generic',
+        sku: 'DELAY-MANUAL',
+        description: 'Manual delay axis with knob-driven travel for OPA timing paths.',
+        footprintBoundsMm: bounds(-80, -30, 160, 60),
+      },
+      {
+        id: 'periscope',
+        label: 'Periscope',
+        vendor: 'Generic',
+        sku: 'PERISCOPE',
+        description: 'Periscope assembly for beam-height transfer between planes.',
+        footprintBoundsMm: bounds(-22, -48, 44, 96),
+      },
+      {
+        id: 'white-light-cell',
+        label: 'White-Light Generator',
+        vendor: 'Generic',
+        sku: 'WLG',
+        description: 'White-light generation hardware block for OPA-style layouts.',
+        footprintBoundsMm: bounds(-18, -18, 36, 36),
+      },
+      {
+        id: 'pump-seed-combiner',
+        label: 'Pump / Seed Assembly',
+        vendor: 'Generic',
+        sku: 'PUMP-SEED',
+        description: 'Mechanically distinct pump and seed handling hardware.',
+        footprintBoundsMm: bounds(-26, -18, 52, 36),
       },
     ],
   },
@@ -529,6 +672,22 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'PF10-03-F01',
         description: '1 in UV-enhanced aluminum mirror for post-BBO UV steering.',
         physics: mirrorPhysics(250, 700, 89, 4),
+      },
+      {
+        id: 'concave-1in',
+        label: 'Concave Mirror',
+        vendor: 'Generic',
+        sku: 'CONCAVE-1IN',
+        description: '1 in concave mirror placeholder with simplified steering physics.',
+        physics: mirrorPhysics(350, 1600, 96, 1.5),
+      },
+      {
+        id: 'convex-1in',
+        label: 'Convex Mirror',
+        vendor: 'Generic',
+        sku: 'CONVEX-1IN',
+        description: '1 in convex mirror placeholder with simplified steering physics.',
+        physics: mirrorPhysics(350, 1600, 95, 2),
       },
     ],
   },
@@ -748,6 +907,62 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
   },
   {
+    type: 'attenuator',
+    category: 'attenuation',
+    defaultLabel: 'Attenuator',
+    familyLabel: 'Attenuator',
+    defaultVariantId: 'variable-nd-horizontal',
+    footprintBoundsMm: bounds(-17, -17, 34, 34),
+    visualBodyBoundsMm: bounds(-11, -11, 22, 22),
+    mountVisualBoundsMm: bounds(-18, -18, 36, 36),
+    hitBoundsMm: bounds(-20, -20, 40, 40),
+    mount: mount('clamp-capable', -11, -11, 22, 22),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -17, 0, 'west'),
+      port('east', 'Output', 'beam-output', 17, 0, 'east'),
+    ],
+    renderHint: renderHint('circle', '#4d4635', '#efd89b', 'attenuator'),
+    mountRenderHint: renderHint('circle', 'rgba(68, 62, 48, 0.84)', '#bca875', 'mount'),
+    physics: passThroughPhysics(50, 350, 2000, 25.4),
+    recommendedHardware: {
+      mount: 'Rotation-compatible ND filter mount',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
+    variants: [
+      {
+        id: 'variable-nd-horizontal',
+        label: 'Variable ND Attenuator',
+        description: 'Scalar attenuation optic in a horizontal mount orientation.',
+        physics: {
+          kind: 'pass-through',
+          opticalApertureMm: 25.4,
+          transmissionPercent: 50,
+          supportedWavelengthNm: {
+            minNm: 350,
+            maxNm: 2000,
+          },
+          orientation: 'horizontal',
+        },
+      },
+      {
+        id: 'variable-nd-vertical',
+        label: 'Variable ND Attenuator',
+        description: 'Scalar attenuation optic in a vertical mount orientation.',
+        physics: {
+          kind: 'pass-through',
+          opticalApertureMm: 25.4,
+          transmissionPercent: 50,
+          supportedWavelengthNm: {
+            minNm: 350,
+            maxNm: 2000,
+          },
+          orientation: 'vertical',
+        },
+      },
+    ],
+  },
+  {
     type: 'iris',
     category: 'aperture',
     defaultLabel: 'Iris',
@@ -914,6 +1129,25 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           port('east', 'Output', 'beam-output', 42.5, 0, 'east'),
         ],
       },
+      {
+        id: 'pi-ls-180',
+        label: 'Motorized Delay Stage',
+        vendor: 'PI',
+        sku: 'LS-180',
+        description: 'Large PI LS-180 stage with carriage and cable-chain sweep envelope.',
+        footprintBoundsMm: bounds(-325.5, -90, 651, 180),
+        visualBodyBoundsMm: bounds(-325.5, -75, 651, 150),
+        hitBoundsMm: bounds(-360, -120, 720, 240),
+        mount: mount('hole-mounted', -360, -120, 720, 240),
+        recommendedHardware: {
+          mount: 'Integrated stage base with cable chain envelope',
+          post: 'Direct table mounting',
+        },
+        ports: [
+          port('west', 'Input', 'beam-input', -325.5, 0, 'west'),
+          port('east', 'Output', 'beam-output', 325.5, 0, 'east'),
+        ],
+      },
     ],
   },
   {
@@ -965,6 +1199,20 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Ocean Optics',
         sku: 'SR6',
         description: 'Approximately 200-1000 nm spectrometer range.',
+      },
+      {
+        id: 'spectrapro-sp-2150',
+        label: 'Spectrometer',
+        vendor: 'Teledyne Princeton Instruments',
+        sku: 'SpectraPro SP-2150',
+        description: 'Top-view SP-2150 body with practical footprint and side attachment silhouette.',
+        footprintBoundsMm: bounds(-89, -89, 178, 178),
+        visualBodyBoundsMm: bounds(-89, -89, 178, 178),
+        hitBoundsMm: bounds(-104, -104, 208, 208),
+        mount: mount('hole-mounted', -89, -89, 178, 178),
+        mountVisualBoundsMm: bounds(-89, -89, 178, 178),
+        opticalCenterMm: { x: -70, y: 0 },
+        ports: [port('input', 'Input', 'beam-input', -89, 0, 'west')],
       },
     ],
   },
@@ -1092,6 +1340,44 @@ export function getResolvedComponentSpec(
   }
 }
 
+export function getResolvedComponentSpecForInstance(
+  component: ComponentInstance,
+): ResolvedComponentSpec {
+  const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const widthOverrideMm = component.geometryOverride?.widthMm
+  const heightOverrideMm = component.geometryOverride?.heightMm
+
+  if (!widthOverrideMm && !heightOverrideMm) {
+    return spec
+  }
+
+  const scaleX = widthOverrideMm
+    ? widthOverrideMm / spec.footprintBoundsMm.width
+    : 1
+  const scaleY = heightOverrideMm
+    ? heightOverrideMm / spec.footprintBoundsMm.height
+    : 1
+
+  return {
+    ...spec,
+    footprintBoundsMm: scaleBounds(spec.footprintBoundsMm, scaleX, scaleY)!,
+    visualBodyBoundsMm: scaleBounds(spec.visualBodyBoundsMm, scaleX, scaleY)!,
+    hitBoundsMm: scaleBounds(spec.hitBoundsMm, scaleX, scaleY)!,
+    mountVisualBoundsMm: scaleBounds(spec.mountVisualBoundsMm, scaleX, scaleY),
+    mount: {
+      ...spec.mount,
+      supportBoundsMm: scaleBounds(spec.mount.supportBoundsMm, scaleX, scaleY)!,
+    },
+    opticalCenterMm: spec.opticalCenterMm
+      ? {
+          x: spec.opticalCenterMm.x * scaleX,
+          y: spec.opticalCenterMm.y * scaleY,
+        }
+      : undefined,
+    ports: scalePorts(spec.ports, scaleX, scaleY),
+  }
+}
+
 export function getComponentVariants(type: ComponentType) {
   return getComponentDefinition(type).variants
 }
@@ -1176,6 +1462,23 @@ export function createDefaultComponentConfig(
 
       return {
         lens: defaultConfig,
+        support: supportConfig,
+      }
+    }
+    case 'attenuator': {
+      return {
+        attenuator: {
+          transmissionPercent:
+            spec.physics.kind === 'pass-through'
+              ? spec.physics.transmissionPercent
+              : 50,
+          orientation:
+            spec.physics.kind === 'pass-through' &&
+            'orientation' in spec.physics &&
+            spec.physics.orientation === 'vertical'
+              ? 'vertical'
+              : 'horizontal',
+        },
         support: supportConfig,
       }
     }

@@ -7,7 +7,7 @@ import {
   type MouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { BeamTraceResult, SceneWarning } from '../domain/types'
+import type { BeamTraceResult, SceneWarning, WorkspaceKind } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 
 export type ExportAction =
@@ -23,6 +23,7 @@ export type ExportAction =
 
 interface ToolbarProps {
   beamTrace: BeamTraceResult
+  dismissedWarningCount: number
   isInspectorCollapsed: boolean
   isLibraryCollapsed: boolean
   isWarningPulse: boolean
@@ -30,9 +31,11 @@ interface ToolbarProps {
   onImportSceneJson: () => void
   onOpenOnboarding: () => void
   onOpenJson: () => void
+  onRequestWorkspaceKind: (workspaceKind: WorkspaceKind) => void
   onToggleInspector: () => void
   onToggleLibrary: () => void
   warnings: SceneWarning[]
+  workspaceKind: WorkspaceKind
 }
 
 function getFloatingStyle(button: HTMLButtonElement | null) {
@@ -59,6 +62,7 @@ function getFloatingStyle(button: HTMLButtonElement | null) {
 
 export function Toolbar({
   beamTrace,
+  dismissedWarningCount,
   isInspectorCollapsed,
   isLibraryCollapsed,
   isWarningPulse,
@@ -66,9 +70,11 @@ export function Toolbar({
   onImportSceneJson,
   onOpenOnboarding,
   onOpenJson,
+  onRequestWorkspaceKind,
   onToggleInspector,
   onToggleLibrary,
   warnings,
+  workspaceKind,
 }: ToolbarProps) {
   const helpButtonRef = useRef<HTMLButtonElement | null>(null)
   const helpPopoverRef = useRef<HTMLDivElement | null>(null)
@@ -94,6 +100,13 @@ export function Toolbar({
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setWarningFilter = useEditorStore((state) => state.setWarningFilter)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
+  const dismissWarning = useEditorStore((state) => state.dismissWarning)
+  const dismissVisibleWarnings = useEditorStore(
+    (state) => state.dismissVisibleWarnings,
+  )
+  const restoreDismissedWarnings = useEditorStore(
+    (state) => state.restoreDismissedWarnings,
+  )
   const interaction = useEditorStore((state) => state.interaction)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
@@ -276,7 +289,13 @@ export function Toolbar({
             <section>
               <h3>Placement Mode</h3>
               <p>
-                Clicking a family arms a pending placement. Move over the board, press R to rotate, click or tap to place, and Esc to cancel.
+                Clicking a family arms a pending placement. In optical-table mode, pick the active host surface first, then place onto the table or the selected breadboard. Press R to rotate, click or tap to place, and Esc to cancel.
+              </p>
+            </section>
+            <section>
+              <h3>Workspace</h3>
+              <p>
+                Board keeps a single breadboard scene. Table promotes the scene onto a 3600 × 1500 mm optical table where additional breadboards can be added and table-mounted hardware can live beside them.
               </p>
             </section>
             <section>
@@ -300,7 +319,13 @@ export function Toolbar({
             <section>
               <h3>Warnings</h3>
               <p>
-                Warning filters let you show or hide simple mechanical warnings and advanced optical warnings. Export review will still surface unresolved warnings before export.
+                Warning filters let you show or hide simple mechanical warnings and advanced optical warnings. You can dismiss individual warnings or all visible warnings for the current session, and export review only blocks on the warnings you have not dismissed.
+              </p>
+            </section>
+            <section>
+              <h3>Resize</h3>
+              <p>
+                Selected components expose resize handles so you can tune uncertain hardware footprints such as detectors, stages, or large laser bodies without changing the underlying beam model beyond the scaled geometry.
               </p>
             </section>
             <section>
@@ -355,27 +380,65 @@ export function Toolbar({
                   Advanced
                 </button>
               </div>
+              <div className="toolbar__warning-filter-group">
+                <button
+                  disabled={filteredWarnings.length === 0}
+                  onClick={() =>
+                    dismissVisibleWarnings(filteredWarnings.map((warning) => warning.id))
+                  }
+                  type="button"
+                >
+                  Dismiss visible
+                </button>
+                <button
+                  disabled={dismissedWarningCount === 0}
+                  onClick={restoreDismissedWarnings}
+                  type="button"
+                >
+                  Restore dismissed
+                </button>
+              </div>
             </div>
 
             {filteredWarnings.length > 0 ? (
               <div className="toolbar__warning-list">
                 {filteredWarnings.map((warning) => (
-                  <button
+                  <div
                     className={`toolbar__warning-item${warning.id === interaction.selectedWarningId ? ' is-selected' : ''}`}
                     key={warning.id}
-                    onClick={() => {
-                      setSelectedWarningId(warning.id)
-                    }}
-                    type="button"
                   >
-                    <span className="toolbar__warning-item-tag">
-                      {warning.tier} • {warning.category}
-                    </span>
-                    <strong>{warning.message}</strong>
-                    <span>{warning.severity}</span>
-                  </button>
+                    <button
+                      className="toolbar__warning-item-main"
+                      onClick={() => {
+                        setSelectedWarningId(warning.id)
+                      }}
+                      type="button"
+                    >
+                      <span className="toolbar__warning-item-tag">
+                        {warning.tier} • {warning.category}
+                      </span>
+                      <strong>{warning.message}</strong>
+                      <span>{warning.severity}</span>
+                    </button>
+                    <div className="toolbar__warning-item-actions">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          dismissWarning(warning.id)
+                        }}
+                        type="button"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
+            ) : dismissedWarningCount > 0 ? (
+              <p className="toolbar__warning-empty">
+                All current warnings are dismissed for this session. Use Restore dismissed
+                to review them again.
+              </p>
             ) : (
               <p className="toolbar__warning-empty">
                 No warnings match the current filter settings.
@@ -595,6 +658,23 @@ export function Toolbar({
 
             <div className="toolbar__tool-group">
               <button
+                className={workspaceKind === 'single-breadboard' ? 'is-active-tool' : undefined}
+                onClick={() => onRequestWorkspaceKind('single-breadboard')}
+                type="button"
+              >
+                Board
+              </button>
+              <button
+                className={workspaceKind === 'optical-table' ? 'is-active-tool' : undefined}
+                onClick={() => onRequestWorkspaceKind('optical-table')}
+                type="button"
+              >
+                Table
+              </button>
+            </div>
+
+            <div className="toolbar__tool-group">
+              <button
                 className={renderMode === 'realistic' ? 'is-active-tool' : undefined}
                 onClick={() => setRenderMode('realistic')}
                 type="button"
@@ -639,7 +719,7 @@ export function Toolbar({
               Beam
             </button>
 
-            {warningCount > 0 ? (
+            {warningCount > 0 || dismissedWarningCount > 0 ? (
               <div className="toolbar__warning">
                 <button
                   aria-expanded={interaction.isWarningsOpen}
@@ -659,7 +739,7 @@ export function Toolbar({
                   ref={warningButtonRef}
                   type="button"
                 >
-                  Warnings {warningCount}
+                  Warnings{warningCount > 0 ? ` ${warningCount}` : ''}
                 </button>
               </div>
             ) : null}

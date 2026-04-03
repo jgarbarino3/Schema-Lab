@@ -1,7 +1,15 @@
 import { createViewportForBounds } from './geometry'
-import { inspectComponentPlacement } from './placement'
+import { inspectSceneComponentPlacement } from './placement'
 import { getSourceLaneBoundsMm } from './placement'
 import type { BoundsMm, CanvasSizePx, SceneDocument, ViewportState } from './types'
+import {
+  getBreadboardInstance,
+  getBreadboardInstances,
+  getBreadboardWorldBoundsMm,
+  getSingleBreadboard,
+  getWorkspacePrimaryBreadboard,
+  getWorkspaceWorldBoundsMm,
+} from './workspace'
 
 export type ExportScope = 'breadboard-only' | 'full-scheme'
 
@@ -34,29 +42,64 @@ function expandBounds(bounds: BoundsMm, paddingMm: number): BoundsMm {
 export function getExportWorldBoundsMm(
   scene: SceneDocument,
   scope: ExportScope,
+  breadboardSurfaceId?: string,
 ): BoundsMm {
-  const { breadboard } = scene
-  const boardBounds: BoundsMm = {
-    x: 0,
-    y: -BOARD_TITLE_MARGIN_MM,
-    width: breadboard.widthMm,
-    height: breadboard.heightMm + BOARD_TITLE_MARGIN_MM,
-  }
+  const breadboard = getWorkspacePrimaryBreadboard(scene)
+  const breadboardInstances = getBreadboardInstances(scene)
+  const exportBreadboardInstance =
+    scene.workspace.kind === 'optical-table'
+      ? getBreadboardInstance(scene, breadboardSurfaceId) ?? breadboardInstances[0]
+      : undefined
+  const primaryBreadboardBounds =
+    scene.workspace.kind === 'single-breadboard'
+      ? {
+          x: 0,
+          y: -BOARD_TITLE_MARGIN_MM,
+          width: breadboard.widthMm,
+          height: breadboard.heightMm + BOARD_TITLE_MARGIN_MM,
+        }
+      : exportBreadboardInstance
+        ? (() => {
+            const bounds = getBreadboardWorldBoundsMm(
+              exportBreadboardInstance.model,
+              exportBreadboardInstance.anchorMm,
+              exportBreadboardInstance.rotationQuarterTurns,
+            )
+
+            return {
+              x: bounds.x,
+              y: bounds.y - BOARD_TITLE_MARGIN_MM,
+              width: bounds.width,
+              height: bounds.height + BOARD_TITLE_MARGIN_MM,
+            }
+          })()
+        : {
+            x: 0,
+            y: -BOARD_TITLE_MARGIN_MM,
+            width: breadboard.widthMm,
+            height: breadboard.heightMm + BOARD_TITLE_MARGIN_MM,
+          }
 
   if (scope === 'breadboard-only') {
-    return expandBounds(boardBounds, EXPORT_PADDING_MM)
+    return expandBounds(primaryBreadboardBounds, EXPORT_PADDING_MM)
   }
 
-  const lanes = [
-    getSourceLaneBoundsMm(breadboard, 'left'),
-    getSourceLaneBoundsMm(breadboard, 'right'),
-    getSourceLaneBoundsMm(breadboard, 'top'),
-    getSourceLaneBoundsMm(breadboard, 'bottom'),
-  ]
-  let schemeBounds = lanes.reduce(unionBounds, boardBounds)
+  let schemeBounds = expandBounds(getWorkspaceWorldBoundsMm(scene), 0)
+
+  if (getSingleBreadboard(scene)) {
+    const lanes = [
+      getSourceLaneBoundsMm(breadboard, 'left'),
+      getSourceLaneBoundsMm(breadboard, 'right'),
+      getSourceLaneBoundsMm(breadboard, 'top'),
+      getSourceLaneBoundsMm(breadboard, 'bottom'),
+    ]
+    schemeBounds = lanes.reduce(unionBounds, primaryBreadboardBounds)
+  } else {
+    schemeBounds = unionBounds(schemeBounds, primaryBreadboardBounds)
+  }
 
   for (const component of scene.components) {
-    const placement = inspectComponentPlacement(breadboard, component)
+    const placement = inspectSceneComponentPlacement(scene, component)
     schemeBounds = unionBounds(schemeBounds, placement.supportBoundsMm)
     schemeBounds = unionBounds(schemeBounds, placement.footprintBoundsMm)
   }
@@ -68,9 +111,10 @@ export function createExportViewport(
   scene: SceneDocument,
   scope: ExportScope,
   canvasSizePx: CanvasSizePx,
+  breadboardSurfaceId?: string,
 ): ViewportState {
   return createViewportForBounds(
-    getExportWorldBoundsMm(scene, scope),
+    getExportWorldBoundsMm(scene, scope, breadboardSurfaceId),
     canvasSizePx,
     80,
   )

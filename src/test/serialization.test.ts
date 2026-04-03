@@ -89,11 +89,15 @@ describe('scene serialization', () => {
   })
 
   it('migrates a version 1 scene into the version 5 family/variant model', () => {
+    const seedScene = createEmptyScene()
     const legacyJson = JSON.stringify({
       kind: 'schema-lab.scene',
       version: 1,
       metadata: { name: 'Legacy Scene' },
-      breadboard: createEmptyScene().breadboard,
+      breadboard:
+        seedScene.workspace.kind === 'single-breadboard'
+          ? seedScene.workspace.breadboard
+          : undefined,
       components: [
         {
           id: 'clamp-1',
@@ -107,7 +111,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(5)
+    expect(migrated.version).toBe(6)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -117,11 +121,15 @@ describe('scene serialization', () => {
   })
 
   it('migrates a version 2 scene into version 5 with default polarization and Gaussian fields', () => {
+    const seedScene = createEmptyScene()
     const v2Json = JSON.stringify({
       kind: 'schema-lab.scene',
       version: 2,
       metadata: { name: 'Version 2 Scene' },
-      breadboard: createEmptyScene().breadboard,
+      breadboard:
+        seedScene.workspace.kind === 'single-breadboard'
+          ? seedScene.workspace.breadboard
+          : undefined,
       beamSettings: createEmptyScene().beamSettings,
       components: [
         {
@@ -158,7 +166,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(5)
+    expect(migrated.version).toBe(6)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -170,11 +178,15 @@ describe('scene serialization', () => {
   })
 
   it('migrates a version 3 scene into version 5 with default Gaussian and lens fields', () => {
+    const seedScene = createEmptyScene()
     const v3Json = JSON.stringify({
       kind: 'schema-lab.scene',
       version: 3,
       metadata: { name: 'Version 3 Scene' },
-      breadboard: createEmptyScene().breadboard,
+      breadboard:
+        seedScene.workspace.kind === 'single-breadboard'
+          ? seedScene.workspace.breadboard
+          : undefined,
       beamSettings: createEmptyScene().beamSettings,
       components: [
         {
@@ -207,7 +219,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(5)
+    expect(migrated.version).toBe(6)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

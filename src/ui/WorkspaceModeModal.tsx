@@ -1,0 +1,172 @@
+import { useEffect, useState } from 'react'
+
+interface BreadboardChoice {
+  id: string
+  label: string
+  dimensionsLabel: string
+}
+
+type WorkspaceModeModalState =
+  | {
+      mode: 'to-optical-table'
+      hasSavedSnapshot: boolean
+    }
+  | {
+      mode: 'to-single-breadboard'
+      breadboards: BreadboardChoice[]
+    }
+
+interface WorkspaceModeModalProps {
+  isOpen: boolean
+  state?: WorkspaceModeModalState
+  onCancel: () => void
+  onConvertCurrentToTable: () => void
+  onRestoreSavedTable: () => void
+  onConvertToSingleBreadboard: (args: {
+    breadboardId?: string
+    createFresh: boolean
+    preserveSnapshot: boolean
+  }) => void
+}
+
+export function WorkspaceModeModal({
+  isOpen,
+  state,
+  onCancel,
+  onConvertCurrentToTable,
+  onRestoreSavedTable,
+  onConvertToSingleBreadboard,
+}: WorkspaceModeModalProps) {
+  const [selectedBreadboardId, setSelectedBreadboardId] = useState<string>()
+  const [createFresh, setCreateFresh] = useState(false)
+  const [preserveSnapshot, setPreserveSnapshot] = useState(true)
+
+  useEffect(() => {
+    if (!isOpen || !state || state.mode !== 'to-single-breadboard') {
+      return
+    }
+
+    setSelectedBreadboardId(state.breadboards[0]?.id)
+    setCreateFresh(false)
+    setPreserveSnapshot(true)
+  }, [isOpen, state])
+
+  if (!isOpen || !state) {
+    return null
+  }
+
+  if (state.mode === 'to-optical-table') {
+    return (
+      <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Switch to optical table mode">
+        <div className="modal-shell__backdrop" onClick={onCancel} />
+
+        <div className="modal-shell__card">
+          <div className="modal-shell__header">
+            <h2>Switch to Optical Table</h2>
+            <p>
+              Convert the current breadboard scene into a large silver optical table, or
+              restore the last saved optical-table workspace for this browser.
+            </p>
+          </div>
+
+          <div className="modal-shell__actions">
+            <button onClick={onCancel} type="button">
+              Cancel
+            </button>
+            <button onClick={onConvertCurrentToTable} type="button">
+              Convert current breadboard
+            </button>
+            {state.hasSavedSnapshot ? (
+              <button className="modal-shell__primary" onClick={onRestoreSavedTable} type="button">
+                Restore saved table
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Switch to single breadboard mode">
+      <div className="modal-shell__backdrop" onClick={onCancel} />
+
+      <div className="modal-shell__card">
+        <div className="modal-shell__header">
+          <h2>Switch to Single Breadboard</h2>
+          <p>
+            Pick which breadboard to promote into the single-board workspace, or start from a
+            fresh board. You can also keep the current optical-table workspace in this browser
+            so you can restore it later.
+          </p>
+        </div>
+
+        <div className="modal-shell__list">
+          {state.breadboards.map((breadboard) => (
+            <label className="modal-shell__list-item" key={breadboard.id}>
+              <input
+                checked={!createFresh && selectedBreadboardId === breadboard.id}
+                name="breadboard-choice"
+                onChange={() => {
+                  setCreateFresh(false)
+                  setSelectedBreadboardId(breadboard.id)
+                }}
+                type="radio"
+              />
+              <span>
+                <strong>{breadboard.label}</strong>
+                <span>{breadboard.dimensionsLabel}</span>
+              </span>
+            </label>
+          ))}
+
+          <label className="modal-shell__list-item">
+            <input
+              checked={createFresh}
+              name="breadboard-choice"
+              onChange={() => {
+                setCreateFresh(true)
+              }}
+              type="radio"
+            />
+            <span>
+              <strong>Create fresh breadboard</strong>
+              <span>Start from the default board and leave table-mounted hardware behind.</span>
+            </span>
+          </label>
+
+          <label className="modal-shell__list-item">
+            <input
+              checked={preserveSnapshot}
+              onChange={(event) => setPreserveSnapshot(event.target.checked)}
+              type="checkbox"
+            />
+            <span>
+              <strong>Preserve current optical-table workspace</strong>
+              <span>Save a browser-local snapshot so Table mode can restore this layout later.</span>
+            </span>
+          </label>
+        </div>
+
+        <div className="modal-shell__actions">
+          <button onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button
+            className="modal-shell__primary"
+            onClick={() =>
+              onConvertToSingleBreadboard({
+                breadboardId: createFresh ? undefined : selectedBreadboardId,
+                createFresh,
+                preserveSnapshot,
+              })
+            }
+            type="button"
+          >
+            Switch to single breadboard
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
