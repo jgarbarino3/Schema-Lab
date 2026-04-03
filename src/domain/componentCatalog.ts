@@ -6,6 +6,7 @@ import type {
   ComponentCategory,
   ComponentConfig,
   ComponentDefinition,
+  ComponentInstance,
   ComponentMount,
   ComponentRenderHint,
   ComponentType,
@@ -92,6 +93,67 @@ function mergeRenderHint(
     fill: next.fill ?? base.fill,
     stroke: next.stroke ?? base.stroke,
     glyph: next.glyph ?? base.glyph,
+  }
+}
+
+const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
+  'mirror',
+  'beamsplitter',
+  'lens',
+  'filter',
+  'iris',
+  'bbo-crystal',
+  'fiber-coupler',
+  'detector',
+]
+
+function includesDefaultMount(type: ComponentType) {
+  return MOUNTED_COMPONENT_TYPES.includes(type)
+}
+
+function getDefaultMountVisual(
+  type: ComponentType,
+  footprintBoundsMm: BoundsMm,
+): {
+  boundsMm?: BoundsMm
+  renderHint?: ComponentRenderHint
+} {
+  switch (type) {
+    case 'mirror':
+    case 'beamsplitter':
+    case 'filter':
+    case 'lens':
+      return {
+        boundsMm: bounds(-19, -19, 38, 38),
+        renderHint: renderHint('circle', '#29333d', '#9fb3bf', 'mount'),
+      }
+    case 'iris':
+      return {
+        boundsMm: bounds(-21, -21, 42, 42),
+        renderHint: renderHint('circle', '#2a332d', '#aac39f', 'mount'),
+      }
+    case 'bbo-crystal':
+      return {
+        boundsMm: bounds(-18, -14, 36, 28),
+        renderHint: renderHint('rect', '#362d45', '#cfc0ef', 'mount'),
+      }
+    case 'fiber-coupler':
+      return {
+        boundsMm: bounds(-24, -18, 48, 36),
+        renderHint: renderHint('capsule', '#21353c', '#8fb7bf', 'support'),
+      }
+    case 'detector':
+      return {
+        boundsMm: bounds(-20, -20, 40, 40),
+        renderHint: renderHint('circle', '#3b3238', '#d8bcc8', 'support'),
+      }
+    default:
+      return {
+        boundsMm:
+          footprintBoundsMm.width > 0 && footprintBoundsMm.height > 0
+            ? footprintBoundsMm
+            : undefined,
+      }
   }
 }
 
@@ -428,6 +490,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'bb1-e02',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
     visualBodyBoundsMm: bounds(-7.5, -7.5, 15, 15),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
@@ -436,6 +499,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('output-north', 'Reflected', 'beam-output', 0, -12.7, 'north'),
     ],
     renderHint: renderHint('rect', '#4b545d', '#e0e7ec', 'mirror'),
+    mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#93a4af', 'mount'),
     physics: mirrorPhysics(400, 750, 98.5, 1),
     recommendedHardware: {
       mount: 'Thorlabs KM100',
@@ -476,6 +540,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'plate-1in',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
     visualBodyBoundsMm: bounds(-8, -8, 16, 16),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
@@ -486,7 +551,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('south', 'South', 'beam-bidirectional', 0, 12.7, 'south'),
     ],
     renderHint: renderHint('diamond', '#1f4b5d', '#9dd2d8', 'beamsplitter'),
+    mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#8ea3af', 'mount'),
     physics: beamsplitterPhysics(),
+    recommendedHardware: {
+      mount: 'Thorlabs KM100 or equivalent 1 in optic mount',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'plate-1in',
@@ -503,6 +573,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'thin-lens-100mm',
     footprintBoundsMm: bounds(-12.7, -18, 25.4, 36),
     visualBodyBoundsMm: bounds(-7.5, -14, 15, 28),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     hitBoundsMm: bounds(-15, -20, 30, 40),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
@@ -511,6 +582,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('east', 'Output', 'beam-output', 12.7, 0, 'east'),
     ],
     renderHint: renderHint('rect', '#5a4730', '#ffcf79', 'lens'),
+    mountRenderHint: renderHint('circle', 'rgba(69, 57, 35, 0.84)', '#d8b57e', 'mount'),
     physics: lensPhysics(100, 22),
     recommendedHardware: {
       mount: 'Thorlabs LMR1/M',
@@ -563,6 +635,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'felh0400',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
     visualBodyBoundsMm: bounds(-8, -8, 16, 16),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     hitBoundsMm: bounds(-14, -14, 28, 28),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
@@ -571,9 +644,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('east', 'Output', 'beam-output', 12.7, 0, 'east'),
     ],
     renderHint: renderHint('rect', '#45413b', '#e8d7b6', 'filter'),
+    mountRenderHint: renderHint('circle', 'rgba(62, 58, 50, 0.84)', '#c4b8a2', 'mount'),
     physics: filterPhysics('longpass', {
       cutoffNm: 400,
     }),
+    recommendedHardware: {
+      mount: 'Thorlabs LMR1/M or RSP1/M',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'felh0400',
@@ -677,6 +755,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'id12-m',
     footprintBoundsMm: bounds(-14, -14, 28, 28),
     visualBodyBoundsMm: bounds(-9, -9, 18, 18),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     hitBoundsMm: bounds(-16, -16, 32, 32),
     mount: mount('clamp-capable', -10, -10, 20, 20),
     opticalCenterMm: { x: 0, y: 0 },
@@ -685,7 +764,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('east', 'Output', 'beam-output', 14, 0, 'east'),
     ],
     renderHint: renderHint('circle', '#38422b', '#c6d67f', 'iris'),
+    mountRenderHint: renderHint('circle', 'rgba(50, 58, 36, 0.86)', '#9ba66b', 'mount'),
     physics: irisPhysics(12, 12),
+    recommendedHardware: {
+      mount: 'Integrated post-mounted iris body',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'id8-m',
@@ -761,6 +845,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     defaultVariantId: 'type-i-bbo',
     footprintBoundsMm: bounds(-8, -5, 16, 10),
     visualBodyBoundsMm: bounds(-6.5, -4, 13, 8),
+    mountVisualBoundsMm: bounds(-15, -11, 30, 22),
     hitBoundsMm: bounds(-11, -9, 22, 18),
     mount: mount('clamp-capable', -9, -9, 18, 18),
     opticalCenterMm: { x: 0, y: 0 },
@@ -769,6 +854,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('east', 'Output', 'beam-output', 8, 0, 'east'),
     ],
     renderHint: renderHint('rect', '#5f4f7b', '#d9c7ff', 'bbo'),
+    mountRenderHint: renderHint('rect', 'rgba(74, 65, 92, 0.86)', '#b6a7d7', 'mount'),
     physics: bboPhysics(29.2),
     recommendedHardware: {
       mount: 'Thorlabs KM100 or rotation-compatible crystal mount',
@@ -837,6 +923,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Fiber Coupler',
     defaultVariantId: 'fiber-coupler-generic',
     footprintBoundsMm: bounds(-20, -15, 40, 30),
+    visualBodyBoundsMm: bounds(-18, -11, 36, 22),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     mount: mount('clamp-capable', -10, -10, 20, 20),
     opticalCenterMm: { x: 6, y: 0 },
     ports: [
@@ -844,7 +932,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('fiber-output', 'Fiber Out', 'beam-output', 20, 0, 'east'),
     ],
     renderHint: renderHint('capsule', '#194544', '#8ad9d6', 'fiber'),
+    mountRenderHint: renderHint('circle', 'rgba(31, 56, 58, 0.84)', '#7fb7b5', 'mount'),
     physics: terminalPhysics('fiber-coupler', 10, 78),
+    recommendedHardware: {
+      mount: 'Fiber launch mount with pedestal base',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'fiber-coupler-generic',
@@ -882,11 +975,18 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     familyLabel: 'Detector',
     defaultVariantId: 'detector-generic',
     footprintBoundsMm: bounds(-18, -18, 36, 36),
+    visualBodyBoundsMm: bounds(-14, -14, 28, 28),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
     mount: mount('clamp-capable', -10, -10, 20, 20),
     opticalCenterMm: { x: -8, y: 0 },
     ports: [port('input', 'Input', 'beam-input', -18, 0, 'west')],
     renderHint: renderHint('rect', '#47373f', '#f0c9dd', 'detector'),
+    mountRenderHint: renderHint('circle', 'rgba(63, 52, 57, 0.84)', '#d4b7c5', 'mount'),
     physics: terminalPhysics('detector', 10, 92),
+    recommendedHardware: {
+      mount: 'Detector head mount with pedestal base',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
     variants: [
       {
         id: 'detector-generic',
@@ -946,6 +1046,7 @@ export function getResolvedComponentSpec(
   const definition = getComponentDefinition(type)
   const variant = getComponentVariant(type, variantId ?? definition.defaultVariantId)
   const footprintBoundsMm = variant.footprintBoundsMm ?? definition.footprintBoundsMm
+  const defaultMountVisual = getDefaultMountVisual(type, footprintBoundsMm)
 
   return {
     type: definition.type,
@@ -967,10 +1068,24 @@ export function getResolvedComponentSpec(
       definition.hitBoundsMm ??
       variant.mount?.supportBoundsMm ??
       definition.mount.supportBoundsMm,
+    mountVisualBoundsMm:
+      variant.mountVisualBoundsMm ??
+      definition.mountVisualBoundsMm ??
+      defaultMountVisual.boundsMm,
     mount: variant.mount ?? definition.mount,
     opticalCenterMm: variant.opticalCenterMm ?? definition.opticalCenterMm,
     ports: variant.ports ?? definition.ports,
     renderHint: mergeRenderHint(definition.renderHint, variant.renderHint),
+    mountRenderHint:
+      definition.mountRenderHint && variant.mountRenderHint
+        ? mergeRenderHint(definition.mountRenderHint, variant.mountRenderHint)
+        : definition.mountRenderHint
+          ? definition.mountRenderHint
+          : variant.mountRenderHint && defaultMountVisual.renderHint
+            ? mergeRenderHint(defaultMountVisual.renderHint, variant.mountRenderHint)
+            : variant.mountRenderHint
+              ? mergeRenderHint(definition.renderHint, variant.mountRenderHint)
+              : defaultMountVisual.renderHint,
     physics: mergePhysics(definition.physics, variant.physics),
     recommendedHardware:
       variant.recommendedHardware ?? definition.recommendedHardware,
@@ -981,12 +1096,46 @@ export function getComponentVariants(type: ComponentType) {
   return getComponentDefinition(type).variants
 }
 
+export function supportsMountToggle(type: ComponentType) {
+  return includesDefaultMount(type)
+}
+
+export function shouldIncludeDefaultMount(
+  component: Pick<ComponentInstance, 'config' | 'type'>,
+) {
+  if (!supportsMountToggle(component.type)) {
+    return false
+  }
+
+  return component.config.support?.includeMount ?? true
+}
+
+export function getEffectiveSupportBoundsMm(
+  component: Pick<ComponentInstance, 'config' | 'type'>,
+  spec: Pick<ResolvedComponentSpec, 'footprintBoundsMm' | 'mountVisualBoundsMm' | 'mount'>,
+) {
+  if (
+    spec.mount.mode === 'external-source' ||
+    !supportsMountToggle(component.type) ||
+    !shouldIncludeDefaultMount(component)
+  ) {
+    return spec.footprintBoundsMm
+  }
+
+  return spec.mountVisualBoundsMm ?? spec.mount.supportBoundsMm
+}
+
 export function createDefaultComponentConfig(
   type: ComponentType,
   variantId?: string,
   preferredLane: SourceLane = 'left',
 ): ComponentConfig {
   const spec = getResolvedComponentSpec(type, variantId)
+  const supportConfig = includesDefaultMount(type)
+    ? {
+        includeMount: true,
+      }
+    : undefined
 
   switch (type) {
     case 'laser-source': {
@@ -999,21 +1148,22 @@ export function createDefaultComponentConfig(
           lane: preferredLane,
           wavelengthNm: preset.wavelengthNm,
           bandwidthNm: preset.bandwidthNm,
-        powerMw: preset.powerMw,
-        normalizedPowerPercent: 100,
-        beamDiameterMm: preset.beamDiameterMm,
-        divergenceMrad: preset.divergenceMrad,
-        gaussianInputMode: 'derived',
-        waistRadiusMm: undefined,
-        waistOffsetMm: undefined,
-        polarization: {
-          basis: 'ray-local',
-          presetId: 'linear-in-plane',
+          powerMw: preset.powerMw,
+          normalizedPowerPercent: 100,
+          beamDiameterMm: preset.beamDiameterMm,
+          divergenceMrad: preset.divergenceMrad,
+          gaussianInputMode: 'derived',
+          waistRadiusMm: undefined,
+          waistOffsetMm: undefined,
+          polarization: {
+            basis: 'ray-local',
+            presetId: 'linear-in-plane',
             inPlaneAmplitude: 1,
             outOfPlaneAmplitude: 0,
             relativePhaseDeg: 0,
           },
         },
+        support: supportConfig,
       }
     }
     case 'lens': {
@@ -1026,6 +1176,7 @@ export function createDefaultComponentConfig(
 
       return {
         lens: defaultConfig,
+        support: supportConfig,
       }
     }
     case 'beamsplitter': {
@@ -1036,6 +1187,7 @@ export function createDefaultComponentConfig(
           reflectPercent: physics?.defaultReflectPercent ?? 50,
           lossPercent: physics?.defaultLossPercent ?? 2,
         },
+        support: supportConfig,
       }
     }
     case 'iris': {
@@ -1045,6 +1197,7 @@ export function createDefaultComponentConfig(
         iris: {
           apertureMm: physics?.defaultApertureMm ?? 10,
         },
+        support: supportConfig,
       }
     }
     case 'bbo-crystal': {
@@ -1059,10 +1212,15 @@ export function createDefaultComponentConfig(
 
       return {
         bboCrystal: defaultConfig,
+        support: supportConfig,
       }
     }
     default:
-      return {}
+      return supportConfig
+        ? {
+            support: supportConfig,
+          }
+        : {}
   }
 }
 

@@ -28,6 +28,7 @@ export function deriveSceneWarnings(
         id: createWarningId(['placement', component.id, placement.reason]),
         category: 'mechanical',
         severity: 'warning',
+        tier: 'simple',
         message: `${component.label} is off the breadboard hole field.`,
         componentId: component.id,
         highlightTarget: {
@@ -41,6 +42,7 @@ export function deriveSceneWarnings(
         id: createWarningId(['placement', component.id, placement.reason]),
         category: 'mechanical',
         severity: 'critical',
+        tier: 'simple',
         message: `${component.label} support extends outside the allowed board or source-lane region.`,
         componentId: component.id,
         highlightTarget: {
@@ -54,6 +56,7 @@ export function deriveSceneWarnings(
         id: createWarningId(['placement', component.id, placement.reason]),
         category: 'mechanical',
         severity: 'warning',
+        tier: 'simple',
         message: `${component.label} footprint hangs outside the allowed region.`,
         componentId: component.id,
         highlightTarget: {
@@ -67,6 +70,7 @@ export function deriveSceneWarnings(
         id: createWarningId(['placement', component.id, 'occupied']),
         category: 'mechanical',
         severity: 'warning',
+        tier: 'simple',
         message: `${component.label} overlaps another component's support envelope.`,
         componentId: component.id,
         highlightTarget: {
@@ -80,6 +84,7 @@ export function deriveSceneWarnings(
         id: createWarningId(['placement', component.id, 'external-restraint']),
         category: 'mechanical',
         severity: 'warning',
+        tier: 'simple',
         message: `${component.label} is off-hole and would need a clamp or other external restraint.`,
         componentId: component.id,
         highlightTarget: {
@@ -102,6 +107,7 @@ export function deriveSceneWarnings(
           id: createWarningId(['source-target', component.id, source.firstTargetComponentId]),
           category: 'optical',
           severity: 'warning',
+          tier: 'advanced',
           message: `${component.label} does not currently reach its chosen first target.`,
           componentId: component.id,
           sourceComponentId: component.id,
@@ -132,6 +138,7 @@ export function deriveSceneWarnings(
       id: createWarningId(['gaussian-overfill', componentWarning.componentId]),
       category: 'optical',
       severity: 'critical',
+      tier: 'advanced',
       message: `${componentWarning.componentLabel} is overfilled by the current Gaussian beam envelope.`,
       componentId: componentWarning.componentId,
       interactionId: strongestInteraction?.interactionId,

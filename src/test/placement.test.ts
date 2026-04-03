@@ -105,7 +105,7 @@ describe('placement resolution', () => {
 
     const result = resolveComponentPlacement({
       breadboard,
-      candidateAnchorMm: { x: 12.7, y: 12.7 },
+      candidateAnchorMm: { x: 16, y: 16 },
       component: mirror,
       phase: 'drop',
       snapMode: 'none',
@@ -163,7 +163,7 @@ describe('placement resolution', () => {
       components: [original, blocker],
     })
 
-    expect(placement?.resolvedAnchorMm).toEqual({ x: 100, y: 125 })
+    expect(placement?.resolvedAnchorMm).toEqual({ x: 75, y: 100 })
     expect(placement?.reason).toBe('none')
   })
 

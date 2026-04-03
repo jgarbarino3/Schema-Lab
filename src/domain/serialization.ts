@@ -25,6 +25,7 @@ import {
   PREVIOUS_SCENE_DOCUMENT_VERSION,
   SCENE_DOCUMENT_KIND,
   SCENE_DOCUMENT_VERSION,
+  STAGE1_SCENE_DOCUMENT_VERSION,
   STAGE2_SCENE_DOCUMENT_VERSION,
 } from './types'
 
@@ -297,6 +298,12 @@ function parseComponentConfig(
                 : 0,
           }
         : defaults.bboCrystal,
+    support:
+      isRecord(value.support) && typeof value.support.includeMount === 'boolean'
+        ? {
+            includeMount: value.support.includeMount,
+          }
+        : defaults.support,
   }
 }
 
@@ -314,7 +321,8 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
   }
 
   const variantId =
-    version === LEGACY_SCENE_DOCUMENT_VERSION
+    version === LEGACY_SCENE_DOCUMENT_VERSION ||
+    version === STAGE1_SCENE_DOCUMENT_VERSION
       ? migratedType.variantId
       : typeof value.variantId === 'string'
         ? value.variantId
@@ -330,7 +338,8 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
       expectNumber(value, 'rotationQuarterTurns'),
     ),
     config:
-      version === LEGACY_SCENE_DOCUMENT_VERSION
+      version === LEGACY_SCENE_DOCUMENT_VERSION ||
+      version === STAGE1_SCENE_DOCUMENT_VERSION
         ? createDefaultComponentConfig(type, variantId)
         : parseComponentConfig(value.config, type, variantId),
   }
@@ -397,7 +406,8 @@ export function parseSceneDocument(rawText: string): SceneDocument {
     version !== SCENE_DOCUMENT_VERSION &&
     version !== PREVIOUS_SCENE_DOCUMENT_VERSION &&
     version !== STAGE2_SCENE_DOCUMENT_VERSION &&
-    version !== LEGACY_SCENE_DOCUMENT_VERSION
+    version !== LEGACY_SCENE_DOCUMENT_VERSION &&
+    version !== STAGE1_SCENE_DOCUMENT_VERSION
   ) {
     throw new Error(`Unsupported scene version: ${version}.`)
   }

@@ -146,11 +146,11 @@ export function BreadboardLayer({
         <Text
           fill={labelColor}
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-          fontSize={7}
+          fontSize={6.4}
           listening={false}
           text={`${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm`}
-          x={8}
-          y={8}
+          x={2}
+          y={-10}
         />
       </Group>
     </Layer>

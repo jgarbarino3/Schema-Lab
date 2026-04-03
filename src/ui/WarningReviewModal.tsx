@@ -1,6 +1,7 @@
 import type { SceneWarning } from '../domain/types'
 
 interface WarningReviewModalProps {
+  exportLabel?: string
   isOpen: boolean
   onCancel: () => void
   onExportAnyway: () => void
@@ -8,7 +9,25 @@ interface WarningReviewModalProps {
   warnings: SceneWarning[]
 }
 
+function formatExportLabel(exportLabel?: string) {
+  switch (exportLabel) {
+    case 'scene-json':
+      return 'Scene JSON'
+    case 'full-scheme-png':
+      return 'Full Scheme PNG'
+    case 'full-scheme-pdf':
+      return 'Full Scheme PDF'
+    case 'breadboard-png':
+      return 'Breadboard PNG'
+    case 'breadboard-pdf':
+      return 'Breadboard PDF'
+    default:
+      return 'Export'
+  }
+}
+
 export function WarningReviewModal({
+  exportLabel,
   isOpen,
   onCancel,
   onExportAnyway,
@@ -25,7 +44,9 @@ export function WarningReviewModal({
 
       <div className="modal-shell__card modal-shell__card--warning">
         <div className="modal-shell__header">
-          <h2>Review Warnings Before Export</h2>
+          <h2>
+            Review Warnings Before {formatExportLabel(exportLabel)}
+          </h2>
           <p>
             This scene still has {warnings.length} warning{warnings.length === 1 ? '' : 's'}.
             You can review them first or export anyway.

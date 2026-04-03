@@ -5,6 +5,7 @@ import type {
   BreadboardModel,
   ComponentInstance,
   PendingPlacementState,
+  RenderMode,
   ScreenPointPx,
   SnapMode,
   ViewportState,
@@ -35,6 +36,7 @@ interface ComponentsLayerProps {
     anchorMm: { x: number; y: number },
   ) => void
   pendingPlacement?: PendingPlacementState
+  renderMode: RenderMode
   selectedComponentId?: string
   snapMode: SnapMode
   viewport: ViewportState
@@ -65,6 +67,7 @@ export function ComponentsLayer({
   onSelectComponent,
   onUpdateComponentDrag,
   pendingPlacement,
+  renderMode,
   selectedComponentId,
   snapMode,
   viewport,
@@ -137,6 +140,7 @@ export function ComponentsLayer({
               ? previewPlacement?.status
               : undefined
           }
+          renderMode={renderMode}
           resolveDragPositionPx={
             snapMode === 'always'
               ? (screenPointPx: ScreenPointPx) => {
@@ -167,6 +171,7 @@ export function ComponentsLayer({
             isPreview
             isSelected={false}
             placementStatus={pendingPlacementResult.status}
+            renderMode={renderMode}
             viewport={viewport}
           />
 
@@ -218,6 +223,7 @@ export function ComponentsLayer({
             isPreview
             isSelected={false}
             placementStatus={previewPlacement.status}
+            renderMode={renderMode}
             viewport={viewport}
           />
 

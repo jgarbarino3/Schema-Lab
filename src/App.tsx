@@ -1,16 +1,21 @@
 import {
   startTransition,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ChangeEvent,
 } from 'react'
+import type Konva from 'konva'
+import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
+import { createExportViewport, type ExportScope } from './domain/exportLayout'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
+import { createSingleImagePdfBlob } from './domain/pdfExport'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
 import { useEditorStore } from './state/editorStore'
@@ -18,11 +23,18 @@ import { ComponentLibrary } from './ui/ComponentLibrary'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
-import { Toolbar } from './ui/Toolbar'
+import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { WarningReviewModal } from './ui/WarningReviewModal'
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
+const EXPORT_CANVAS_WIDTH_PX = 1800
+const EXPORT_CANVAS_HEIGHT_PX = 1200
+
+interface ExportRequestState {
+  action: ExportAction
+  scope: ExportScope
+}
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -35,13 +47,34 @@ function isTypingTarget(target: EventTarget | null) {
   )
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+
+  link.href = objectUrl
+  link.download = filename
+  link.click()
+
+  URL.revokeObjectURL(objectUrl)
+}
+
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const interaction = useEditorStore((state) => state.interaction)
+  const renderMode = useEditorStore((state) => state.renderMode)
+  const warningFilters = useEditorStore((state) => state.warningFilters)
+  const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const loadScene = useEditorStore((state) => state.loadScene)
   const setSpacePanning = useEditorStore((state) => state.setSpacePanning)
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
+  const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
   const setWarningsOpen = useEditorStore((state) => state.setWarningsOpen)
   const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
   const cancelActiveInteraction = useEditorStore(
@@ -60,7 +93,8 @@ function App() {
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
-  const [isWarningReviewOpen, setIsWarningReviewOpen] = useState(false)
+  const [pendingExportAction, setPendingExportAction] = useState<ExportAction>()
+  const [exportRequest, setExportRequest] = useState<ExportRequestState>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
@@ -72,6 +106,15 @@ function App() {
   const sceneWarnings = useMemo(
     () => deriveSceneWarnings(scene, beamTrace, gaussianTrace),
     [beamTrace, gaussianTrace, scene],
+  )
+  const filteredSceneWarnings = useMemo(
+    () =>
+      sceneWarnings.filter((warning) =>
+        warning.tier === 'simple'
+          ? warningFilters.simple
+          : warningFilters.advanced,
+      ),
+    [sceneWarnings, warningFilters.advanced, warningFilters.simple],
   )
   const selectedBeam = useMemo(
     () =>
@@ -99,14 +142,35 @@ function App() {
     (component) => component.config.source?.isEnabled,
   )
   const pendingPlacement = interaction.pendingPlacement
+  const isWarningReviewOpen = pendingExportAction !== undefined
+  const exportViewport = useMemo(() => {
+    if (!exportRequest) {
+      return undefined
+    }
+
+    return createExportViewport(
+      scene,
+      exportRequest.scope,
+      {
+        width: EXPORT_CANVAS_WIDTH_PX,
+        height: EXPORT_CANVAS_HEIGHT_PX,
+      },
+    )
+  }, [exportRequest, scene])
   const selectedComponent =
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
       : undefined
-  const selectedWarning = sceneWarnings.find(
+  const selectedWarning =
+    filteredSceneWarnings.find(
+      (warning) => warning.id === interaction.selectedWarningId,
+    ) ??
+    sceneWarnings.find(
     (warning) => warning.id === interaction.selectedWarningId,
   )
-  const highlightedWarning = selectedWarning ?? (interaction.isWarningsOpen ? sceneWarnings[0] : undefined)
+  const highlightedWarning =
+    selectedWarning ??
+    (interaction.isWarningsOpen ? filteredSceneWarnings[0] ?? sceneWarnings[0] : undefined)
   const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
   const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
   const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
@@ -120,11 +184,11 @@ function App() {
           <>
             <p>
               The Help menu is your quick reference for controls, snap behavior, sources,
-              Gaussian overlays, and warning review.
+              realistic vs simple view modes, Gaussian overlays, and warning review.
             </p>
             <p>
-              When the scene needs attention, warnings appear in the top toolbar near this
-              area.
+              When the scene needs attention, warnings appear in the top toolbar near this area,
+              and Guide can reopen the onboarding any time.
             </p>
           </>
         ),
@@ -142,6 +206,10 @@ function App() {
               A placement banner appears above the viewport. Move the pointer, rotate with
               <code>R</code>, then click or tap the board to commit.
             </p>
+            <p>
+              Use Realistic for mounted hardware footprints or Simple for a faster block-style
+              sketch view.
+            </p>
           </>
         ),
       },
@@ -156,7 +224,7 @@ function App() {
             </p>
             <p>
               This is also where variants, lens values, BBO thickness and phase matching,
-              and recommended hardware appear.
+              mount defaults, and recommended hardware appear.
             </p>
           </>
         ),
@@ -184,7 +252,8 @@ function App() {
           <>
             <p>
               Export will pause if critical scene warnings remain. Review them in the
-              warning center or bypass intentionally when you are ready.
+              warning center, filter simple vs advanced warnings, or bypass intentionally when
+              you are ready.
             </p>
             <p>
               Reopen this guide anytime from the blue Guide button in the top toolbar.
@@ -220,9 +289,10 @@ function App() {
       interaction.selectedWarningId &&
       !sceneWarnings.some((warning) => warning.id === interaction.selectedWarningId)
     ) {
-      setSelectedWarningId(sceneWarnings[0]?.id)
+      setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
     }
   }, [
+    filteredSceneWarnings,
     interaction.selectedWarningId,
     sceneWarnings,
     setSelectedWarningId,
@@ -270,15 +340,71 @@ function App() {
 
   const downloadSceneJson = () => {
     const jsonBlob = new Blob([sceneJson], { type: 'application/json' })
-    const objectUrl = URL.createObjectURL(jsonBlob)
-    const link = document.createElement('a')
-
-    link.href = objectUrl
-    link.download = 'schema-lab-scene.json'
-    link.click()
-
-    URL.revokeObjectURL(objectUrl)
+    downloadBlob(jsonBlob, 'schema-lab-scene.json')
   }
+
+  const handleExportAction = (action: ExportAction) => {
+    if (sceneWarnings.length > 0) {
+      setPendingExportAction(action)
+      setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
+      return
+    }
+
+    if (action === 'scene-json') {
+      downloadSceneJson()
+      return
+    }
+
+    setExportRequest({
+      action,
+      scope: action.startsWith('breadboard')
+        ? 'breadboard-only'
+        : 'full-scheme',
+    })
+  }
+
+  const finalizeExport = useCallback(
+    async (stage: Konva.Stage, request: ExportRequestState) => {
+      await nextAnimationFrame()
+
+      const dataUrl = stage.toDataURL({
+        mimeType:
+          request.action === 'full-scheme-pdf' || request.action === 'breadboard-pdf'
+            ? 'image/jpeg'
+            : 'image/png',
+        pixelRatio: 2,
+        quality: 0.94,
+      })
+
+      if (request.action.endsWith('png')) {
+        const response = await fetch(dataUrl)
+        const blob = await response.blob()
+
+        downloadBlob(
+          blob,
+          request.scope === 'breadboard-only'
+            ? 'schema-lab-breadboard.png'
+            : 'schema-lab-full-scheme.png',
+        )
+      } else {
+        const pdfBlob = createSingleImagePdfBlob({
+          jpegDataUrl: dataUrl,
+          widthPx: EXPORT_CANVAS_WIDTH_PX,
+          heightPx: EXPORT_CANVAS_HEIGHT_PX,
+        })
+
+        downloadBlob(
+          pdfBlob,
+          request.scope === 'breadboard-only'
+            ? 'schema-lab-breadboard.pdf'
+            : 'schema-lab-full-scheme.pdf',
+        )
+      }
+
+      setExportRequest(undefined)
+    },
+    [],
+  )
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -306,9 +432,15 @@ function App() {
           return
         }
 
+        if (openToolbarMenu) {
+          event.preventDefault()
+          setOpenToolbarMenu(undefined)
+          return
+        }
+
         if (isWarningReviewOpen) {
           event.preventDefault()
-          setIsWarningReviewOpen(false)
+          setPendingExportAction(undefined)
           return
         }
 
@@ -377,10 +509,12 @@ function App() {
     isOnboardingOpen,
     isJsonModalOpen,
     isWarningReviewOpen,
+    openToolbarMenu,
     pendingPlacement,
     rotateSelectedComponent,
     selectedComponent,
     setHelpOpen,
+    setOpenToolbarMenu,
     setSpacePanning,
   ])
 
@@ -388,16 +522,6 @@ function App() {
     setJsonSeed(rawText)
     setJsonError(error)
     setIsJsonModalOpen(true)
-  }
-
-  const handleExportJson = () => {
-    if (sceneWarnings.length > 0) {
-      setIsWarningReviewOpen(true)
-      setSelectedWarningId(sceneWarnings[0]?.id)
-      return
-    }
-
-    downloadSceneJson()
   }
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -444,8 +568,8 @@ function App() {
       <Toolbar
         beamTrace={beamTrace}
         isWarningPulse={isWarningReviewOpen}
-        onExportJson={handleExportJson}
-        onImportJson={() => fileInputRef.current?.click()}
+        onExportAction={handleExportAction}
+        onImportSceneJson={() => fileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
         warnings={sceneWarnings}
@@ -497,6 +621,7 @@ function App() {
               Pitch {getEffectiveHolePitchMm(scene.breadboard).toFixed(1)} mm
             </span>
             <span>Beam mode {scene.beamSettings.beamFidelityMode}</span>
+            <span>View {renderMode === 'realistic' ? 'Realistic' : 'Simple'}</span>
             <span>{activeSources.length} active sources</span>
             <span>{beamTrace.segments.length} segments</span>
             <span>{beamTrace.pathSummaries.length} paths</span>
@@ -516,7 +641,7 @@ function App() {
             </span>
             {selectedBeam.segment ? (
               <span>
-                Beam {selectedBeam.segment.pathId} • {selectedBeam.segment.powerMw.toFixed(2)} mW
+            Beam {selectedBeam.segment.pathId} • {selectedBeam.segment.powerMw.toFixed(2)} mW
               </span>
             ) : null}
             {selectedGaussianSegment ? (
@@ -554,16 +679,34 @@ function App() {
 
       <WarningReviewModal
         isOpen={isWarningReviewOpen}
-        onCancel={() => setIsWarningReviewOpen(false)}
+        onCancel={() => setPendingExportAction(undefined)}
         onExportAnyway={() => {
-          setIsWarningReviewOpen(false)
-          downloadSceneJson()
+          const nextAction = pendingExportAction
+
+          setPendingExportAction(undefined)
+
+          if (!nextAction) {
+            return
+          }
+
+          if (nextAction === 'scene-json') {
+            downloadSceneJson()
+            return
+          }
+
+          setExportRequest({
+            action: nextAction,
+            scope: nextAction.startsWith('breadboard')
+              ? 'breadboard-only'
+              : 'full-scheme',
+          })
         }}
         onReviewWarnings={() => {
-          setIsWarningReviewOpen(false)
+          setPendingExportAction(undefined)
           setWarningsOpen(true)
-          setSelectedWarningId(sceneWarnings[0]?.id)
+          setSelectedWarningId(filteredSceneWarnings[0]?.id ?? sceneWarnings[0]?.id)
         }}
+        exportLabel={pendingExportAction}
         warnings={sceneWarnings}
       />
 
@@ -576,6 +719,22 @@ function App() {
         onPrevious={handleRetreatOnboarding}
         steps={onboardingSteps}
       />
+
+      {exportRequest && exportViewport ? (
+        <ExportStage
+          beamTrace={beamTrace}
+          gaussianTrace={gaussianTrace}
+          onReady={(stage) => {
+            if (stage && exportRequest) {
+              void finalizeExport(stage, exportRequest)
+            }
+          }}
+          renderMode={renderMode}
+          scene={scene}
+          showGaussianEnvelope={interaction.showGaussianEnvelope}
+          viewport={exportViewport}
+        />
+      ) : null}
     </div>
   )
 }

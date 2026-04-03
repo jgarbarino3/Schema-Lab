@@ -114,37 +114,48 @@ export function BeamLayer({
                   : 0.78
         const stroke = getBeamColor(segment.wavelengthNm, segment.pathRole)
 
+        const points = [startPx.x, startPx.y, endPx.x, endPx.y]
+        const displayStrokeWidth =
+          isSelected
+            ? strokeWidth + 1.45
+            : isHighlighted
+              ? strokeWidth + 1
+              : isHovered
+                ? strokeWidth + 0.7
+                : strokeWidth
+
         return (
-          <Line
-            dash={getSegmentDash(segment.branchKind)}
-            hitStrokeWidth={18}
-            key={segment.id}
-            onClick={(event) => {
-              event.cancelBubble = true
-              onSelectSegment(
-                segment.id,
-                segment.pathId,
-                segment.parentInteractionId,
-              )
-            }}
-            onMouseEnter={() => onHoverSegment(segment.id)}
-            onMouseLeave={() => onHoverSegment(undefined)}
-            opacity={isSelected ? 1 : isHighlighted ? 0.96 : isHovered ? 0.94 : opacity}
-            points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-            shadowBlur={isSelected ? 12 : isHighlighted ? 10 : segment.pathRole === 'shg' ? 8 : 4}
-            shadowColor={stroke}
-            shadowOpacity={isSelected ? 0.5 : isHighlighted ? 0.34 : segment.pathRole === 'shg' ? 0.42 : 0.2}
-            stroke={stroke}
-            strokeWidth={
-              isSelected
-                ? strokeWidth + 1.45
-                : isHighlighted
-                  ? strokeWidth + 1
-                  : isHovered
-                    ? strokeWidth + 0.7
-                    : strokeWidth
-            }
-          />
+          <Fragment key={segment.id}>
+            <Line
+              dash={getSegmentDash(segment.branchKind)}
+              hitStrokeWidth={24}
+              onClick={(event) => {
+                event.cancelBubble = true
+                onSelectSegment(
+                  segment.id,
+                  segment.pathId,
+                  segment.parentInteractionId,
+                )
+              }}
+              onMouseEnter={() => onHoverSegment(segment.id)}
+              onMouseLeave={() => onHoverSegment(undefined)}
+              opacity={0.01}
+              points={points}
+              stroke="rgba(255,255,255,0.02)"
+              strokeWidth={Math.max(displayStrokeWidth + 10, 14)}
+            />
+            <Line
+              dash={getSegmentDash(segment.branchKind)}
+              listening={false}
+              opacity={isSelected ? 1 : isHighlighted ? 0.96 : isHovered ? 0.94 : opacity}
+              points={points}
+              shadowBlur={isSelected ? 12 : isHighlighted ? 10 : segment.pathRole === 'shg' ? 8 : 4}
+              shadowColor={stroke}
+              shadowOpacity={isSelected ? 0.5 : isHighlighted ? 0.34 : segment.pathRole === 'shg' ? 0.42 : 0.2}
+              stroke={stroke}
+              strokeWidth={displayStrokeWidth}
+            />
+          </Fragment>
         )
       })}
 
@@ -170,25 +181,33 @@ export function BeamLayer({
               : 2.5
 
         return (
-          <Circle
-            fill={
-              event.wasClipped || event.outcomeClass === 'blocked'
-                ? '#3f1d12'
-                : '#0b1014'
-            }
-            key={event.id}
-            onClick={(konvaEvent) => {
-              konvaEvent.cancelBubble = true
-              onSelectSegment(event.inputSegmentId, event.pathId, event.id)
-            }}
-            onMouseEnter={() => onHoverSegment(event.inputSegmentId)}
-            onMouseLeave={() => onHoverSegment(undefined)}
-            radius={radius}
-            stroke={stroke}
-            strokeWidth={isSelected ? 1.8 : isHighlighted ? 1.7 : isHovered ? 1.5 : 1.2}
-            x={hitPx.x}
-            y={hitPx.y}
-          />
+          <Fragment key={event.id}>
+            <Circle
+              fill="rgba(255,255,255,0.02)"
+              onClick={(konvaEvent) => {
+                konvaEvent.cancelBubble = true
+                onSelectSegment(event.inputSegmentId, event.pathId, event.id)
+              }}
+              onMouseEnter={() => onHoverSegment(event.inputSegmentId)}
+              onMouseLeave={() => onHoverSegment(undefined)}
+              radius={Math.max(radius + 6, 10)}
+              x={hitPx.x}
+              y={hitPx.y}
+            />
+            <Circle
+              fill={
+                event.wasClipped || event.outcomeClass === 'blocked'
+                  ? '#3f1d12'
+                  : '#0b1014'
+              }
+              listening={false}
+              radius={radius}
+              stroke={stroke}
+              strokeWidth={isSelected ? 1.8 : isHighlighted ? 1.7 : isHovered ? 1.5 : 1.2}
+              x={hitPx.x}
+              y={hitPx.y}
+            />
+          </Fragment>
         )
       })}
 

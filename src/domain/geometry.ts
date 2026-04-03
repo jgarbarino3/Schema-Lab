@@ -202,3 +202,34 @@ export function fitZoomPxPerMm(
     MAX_ZOOM_PX_PER_MM,
   )
 }
+
+export function expandBoundsMm(boundsMm: BoundsMm, paddingMm: number): BoundsMm {
+  return {
+    x: roundMm(boundsMm.x - paddingMm),
+    y: roundMm(boundsMm.y - paddingMm),
+    width: roundMm(boundsMm.width + paddingMm * 2),
+    height: roundMm(boundsMm.height + paddingMm * 2),
+  }
+}
+
+export function createViewportForBounds(
+  boundsMm: BoundsMm,
+  canvasSizePx: CanvasSizePx,
+  paddingPx = DEFAULT_FIT_PADDING_PX,
+): ViewportState {
+  return {
+    zoomPxPerMm: fitZoomPxPerMm(
+      {
+        width: boundsMm.width,
+        height: boundsMm.height,
+      },
+      canvasSizePx,
+      paddingPx,
+    ),
+    cameraCenterMm: {
+      x: roundMm(boundsMm.x + boundsMm.width / 2),
+      y: roundMm(boundsMm.y + boundsMm.height / 2),
+    },
+    canvasSizePx,
+  }
+}

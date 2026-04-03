@@ -1,8 +1,9 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 4 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 3 as const
-export const STAGE2_SCENE_DOCUMENT_VERSION = 2 as const
-export const LEGACY_SCENE_DOCUMENT_VERSION = 1 as const
+export const SCENE_DOCUMENT_VERSION = 5 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 4 as const
+export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
+export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
+export const STAGE1_SCENE_DOCUMENT_VERSION = 1 as const
 
 export type SceneDocumentVersion = typeof SCENE_DOCUMENT_VERSION
 
@@ -54,6 +55,8 @@ export type PlacementReason =
 export type ActiveTool = 'select' | 'pan'
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
+export type RenderMode = 'realistic' | 'simple'
+export type ToolbarMenu = 'import' | 'export' | 'beam'
 export type SourcePresetId =
   | 'ti-sapphire'
   | 'pharos'
@@ -105,6 +108,7 @@ export type FilterTransmissionClass = 'passband' | 'partial' | 'stopband'
 export type GaussianApertureStatus = 'clear' | 'near-limit' | 'overfill'
 export type SceneWarningCategory = 'mechanical' | 'optical'
 export type SceneWarningSeverity = 'warning' | 'critical'
+export type SceneWarningTier = 'simple' | 'advanced'
 
 export interface WarningHighlightTarget {
   componentIds?: string[]
@@ -304,11 +308,13 @@ export interface ComponentVariant {
   description: string
   footprintBoundsMm?: BoundsMm
   visualBodyBoundsMm?: BoundsMm
+  mountVisualBoundsMm?: BoundsMm
   hitBoundsMm?: BoundsMm
   mount?: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports?: PortDefinition[]
   renderHint?: Partial<ComponentRenderHint>
+  mountRenderHint?: Partial<ComponentRenderHint>
   physics?: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
 }
@@ -322,10 +328,12 @@ export interface ComponentDefinition {
   footprintBoundsMm: BoundsMm
   visualBodyBoundsMm?: BoundsMm
   hitBoundsMm?: BoundsMm
+  mountVisualBoundsMm?: BoundsMm
   mount: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
+  mountRenderHint?: ComponentRenderHint
   physics: ComponentBeamPhysics
   variants: ComponentVariant[]
   recommendedHardware?: ComponentRecommendedHardware
@@ -346,6 +354,10 @@ export interface SourceConfig {
   waistRadiusMm?: number
   waistOffsetMm?: number
   polarization: PolarizationConfig
+}
+
+export interface ComponentSupportConfig {
+  includeMount: boolean
 }
 
 export interface LensConfig {
@@ -391,6 +403,7 @@ export interface ComponentConfig {
   lens?: LensConfig
   iris?: IrisConfig
   bboCrystal?: BboCrystalConfig
+  support?: ComponentSupportConfig
 }
 
 export interface ComponentInstance {
@@ -433,10 +446,12 @@ export interface ResolvedComponentSpec {
   footprintBoundsMm: BoundsMm
   visualBodyBoundsMm: BoundsMm
   hitBoundsMm: BoundsMm
+  mountVisualBoundsMm?: BoundsMm
   mount: ComponentMount
   opticalCenterMm?: Vector2Mm
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
+  mountRenderHint?: ComponentRenderHint
   physics: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
 }
@@ -450,6 +465,7 @@ export interface SceneWarning {
   id: string
   category: SceneWarningCategory
   severity: SceneWarningSeverity
+  tier: SceneWarningTier
   message: string
   componentId?: string
   pathId?: string

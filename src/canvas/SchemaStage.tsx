@@ -17,6 +17,7 @@ interface SchemaStageProps {
   highlightedComponentIds?: string[]
   highlightedInteractionIds?: string[]
   highlightedPathIds?: string[]
+  onStageReady?: (stage: Konva.Stage | null) => void
 }
 
 export function SchemaStage({
@@ -25,6 +26,7 @@ export function SchemaStage({
   highlightedComponentIds = [],
   highlightedInteractionIds = [],
   highlightedPathIds = [],
+  onStageReady,
 }: SchemaStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const stageRef = useRef<Konva.Stage | null>(null)
@@ -44,6 +46,7 @@ export function SchemaStage({
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
+  const renderMode = useEditorStore((state) => state.renderMode)
   const viewport = useEditorStore((state) => state.viewport)
   const interaction = useEditorStore((state) => state.interaction)
   const setViewportSize = useEditorStore((state) => state.setViewportSize)
@@ -470,6 +473,7 @@ export function SchemaStage({
         <Stage
           ref={(stage) => {
             stageRef.current = stage
+            onStageReady?.(stage)
           }}
           height={viewport.canvasSizePx.height}
           onContextMenu={(event) => {
@@ -547,6 +551,7 @@ export function SchemaStage({
             onSelectComponent={selectComponent}
             onUpdateComponentDrag={updateComponentDrag}
             pendingPlacement={interaction.pendingPlacement}
+            renderMode={renderMode}
             selectedComponentId={
               selection.type === 'component' ? selection.componentId : undefined
             }

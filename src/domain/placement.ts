@@ -1,5 +1,9 @@
 import { getBreadboardHoleAxesMm, getEffectiveHolePitchMm, getNearestHole } from './breadboard'
-import { getResolvedComponentSpec, isOpticalTarget } from './componentCatalog'
+import {
+  getEffectiveSupportBoundsMm,
+  getResolvedComponentSpec,
+  isOpticalTarget,
+} from './componentCatalog'
 import { rotateBoundsQuarterTurns, roundMm } from './geometry'
 import { getWorldPortsForComponent } from './ports'
 import type {
@@ -233,7 +237,7 @@ export function resolveComponentPlacement(args: {
       rotationQuarterTurns,
     )
     const supportBoundsMm = getWorldBounds(
-      spec.mount.supportBoundsMm,
+      getEffectiveSupportBoundsMm(component, spec),
       laneAnchorMm,
       rotationQuarterTurns,
     )
@@ -284,7 +288,7 @@ export function resolveComponentPlacement(args: {
     rotationQuarterTurns,
   )
   const supportBoundsMm = getWorldBounds(
-    spec.mount.supportBoundsMm,
+    getEffectiveSupportBoundsMm(component, spec),
     resolvedAnchorMm,
     rotationQuarterTurns,
   )

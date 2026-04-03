@@ -9,6 +9,8 @@ import {
   getComponentDefinition,
   getResolvedComponentSpec,
   isOpticalTarget,
+  shouldIncludeDefaultMount,
+  supportsMountToggle,
 } from '../domain/componentCatalog'
 import {
   applyPinchViewportTransform,
@@ -40,12 +42,14 @@ import type {
   LensConfig,
   PendingPlacementState,
   QuarterTurn,
+  RenderMode,
   SceneBeamSettings,
   SceneDocument,
   ScreenPointPx,
   SnapMode,
   SourceConfig,
   SourceLane,
+  ToolbarMenu,
   Vector2Mm,
   ViewportState,
 } from '../domain/types'
@@ -64,6 +68,9 @@ interface ComponentConfigUpdate {
   lens?: Partial<LensConfig>
   iris?: Partial<IrisConfig>
   bboCrystal?: Partial<BboCrystalConfig>
+  support?: {
+    includeMount: boolean
+  }
 }
 
 interface DragPreviewState {
@@ -92,11 +99,22 @@ interface InteractionState {
   notice?: string
 }
 
+interface WarningFilters {
+  simple: boolean
+  advanced: boolean
+}
+
+type MountVisibilityDefaults = Partial<Record<ComponentType, boolean>>
+
 interface EditorStore {
   scene: SceneDocument
   selection: SelectionState
   snapMode: SnapMode
   viewport: ViewportState
+  renderMode: RenderMode
+  warningFilters: WarningFilters
+  openToolbarMenu?: ToolbarMenu
+  mountVisibilityDefaults: MountVisibilityDefaults
   interaction: InteractionState
   selectBreadboard: () => void
   selectComponent: (componentId: string) => void
@@ -109,6 +127,9 @@ interface EditorStore {
   setCursorWorldMm: (cursorWorldMm?: Vector2Mm) => void
   setShowBeamDetails: (showBeamDetails: boolean) => void
   setShowGaussianEnvelope: (showGaussianEnvelope: boolean) => void
+  setRenderMode: (renderMode: RenderMode) => void
+  setWarningFilter: (tier: keyof WarningFilters, isEnabled: boolean) => void
+  setOpenToolbarMenu: (menu?: ToolbarMenu) => void
   selectBeamSegment: (segmentId: string, pathId: string, interactionId?: string) => void
   clearBeamInspectionSelection: () => void
   setHelpOpen: (isOpen: boolean) => void
@@ -116,6 +137,7 @@ interface EditorStore {
   setSelectedWarningId: (warningId?: string) => void
   clearNotice: () => void
   setViewportSize: (canvasSizePx: CanvasSizePx) => void
+  setViewport: (viewport: ViewportState) => void
   panViewportByScreenDelta: (deltaPx: ScreenPointPx) => void
   applyPinchViewport: (
     previousMidpointPx: ScreenPointPx,
@@ -142,6 +164,9 @@ interface EditorStore {
   updateSelectedLens: (update: Partial<LensConfig>) => void
   updateSelectedIris: (update: Partial<IrisConfig>) => void
   updateSelectedBboCrystal: (update: Partial<BboCrystalConfig>) => void
+  updateSelectedSupport: (includeMount: boolean) => void
+  applySupportToType: (type: ComponentType, includeMount: boolean) => void
+  setMountDefaultForType: (type: ComponentType, includeMount: boolean) => void
   rotateSelectedComponent: (direction: -1 | 1) => void
   updateBreadboard: (update: Partial<BreadboardModel>) => void
   applyBreadboardPreset: (presetId: string) => void
@@ -151,6 +176,88 @@ interface EditorStore {
 
 const DEFAULT_CANVAS_SIZE = { width: 1280, height: 820 }
 const initialScene = createEmptyScene()
+const RENDER_MODE_STORAGE_KEY = 'schema-lab.render-mode'
+const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
+const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
+
+function canUseLocalStorage() {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+}
+
+function readLocalStorageValue(key: string) {
+  if (!canUseLocalStorage()) {
+    return undefined
+  }
+
+  return window.localStorage.getItem(key) ?? undefined
+}
+
+function writeLocalStorageValue(key: string, value: string) {
+  if (!canUseLocalStorage()) {
+    return
+  }
+
+  window.localStorage.setItem(key, value)
+}
+
+function readRenderMode() {
+  const value = readLocalStorageValue(RENDER_MODE_STORAGE_KEY)
+
+  return value === 'simple' ? 'simple' : 'realistic'
+}
+
+function readWarningFilters(): WarningFilters {
+  const rawValue = readLocalStorageValue(WARNING_FILTERS_STORAGE_KEY)
+
+  if (!rawValue) {
+    return {
+      simple: true,
+      advanced: true,
+    }
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue)
+
+    return {
+      simple:
+        typeof parsedValue.simple === 'boolean' ? parsedValue.simple : true,
+      advanced:
+        typeof parsedValue.advanced === 'boolean' ? parsedValue.advanced : true,
+    }
+  } catch {
+    return {
+      simple: true,
+      advanced: true,
+    }
+  }
+}
+
+function readMountVisibilityDefaults(): MountVisibilityDefaults {
+  const rawValue = readLocalStorageValue(MOUNT_DEFAULTS_STORAGE_KEY)
+
+  if (!rawValue) {
+    return {}
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue)
+
+    if (!parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsedValue).filter(
+        ([componentType, includeMount]) =>
+          typeof includeMount === 'boolean' &&
+          supportsMountToggle(componentType as ComponentType),
+      ),
+    ) as MountVisibilityDefaults
+  } catch {
+    return {}
+  }
+}
 
 function createViewportForScene(
   scene: SceneDocument,
@@ -285,10 +392,34 @@ function createAutoNumberedLabel(
   return `${baseLabel} ${highestIndex + 1}`
 }
 
+function applyMountVisibilityDefault(
+  component: ComponentInstance,
+  mountVisibilityDefaults: MountVisibilityDefaults,
+) {
+  if (!supportsMountToggle(component.type)) {
+    return component
+  }
+
+  const includeMount =
+    mountVisibilityDefaults[component.type] ??
+    shouldIncludeDefaultMount(component)
+
+  return {
+    ...component,
+    config: {
+      ...component.config,
+      support: {
+        includeMount,
+      },
+    },
+  }
+}
+
 function createComponentDraft(
   scene: SceneDocument,
   selection: SelectionState,
   type: ComponentType,
+  mountVisibilityDefaults: MountVisibilityDefaults,
 ) {
   const definition = getComponentDefinition(type)
   const variantId = definition.defaultVariantId
@@ -315,6 +446,8 @@ function createComponentDraft(
     rotationQuarterTurns: 0,
     config: createDefaultComponentConfig(type, variantId),
   }
+
+  draft = applyMountVisibilityDefault(draft, mountVisibilityDefaults)
 
   if (type === 'laser-source') {
     const existingSourceConfig = draft.config.source
@@ -399,6 +532,14 @@ function mergeComponentConfig(
           ...update.bboCrystal,
         }
       : current.bboCrystal,
+    support: update.support
+      ? {
+          ...(current.support ?? {
+            includeMount: true,
+          }),
+          ...update.support,
+        }
+      : current.support,
   }
 }
 
@@ -431,12 +572,19 @@ const initialInteraction: InteractionState = {
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
+const initialRenderMode = readRenderMode()
+const initialWarningFilters = readWarningFilters()
+const initialMountVisibilityDefaults = readMountVisibilityDefaults()
 
 export const useEditorStore = create<EditorStore>((set) => ({
   scene: initialScene,
   selection: { type: 'breadboard' },
   snapMode: 'onDrop',
   viewport: createViewportForScene(initialScene),
+  renderMode: initialRenderMode,
+  warningFilters: initialWarningFilters,
+  mountVisibilityDefaults: initialMountVisibilityDefaults,
+  openToolbarMenu: undefined,
   interaction: initialInteraction,
 
   selectBreadboard: () => {
@@ -537,6 +685,33 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
+  setRenderMode: (renderMode) => {
+    writeLocalStorageValue(RENDER_MODE_STORAGE_KEY, renderMode)
+    set({ renderMode })
+  },
+
+  setWarningFilter: (tier, isEnabled) => {
+    set((state) => {
+      const nextWarningFilters = {
+        ...state.warningFilters,
+        [tier]: isEnabled,
+      }
+
+      writeLocalStorageValue(
+        WARNING_FILTERS_STORAGE_KEY,
+        JSON.stringify(nextWarningFilters),
+      )
+
+      return {
+        warningFilters: nextWarningFilters,
+      }
+    })
+  },
+
+  setOpenToolbarMenu: (menu) => {
+    set({ openToolbarMenu: menu })
+  },
+
   selectBeamSegment: (segmentId, pathId, interactionId) => {
     set((state) => ({
       interaction: {
@@ -607,6 +782,10 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
+  setViewport: (viewport) => {
+    set({ viewport })
+  },
+
   panViewportByScreenDelta: (deltaPx) => {
     set((state) => ({
       viewport: panViewportByDelta(state.viewport, deltaPx),
@@ -638,7 +817,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   addComponent: (type) => {
     set((state) => {
-      const draft = createComponentDraft(state.scene, state.selection, type)
+      const draft = createComponentDraft(
+        state.scene,
+        state.selection,
+        type,
+        state.mountVisibilityDefaults,
+      )
 
       return {
         selection: { type: 'breadboard' },
@@ -971,10 +1155,20 @@ export const useEditorStore = create<EditorStore>((set) => ({
     set((state) => {
       if (state.interaction.pendingPlacement) {
         const pendingPlacement = state.interaction.pendingPlacement
+        const includeMount = pendingPlacement.draft.config.support?.includeMount
         let nextDraft: ComponentInstance = {
           ...pendingPlacement.draft,
           variantId,
-          config: createDefaultComponentConfig(pendingPlacement.draft.type, variantId),
+          config: mergeComponentConfig(
+            createDefaultComponentConfig(pendingPlacement.draft.type, variantId),
+            includeMount !== undefined
+              ? {
+                  support: {
+                    includeMount,
+                  },
+                }
+              : {},
+          ),
         }
 
         if (nextDraft.config.source) {
@@ -1009,10 +1203,20 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const includeMount = selectedComponent.config.support?.includeMount
       let nextComponent: ComponentInstance = {
         ...selectedComponent,
         variantId,
-        config: createDefaultComponentConfig(selectedComponent.type, variantId),
+        config: mergeComponentConfig(
+          createDefaultComponentConfig(selectedComponent.type, variantId),
+          includeMount !== undefined
+            ? {
+                support: {
+                  includeMount,
+                },
+              }
+            : {},
+        ),
       }
 
       if (nextComponent.config.source) {
@@ -1466,6 +1670,128 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
+      }
+    })
+  },
+
+  updateSelectedSupport: (includeMount) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement && supportsMountToggle(state.interaction.pendingPlacement.draft.type)) {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  support: {
+                    includeMount,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || !supportsMountToggle(selectedComponent.type)) {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    support: {
+                      includeMount,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  applySupportToType: (type, includeMount) => {
+    set((state) => ({
+      scene: {
+        ...state.scene,
+        components: state.scene.components.map((component) =>
+          component.type === type && supportsMountToggle(component.type)
+            ? {
+                ...component,
+                config: mergeComponentConfig(component.config, {
+                  support: {
+                    includeMount,
+                  },
+                }),
+              }
+            : component,
+        ),
+      },
+      interaction:
+        state.interaction.pendingPlacement?.draft.type === type &&
+        supportsMountToggle(type)
+          ? {
+              ...state.interaction,
+              pendingPlacement: {
+                ...state.interaction.pendingPlacement,
+                draft: {
+                  ...state.interaction.pendingPlacement.draft,
+                  config: mergeComponentConfig(
+                    state.interaction.pendingPlacement.draft.config,
+                    {
+                      support: {
+                        includeMount,
+                      },
+                    },
+                  ),
+                },
+              },
+            }
+          : state.interaction,
+    }))
+  },
+
+  setMountDefaultForType: (type, includeMount) => {
+    set((state) => {
+      const nextMountVisibilityDefaults = {
+        ...state.mountVisibilityDefaults,
+        [type]: includeMount,
+      }
+
+      writeLocalStorageValue(
+        MOUNT_DEFAULTS_STORAGE_KEY,
+        JSON.stringify(nextMountVisibilityDefaults),
+      )
+
+      return {
+        mountVisibilityDefaults: nextMountVisibilityDefaults,
+        interaction:
+          state.interaction.pendingPlacement?.draft.type === type &&
+          supportsMountToggle(type)
+            ? {
+                ...state.interaction,
+                pendingPlacement: {
+                  ...state.interaction.pendingPlacement,
+                  draft: applyMountVisibilityDefault(
+                    state.interaction.pendingPlacement.draft,
+                    nextMountVisibilityDefaults,
+                  ),
+                },
+              }
+            : state.interaction,
       }
     })
   },

@@ -1,11 +1,16 @@
 import { Circle, Group, Line, Rect, Text } from 'react-konva'
-import { getResolvedComponentSpec } from '../domain/componentCatalog'
+import {
+  getEffectiveSupportBoundsMm,
+  getResolvedComponentSpec,
+  shouldIncludeDefaultMount,
+} from '../domain/componentCatalog'
 import { quarterTurnsToDegrees, worldToScreen } from '../domain/geometry'
 import type {
   BoundsMm,
   ComponentFootprintShape,
   ComponentInstance,
   PlacementStatus,
+  RenderMode,
   ScreenPointPx,
   ViewportState,
 } from '../domain/types'
@@ -32,6 +37,7 @@ interface ComponentNodeProps {
   onHoverChange?: (componentId?: string) => void
   onSelect?: (componentId: string) => void
   placementStatus?: PlacementStatus
+  renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
   viewport: ViewportState
 }
@@ -135,6 +141,7 @@ export function ComponentNode({
   onHoverChange,
   onSelect,
   placementStatus,
+  renderMode,
   resolveDragPositionPx,
   viewport,
 }: ComponentNodeProps) {
@@ -142,7 +149,13 @@ export function ComponentNode({
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
   const bodyBoundsMm = spec.visualBodyBoundsMm
   const boundsMm = spec.hitBoundsMm
-  const supportBoundsMm = spec.mount.supportBoundsMm
+  const supportBoundsMm = getEffectiveSupportBoundsMm(instance, spec)
+  const mountBoundsMm = spec.mountVisualBoundsMm ?? spec.mount.supportBoundsMm
+  const showIntegratedMount =
+    renderMode === 'realistic' &&
+    shouldIncludeDefaultMount(instance) &&
+    !!spec.mountRenderHint &&
+    !!spec.mountVisualBoundsMm
   const accentStroke = getPlacementAccent(placementStatus)
   const stroke = isPreview
     ? accentStroke
@@ -237,7 +250,58 @@ export function ComponentNode({
         y={boundsMm.y}
       />
 
-      {isSelected || isPreview || isHovered || isHighlighted ? (
+      {renderMode === 'simple' ? (
+        <Rect
+          cornerRadius={3}
+          dash={isPreview ? [5, 3] : undefined}
+          fill={
+            isPreview
+              ? 'rgba(110, 163, 185, 0.12)'
+              : isSelected
+                ? 'rgba(140, 207, 223, 0.12)'
+                : isHighlighted
+                  ? 'rgba(245, 210, 140, 0.1)'
+                  : isHovered
+                    ? 'rgba(140, 207, 223, 0.08)'
+                    : 'rgba(66, 83, 95, 0.34)'
+          }
+          height={supportBoundsMm.height}
+          opacity={0.95}
+          stroke={
+            isPreview
+              ? accentStroke
+              : isSelected
+                ? '#8ccfdf'
+                : isHighlighted
+                  ? '#f5d28c'
+                  : isHovered
+                    ? '#98c8d6'
+                    : '#566a75'
+          }
+          strokeWidth={isSelected ? 1.1 : isHighlighted ? 1 : 0.9}
+          width={supportBoundsMm.width}
+          x={supportBoundsMm.x}
+          y={supportBoundsMm.y}
+        />
+      ) : null}
+
+      {showIntegratedMount && !isPreview
+        ? renderFootprintShape(spec.mountRenderHint!.shape, mountBoundsMm, {
+            fill: spec.mountRenderHint!.fill,
+            opacity: isSelected || isHovered || isHighlighted ? 0.96 : 0.9,
+            stroke:
+              isSelected
+                ? '#b4dced'
+                : isHighlighted
+                  ? '#f5d28c'
+                  : isHovered
+                    ? '#cad9df'
+                    : spec.mountRenderHint!.stroke,
+            strokeWidth: isSelected ? 1.2 : isHovered || isHighlighted ? 1.05 : 0.9,
+          })
+        : null}
+
+      {renderMode === 'realistic' && (isSelected || isPreview || isHovered || isHighlighted) ? (
         <Rect
           cornerRadius={3}
           dash={isPreview ? [5, 3] : [4, 3]}

@@ -20,6 +20,7 @@ import {
   getComponentVariants,
   getResolvedComponentSpec,
   isOpticalTarget,
+  supportsMountToggle,
 } from '../domain/componentCatalog'
 import { inspectComponentPlacement } from '../domain/placement'
 import {
@@ -565,6 +566,16 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   const updateSelectedBboCrystal = useEditorStore(
     (state) => state.updateSelectedBboCrystal,
   )
+  const updateSelectedSupport = useEditorStore(
+    (state) => state.updateSelectedSupport,
+  )
+  const applySupportToType = useEditorStore((state) => state.applySupportToType)
+  const setMountDefaultForType = useEditorStore(
+    (state) => state.setMountDefaultForType,
+  )
+  const mountVisibilityDefaults = useEditorStore(
+    (state) => state.mountVisibilityDefaults,
+  )
 
   const selectedComponent =
     selection.type === 'component'
@@ -1071,6 +1082,71 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 <span>Clamp</span>
                 <strong>{spec.recommendedHardware.clamp ?? 'Optional'}</strong>
               </div>
+            </div>
+          ) : null}
+          {supportsMountToggle(inspectedComponent.type) ? (
+            <div className="inspector__subsection">
+              <h3>Integrated Mount</h3>
+
+              <div className="inspector__button-row">
+                <button
+                  className={
+                    inspectedComponent.config.support?.includeMount !== false
+                      ? 'is-active'
+                      : undefined
+                  }
+                  onClick={() => updateSelectedSupport(true)}
+                  type="button"
+                >
+                  Include mount
+                </button>
+                <button
+                  className={
+                    inspectedComponent.config.support?.includeMount === false
+                      ? 'is-active'
+                      : undefined
+                  }
+                  onClick={() => updateSelectedSupport(false)}
+                  type="button"
+                >
+                  Hide mount
+                </button>
+              </div>
+
+              <div className="inspector__button-row">
+                <button
+                  onClick={() => applySupportToType(inspectedComponent.type, true)}
+                  type="button"
+                >
+                  Apply to all {definition.familyLabel.toLowerCase()}s
+                </button>
+                <button
+                  onClick={() => setMountDefaultForType(inspectedComponent.type, true)}
+                  type="button"
+                >
+                  Use for new {definition.familyLabel.toLowerCase()}s
+                </button>
+              </div>
+
+              <div className="inspector__button-row">
+                <button
+                  onClick={() => applySupportToType(inspectedComponent.type, false)}
+                  type="button"
+                >
+                  Hide on all {definition.familyLabel.toLowerCase()}s
+                </button>
+                <button
+                  onClick={() => setMountDefaultForType(inspectedComponent.type, false)}
+                  type="button"
+                >
+                  New {definition.familyLabel.toLowerCase()}s start hidden
+                </button>
+              </div>
+
+              <p className="inspector__hint">
+                New {definition.familyLabel.toLowerCase()} placements currently default to{' '}
+                {mountVisibilityDefaults[inspectedComponent.type] === false ? 'hidden mounts' : 'included mounts'}.
+              </p>
             </div>
           ) : null}
           {describePlacementReason(placement.reason) ? (
