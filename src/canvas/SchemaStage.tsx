@@ -210,6 +210,25 @@ export function SchemaStage({
     setCursorWorldMm(screenToWorld(pointerPosition, viewport))
   }
 
+  const isBackgroundPanTarget = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    let currentNode: Konva.Node | null = event.target
+
+    while (currentNode) {
+      if (
+        ('hasName' in currentNode && currentNode.hasName('stage-background-hit')) ||
+        ('hasName' in currentNode && currentNode.hasName('breadboard-hit'))
+      ) {
+        return true
+      }
+
+      currentNode = currentNode.getParent()
+    }
+
+    return event.target === event.target.getStage()
+  }
+
   const startPointerPan = (
     event: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
@@ -264,11 +283,10 @@ export function SchemaStage({
     }
 
     const handleNativeTouchStart = (event: TouchEvent) => {
-      preventNativeTouchDefault(event)
-
       const pinchSnapshot = getPinchSnapshot(event.touches, contentElement)
 
       if (pinchSnapshot) {
+        preventNativeTouchDefault(event)
         beginPinchGesture(pinchSnapshot)
       }
     }
@@ -372,6 +390,14 @@ export function SchemaStage({
     }
 
     updateCursorFromStage(event)
+
+    if (
+      event.evt instanceof TouchEvent &&
+      !isPanMode &&
+      !isBackgroundPanTarget(event)
+    ) {
+      return
+    }
 
     if (!isPanMode && event.evt instanceof MouseEvent && event.evt.button !== 1) {
       return
@@ -498,6 +524,7 @@ export function SchemaStage({
             <Rect
               fill="#0b1014"
               height={viewport.canvasSizePx.height}
+              name="stage-background-hit"
               onClick={(event) => handleBackgroundSelect(event)}
               onTap={(event) => handleBackgroundSelect(event)}
               width={viewport.canvasSizePx.width}

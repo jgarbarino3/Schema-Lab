@@ -1,4 +1,4 @@
-import { Circle, Group, Line, Rect, Text } from 'react-konva'
+import { Circle, Ellipse, Group, Line, Rect, Text } from 'react-konva'
 import {
   getEffectiveSupportBoundsMm,
   getResolvedComponentSpec,
@@ -128,6 +128,269 @@ function getPlacementAccent(status: PlacementStatus | undefined) {
   }
 }
 
+function renderRealisticHardware(
+  instance: ComponentInstance,
+  bodyBoundsMm: BoundsMm,
+  mountBoundsMm: BoundsMm,
+  mountStroke: string,
+  mountFill: string,
+  opticStroke: string,
+  opticFill: string,
+  showMount: boolean,
+) {
+  const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
+  const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
+  const mountRadius = Math.min(mountBoundsMm.width, mountBoundsMm.height) / 2
+  const opticRadius = Math.max(3.8, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.42)
+  const screwRadius = Math.max(1.4, mountRadius * 0.14)
+  const screwOffset = Math.max(7, mountRadius - 4.5)
+  const mountBase =
+    showMount && instance.type !== 'bbo-crystal' ? (
+      <>
+        <Circle
+          fill={mountFill}
+          radius={mountRadius}
+          stroke={mountStroke}
+          strokeWidth={0.9}
+          x={mountBoundsMm.x + mountBoundsMm.width / 2}
+          y={mountBoundsMm.y + mountBoundsMm.height / 2}
+        />
+        <Circle
+          fill="rgba(13, 17, 22, 0.52)"
+          radius={Math.max(5, mountRadius - 4)}
+          stroke="rgba(201, 217, 226, 0.18)"
+          strokeWidth={0.5}
+          x={mountBoundsMm.x + mountBoundsMm.width / 2}
+          y={mountBoundsMm.y + mountBoundsMm.height / 2}
+        />
+        <Circle
+          fill="#f2dc86"
+          radius={screwRadius}
+          stroke="#10151b"
+          strokeWidth={0.45}
+          x={centerX}
+          y={centerY - screwOffset}
+        />
+        <Circle
+          fill="#f2dc86"
+          radius={screwRadius}
+          stroke="#10151b"
+          strokeWidth={0.45}
+          x={centerX - screwOffset * 0.86}
+          y={centerY + screwOffset * 0.5}
+        />
+        <Circle
+          fill="#f2dc86"
+          radius={screwRadius}
+          stroke="#10151b"
+          strokeWidth={0.45}
+          x={centerX + screwOffset * 0.86}
+          y={centerY + screwOffset * 0.5}
+        />
+      </>
+    ) : null
+
+  switch (instance.type) {
+    case 'mirror':
+      return (
+        <>
+          {mountBase}
+          <Circle
+            fill={opticFill}
+            radius={opticRadius}
+            stroke="#f2f7fb"
+            strokeWidth={0.95}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX + opticRadius * 0.72,
+              centerY - opticRadius * 0.72,
+              centerX - opticRadius * 0.72,
+              centerY + opticRadius * 0.72,
+            ]}
+            stroke={opticStroke}
+            strokeWidth={1.2}
+          />
+        </>
+      )
+    case 'beamsplitter':
+      return (
+        <>
+          {mountBase}
+          <Circle
+            fill="rgba(79, 130, 148, 0.28)"
+            radius={opticRadius}
+            stroke="#d4eef4"
+            strokeWidth={0.9}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            dash={[2.2, 2.2]}
+            lineCap="round"
+            points={[
+              centerX - opticRadius * 0.75,
+              centerY + opticRadius * 0.75,
+              centerX + opticRadius * 0.75,
+              centerY - opticRadius * 0.75,
+            ]}
+            stroke={opticStroke}
+            strokeWidth={1.1}
+          />
+        </>
+      )
+    case 'lens':
+      return (
+        <>
+          {mountBase}
+          <Ellipse
+            fill="rgba(130, 197, 230, 0.32)"
+            radiusX={Math.max(2.4, bodyBoundsMm.width * 0.18)}
+            radiusY={Math.max(7, bodyBoundsMm.height * 0.42)}
+            stroke="#d9eef8"
+            strokeWidth={0.95}
+            x={centerX}
+            y={centerY}
+          />
+        </>
+      )
+    case 'filter':
+      return (
+        <>
+          {mountBase}
+          <Rect
+            fill="rgba(148, 214, 214, 0.14)"
+            height={Math.max(8, bodyBoundsMm.height * 0.54)}
+            rotation={45}
+            stroke="#d8f4f1"
+            strokeWidth={0.8}
+            width={Math.max(8, bodyBoundsMm.width * 0.54)}
+            x={centerX - Math.max(8, bodyBoundsMm.width * 0.54) / 2}
+            y={centerY - Math.max(8, bodyBoundsMm.width * 0.54) / 2}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - opticRadius * 0.8,
+              centerY + opticRadius * 0.7,
+              centerX + opticRadius * 0.8,
+              centerY - opticRadius * 0.7,
+            ]}
+            stroke={opticStroke}
+            strokeWidth={1.05}
+          />
+        </>
+      )
+    case 'iris':
+      return (
+        <>
+          {mountBase}
+          <Circle
+            fill="rgba(21, 28, 19, 0.74)"
+            radius={opticRadius + 1}
+            stroke="#dcefd6"
+            strokeWidth={0.85}
+            x={centerX}
+            y={centerY}
+          />
+          <Circle
+            fill="#0c1014"
+            radius={Math.max(2.2, opticRadius * 0.46)}
+            stroke="#aac39f"
+            strokeWidth={0.75}
+            x={centerX}
+            y={centerY}
+          />
+        </>
+      )
+    case 'bbo-crystal':
+      return (
+        <>
+          {showMount ? (
+            <Rect
+              cornerRadius={3}
+              fill={mountFill}
+              height={mountBoundsMm.height}
+              stroke={mountStroke}
+              strokeWidth={0.95}
+              width={mountBoundsMm.width}
+              x={mountBoundsMm.x}
+              y={mountBoundsMm.y}
+            />
+          ) : null}
+          <Line
+            closed
+            fill="rgba(207, 192, 239, 0.2)"
+            lineJoin="round"
+            points={[
+              centerX - 8,
+              centerY,
+              centerX,
+              centerY - 7,
+              centerX + 8,
+              centerY,
+              centerX,
+              centerY + 7,
+            ]}
+            stroke={opticStroke}
+            strokeWidth={1}
+          />
+        </>
+      )
+    default:
+      return (
+        <>
+          {showMount
+            ? renderFootprintShape('circle', mountBoundsMm, {
+                fill: mountFill,
+                opacity: 0.94,
+                stroke: mountStroke,
+                strokeWidth: 0.9,
+              })
+            : null}
+          {renderFootprintShape(instance.type === 'sample-stage' ? 'rect' : 'capsule', bodyBoundsMm, {
+            fill: opticFill,
+            opacity: 0.95,
+            stroke: opticStroke,
+            strokeWidth: 0.9,
+          })}
+          <ComponentGlyph
+            boundsMm={bodyBoundsMm}
+            fill="rgba(255, 255, 255, 0.1)"
+            glyph={specGlyphFallback(instance.type)}
+            stroke={opticStroke}
+          />
+        </>
+      )
+  }
+}
+
+function specGlyphFallback(type: ComponentInstance['type']) {
+  switch (type) {
+    case 'optic-mount':
+      return 'mount'
+    case 'support-hardware':
+      return 'support'
+    case 'laser-source':
+      return 'laser'
+    case 'fiber-coupler':
+      return 'fiber'
+    case 'spectrometer':
+      return 'spectrometer'
+    case 'detector':
+      return 'detector'
+    case 'beam-dump':
+      return 'beam-dump'
+    case 'sample-stage':
+      return 'sample'
+    default:
+      return 'mount'
+  }
+}
+
 export function ComponentNode({
   instance,
   isDragEnabled = true,
@@ -157,33 +420,33 @@ export function ComponentNode({
     !!spec.mountRenderHint &&
     !!spec.mountVisualBoundsMm
   const accentStroke = getPlacementAccent(placementStatus)
+  const showOverlay = isSelected || isPreview || isHovered || isHighlighted
   const stroke = isPreview
     ? accentStroke
     : isSelected
       ? '#f1fbff'
       : isHighlighted
         ? '#f5d28c'
-      : isHovered
-        ? '#def3fb'
-        : spec.renderHint.stroke
-  const bodyStyle: ShapeStyle = isPreview
-    ? {
-        dash: [3, 2],
-        fill: 'rgba(73, 104, 122, 0.12)',
-        opacity: 0.98,
-        stroke,
-        strokeWidth: 1.15,
-      }
-    : {
-        fill: spec.renderHint.fill,
-        opacity: isHovered || isSelected || isHighlighted ? 0.98 : 0.92,
-        stroke,
-        strokeWidth: isSelected ? 1.35 : isHighlighted ? 1.15 : isHovered ? 1.1 : 0.85,
-      }
+        : isHovered
+          ? '#def3fb'
+          : spec.renderHint.stroke
+  const overlayStroke = isPreview
+    ? accentStroke
+    : isSelected
+      ? '#8ccfdf'
+      : isHighlighted
+        ? '#f5d28c'
+        : '#6e8794'
+  const labelWidth = Math.max(supportBoundsMm.width, mountBoundsMm.width, 42)
+
+  const handleSelect = () => {
+    onSelect?.(instance.id)
+  }
 
   return (
     <Group
       draggable={isDragEnabled && !isPreview}
+      dragDistance={1}
       listening={!isPreview}
       onClick={(event) => {
         if (!onSelect) {
@@ -191,7 +454,7 @@ export function ComponentNode({
         }
 
         event.cancelBubble = true
-        onSelect(instance.id)
+        handleSelect()
       }}
       onDragEnd={(event) => {
         if (!onDragEnd) {
@@ -217,6 +480,10 @@ export function ComponentNode({
         event.cancelBubble = true
         onDragStart(instance.id)
       }}
+      onMouseDown={(event) => {
+        event.cancelBubble = true
+        handleSelect()
+      }}
       onMouseEnter={() => {
         onHoverChange?.(instance.id)
       }}
@@ -229,7 +496,11 @@ export function ComponentNode({
         }
 
         event.cancelBubble = true
-        onSelect(instance.id)
+        handleSelect()
+      }}
+      onTouchStart={(event) => {
+        event.cancelBubble = true
+        handleSelect()
       }}
       rotation={quarterTurnsToDegrees(instance.rotationQuarterTurns)}
       scaleX={viewport.zoomPxPerMm}
@@ -250,58 +521,7 @@ export function ComponentNode({
         y={boundsMm.y}
       />
 
-      {renderMode === 'simple' ? (
-        <Rect
-          cornerRadius={3}
-          dash={isPreview ? [5, 3] : undefined}
-          fill={
-            isPreview
-              ? 'rgba(110, 163, 185, 0.12)'
-              : isSelected
-                ? 'rgba(140, 207, 223, 0.12)'
-                : isHighlighted
-                  ? 'rgba(245, 210, 140, 0.1)'
-                  : isHovered
-                    ? 'rgba(140, 207, 223, 0.08)'
-                    : 'rgba(66, 83, 95, 0.34)'
-          }
-          height={supportBoundsMm.height}
-          opacity={0.95}
-          stroke={
-            isPreview
-              ? accentStroke
-              : isSelected
-                ? '#8ccfdf'
-                : isHighlighted
-                  ? '#f5d28c'
-                  : isHovered
-                    ? '#98c8d6'
-                    : '#566a75'
-          }
-          strokeWidth={isSelected ? 1.1 : isHighlighted ? 1 : 0.9}
-          width={supportBoundsMm.width}
-          x={supportBoundsMm.x}
-          y={supportBoundsMm.y}
-        />
-      ) : null}
-
-      {showIntegratedMount && !isPreview
-        ? renderFootprintShape(spec.mountRenderHint!.shape, mountBoundsMm, {
-            fill: spec.mountRenderHint!.fill,
-            opacity: isSelected || isHovered || isHighlighted ? 0.96 : 0.9,
-            stroke:
-              isSelected
-                ? '#b4dced'
-                : isHighlighted
-                  ? '#f5d28c'
-                  : isHovered
-                    ? '#cad9df'
-                    : spec.mountRenderHint!.stroke,
-            strokeWidth: isSelected ? 1.2 : isHovered || isHighlighted ? 1.05 : 0.9,
-          })
-        : null}
-
-      {renderMode === 'realistic' && (isSelected || isPreview || isHovered || isHighlighted) ? (
+      {showOverlay ? (
         <Rect
           cornerRadius={3}
           dash={isPreview ? [5, 3] : [4, 3]}
@@ -312,19 +532,11 @@ export function ComponentNode({
                 ? 'rgba(140, 207, 223, 0.06)'
                 : isHighlighted
                   ? 'rgba(245, 210, 140, 0.06)'
-                : 'rgba(140, 207, 223, 0.03)'
+                  : 'rgba(140, 207, 223, 0.03)'
           }
           height={supportBoundsMm.height}
-          opacity={isHovered && !isSelected && !isHighlighted ? 0.65 : 0.95}
-          stroke={
-            isPreview
-              ? accentStroke
-              : isSelected
-                ? '#8ccfdf'
-                : isHighlighted
-                  ? '#f5d28c'
-                  : '#5b707b'
-          }
+          opacity={isHovered && !isSelected && !isHighlighted ? 0.68 : 0.96}
+          stroke={overlayStroke}
           strokeWidth={isSelected ? 0.95 : isHighlighted ? 0.9 : 0.8}
           width={supportBoundsMm.width}
           x={supportBoundsMm.x}
@@ -332,15 +544,33 @@ export function ComponentNode({
         />
       ) : null}
 
-      {renderFootprintShape(spec.renderHint.shape, bodyBoundsMm, bodyStyle)}
+      {renderMode === 'realistic'
+        ? renderRealisticHardware(
+            instance,
+            bodyBoundsMm,
+            mountBoundsMm,
+            isSelected
+              ? '#b8dceb'
+              : isHighlighted
+                ? '#f5d28c'
+                : isHovered
+                  ? '#d6e1e6'
+                  : spec.mountRenderHint?.stroke ?? '#9fb3bf',
+            spec.mountRenderHint?.fill ?? '#29333d',
+            stroke,
+            spec.renderHint.fill,
+            showIntegratedMount,
+          )
+        : (
+            <ComponentGlyph
+              boundsMm={bodyBoundsMm}
+              fill={spec.renderHint.fill}
+              glyph={spec.renderHint.glyph}
+              stroke={stroke}
+            />
+          )}
 
-      <ComponentGlyph
-        boundsMm={bodyBoundsMm}
-        glyph={spec.renderHint.glyph}
-        stroke={isPreview ? accentStroke : stroke}
-      />
-
-      {spec.opticalCenterMm ? (
+      {spec.opticalCenterMm && renderMode === 'realistic' && showOverlay ? (
         <>
           <Line
             points={[
@@ -386,7 +616,7 @@ export function ComponentNode({
         </>
       ) : null}
 
-      {isSelected || isPreview ? (
+      {showOverlay ? (
         <Circle
           fill={isPreview ? accentStroke : '#0c1014'}
           radius={1.8}
@@ -411,8 +641,8 @@ export function ComponentNode({
           fontSize={isSelected || isHighlighted ? 6.55 : 6.1}
           listening={false}
           text={instance.label}
-          width={Math.max(bodyBoundsMm.width, 42)}
-          x={-Math.max(bodyBoundsMm.width, 42) / 2}
+          width={labelWidth}
+          x={-labelWidth / 2}
           y={supportBoundsMm.y + supportBoundsMm.height + 4.5}
         />
       ) : null}

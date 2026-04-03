@@ -46,36 +46,52 @@ export function OnboardingTour({
       return
     }
 
-    const selector = step.selector
+    const element = document.querySelector(step.selector)
 
-    const updateRect = () => {
-      const element = document.querySelector(selector)
-
-      if (!(element instanceof HTMLElement)) {
-        setSpotlightRect(undefined)
-        return
-      }
-
-      const rect = element.getBoundingClientRect()
-      const padding = 10
-
-      setSpotlightRect({
-        height: rect.height + padding * 2,
-        left: clamp(rect.left - padding, 12, window.innerWidth - 60),
-        top: clamp(rect.top - padding, 12, window.innerHeight - 60),
-        width: rect.width + padding * 2,
-      })
+    if (!(element instanceof HTMLElement)) {
+      setSpotlightRect(undefined)
+      return
     }
 
-    updateRect()
-    window.addEventListener('resize', updateRect)
-    window.addEventListener('scroll', updateRect, true)
+    const rect = element.getBoundingClientRect()
+    const padding = 10
+
+    setSpotlightRect({
+      height: rect.height + padding * 2,
+      left: clamp(rect.left - padding, 12, window.innerWidth - 60),
+      top: clamp(rect.top - padding, 12, window.innerHeight - 60),
+      width: rect.width + padding * 2,
+    })
+  }, [isOpen, step?.selector])
+
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') {
+      return
+    }
+
+    const scrollX = window.scrollX
+    const scrollY = window.scrollY
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverflow = document.body.style.overflow
+    const previousBodyPosition = document.body.style.position
+    const previousBodyTop = document.body.style.top
+    const previousBodyWidth = document.body.style.width
+
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollY}px`
+    document.body.style.width = '100%'
 
     return () => {
-      window.removeEventListener('resize', updateRect)
-      window.removeEventListener('scroll', updateRect, true)
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overflow = previousBodyOverflow
+      document.body.style.position = previousBodyPosition
+      document.body.style.top = previousBodyTop
+      document.body.style.width = previousBodyWidth
+      window.scrollTo(scrollX, scrollY)
     }
-  }, [isOpen, step?.selector])
+  }, [isOpen])
 
   const cardStyle = useMemo(() => {
     if (!spotlightRect) {

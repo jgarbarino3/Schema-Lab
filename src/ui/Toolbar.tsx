@@ -14,16 +14,24 @@ export type ExportAction =
   | 'scene-json'
   | 'full-scheme-png'
   | 'full-scheme-pdf'
+  | 'full-scheme-svg'
+  | 'full-scheme-pptx'
   | 'breadboard-png'
   | 'breadboard-pdf'
+  | 'breadboard-svg'
+  | 'breadboard-pptx'
 
 interface ToolbarProps {
   beamTrace: BeamTraceResult
+  isInspectorCollapsed: boolean
+  isLibraryCollapsed: boolean
   isWarningPulse: boolean
   onExportAction: (action: ExportAction) => void
   onImportSceneJson: () => void
   onOpenOnboarding: () => void
   onOpenJson: () => void
+  onToggleInspector: () => void
+  onToggleLibrary: () => void
   warnings: SceneWarning[]
 }
 
@@ -51,11 +59,15 @@ function getFloatingStyle(button: HTMLButtonElement | null) {
 
 export function Toolbar({
   beamTrace,
+  isInspectorCollapsed,
+  isLibraryCollapsed,
   isWarningPulse,
   onExportAction,
   onImportSceneJson,
   onOpenOnboarding,
   onOpenJson,
+  onToggleInspector,
+  onToggleLibrary,
   warnings,
 }: ToolbarProps) {
   const helpButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -258,7 +270,7 @@ export function Toolbar({
             <section>
               <h3>Navigate</h3>
               <p>
-                Select is for placing and editing components. Hand drags the viewport. Space temporarily activates hand-pan.
+                Select is for placing and editing components. Hand drags the viewport. Space temporarily activates hand-pan, and the Library / Inspector toggles collapse either side panel to free more board space.
               </p>
             </section>
             <section>
@@ -270,7 +282,7 @@ export function Toolbar({
             <section>
               <h3>Render Modes</h3>
               <p>
-                Realistic shows integrated default mounts and cleaner top-view silhouettes. Simple restores block-style footprints for rough sketching.
+                Realistic shows mounted hardware silhouettes with the footprint revealed only on hover or selection. Simple uses cleaner symbolic optics while keeping the same mechanical support logic underneath.
               </p>
             </section>
             <section>
@@ -294,7 +306,7 @@ export function Toolbar({
             <section>
               <h3>Files</h3>
               <p>
-                Import loads scene JSON. Export includes scene JSON plus full-scheme and breadboard-only PNG/PDF outputs. Raw JSON opens the editable scene document directly.
+                Import loads scene JSON. Export includes scene JSON plus full-scheme and breadboard-only PNG, PDF, SVG, and PPTX outputs. Raw JSON opens the editable scene document directly.
               </p>
             </section>
             <section>
@@ -476,6 +488,24 @@ export function Toolbar({
                   Full Scheme PDF
                 </button>
                 <button
+                  onClick={() => {
+                    setOpenToolbarMenu(undefined)
+                    onExportAction('full-scheme-svg')
+                  }}
+                  type="button"
+                >
+                  Full Scheme SVG
+                </button>
+                <button
+                  onClick={() => {
+                    setOpenToolbarMenu(undefined)
+                    onExportAction('full-scheme-pptx')
+                  }}
+                  type="button"
+                >
+                  Full Scheme PPTX
+                </button>
+                <button
                   data-tour="toolbar-export"
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
@@ -493,6 +523,24 @@ export function Toolbar({
                   type="button"
                 >
                   Breadboard PDF
+                </button>
+                <button
+                  onClick={() => {
+                    setOpenToolbarMenu(undefined)
+                    onExportAction('breadboard-svg')
+                  }}
+                  type="button"
+                >
+                  Breadboard SVG
+                </button>
+                <button
+                  onClick={() => {
+                    setOpenToolbarMenu(undefined)
+                    onExportAction('breadboard-pptx')
+                  }}
+                  type="button"
+                >
+                  Breadboard PPTX
                 </button>
               </>
             ) : null}
@@ -559,6 +607,25 @@ export function Toolbar({
                 type="button"
               >
                 Simple
+              </button>
+            </div>
+
+            <div className="toolbar__tool-group">
+              <button
+                aria-pressed={!isLibraryCollapsed}
+                className={!isLibraryCollapsed ? 'is-active-tool' : undefined}
+                onClick={onToggleLibrary}
+                type="button"
+              >
+                Library
+              </button>
+              <button
+                aria-pressed={!isInspectorCollapsed}
+                className={!isInspectorCollapsed ? 'is-active-tool' : undefined}
+                onClick={onToggleInspector}
+                type="button"
+              >
+                Inspector
               </button>
             </div>
 

@@ -16,8 +16,10 @@ import { getEffectiveHolePitchMm } from './domain/breadboard'
 import { createExportViewport, type ExportScope } from './domain/exportLayout'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
 import { createSingleImagePdfBlob } from './domain/pdfExport'
+import { createSingleImagePptxBlob } from './domain/pptxExport'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
+import { createSceneSvg } from './domain/svgExport'
 import { useEditorStore } from './state/editorStore'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { InspectorPanel } from './ui/InspectorPanel'
@@ -28,6 +30,8 @@ import { WarningReviewModal } from './ui/WarningReviewModal'
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
+const LEFT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.left-panel-collapsed'
+const RIGHT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.right-panel-collapsed'
 const EXPORT_CANVAS_WIDTH_PX = 1800
 const EXPORT_CANVAS_HEIGHT_PX = 1200
 
@@ -64,6 +68,22 @@ function nextAnimationFrame() {
   })
 }
 
+function readStoredFlag(key: string) {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return window.localStorage.getItem(key) === '1'
+}
+
+function writeStoredFlag(key: string, value: boolean) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(key, value ? '1' : '0')
+}
+
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
@@ -97,6 +117,12 @@ function App() {
   const [exportRequest, setExportRequest] = useState<ExportRequestState>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
+    readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
+  )
+  const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() =>
+    readStoredFlag(RIGHT_PANEL_COLLAPSED_KEY),
+  )
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const beamTrace = useMemo(() => traceSceneBeams(scene), [scene])
   const gaussianTrace = useMemo(
@@ -184,7 +210,8 @@ function App() {
           <>
             <p>
               The Help menu is your quick reference for controls, snap behavior, sources,
-              realistic vs simple view modes, Gaussian overlays, and warning review.
+              realistic vs simple view modes, Gaussian overlays, side-panel collapse,
+              and warning review.
             </p>
             <p>
               When the scene needs attention, warnings appear in the top toolbar near this area,
@@ -207,8 +234,8 @@ function App() {
               <code>R</code>, then click or tap the board to commit.
             </p>
             <p>
-              Use Realistic for mounted hardware footprints or Simple for a faster block-style
-              sketch view.
+              Use Realistic for mounted hardware silhouettes or Simple for cleaner symbolic
+              optics while keeping the same mechanical footprint logic underneath.
             </p>
           </>
         ),
@@ -225,6 +252,10 @@ function App() {
             <p>
               This is also where variants, lens values, BBO thickness and phase matching,
               mount defaults, and recommended hardware appear.
+            </p>
+            <p>
+              Collapse either side panel from the toolbar whenever you need more room in the
+              central viewport without losing your current inspector or library state.
             </p>
           </>
         ),
@@ -256,7 +287,8 @@ function App() {
               you are ready.
             </p>
             <p>
-              Reopen this guide anytime from the blue Guide button in the top toolbar.
+              Export menus now group JSON, PNG, PDF, SVG, and PPTX. Reopen this guide anytime
+              from the blue Guide button in the top toolbar.
             </p>
           </>
         ),
@@ -363,9 +395,45 @@ function App() {
     })
   }
 
+  const handleToggleLibrary = () => {
+    setIsLibraryCollapsed((current) => {
+      const next = !current
+      writeStoredFlag(LEFT_PANEL_COLLAPSED_KEY, next)
+      return next
+    })
+  }
+
+  const handleToggleInspector = () => {
+    setIsInspectorCollapsed((current) => {
+      const next = !current
+      writeStoredFlag(RIGHT_PANEL_COLLAPSED_KEY, next)
+      return next
+    })
+  }
+
   const finalizeExport = useCallback(
     async (stage: Konva.Stage, request: ExportRequestState) => {
       await nextAnimationFrame()
+
+      if (request.action.endsWith('svg')) {
+        const svgMarkup = createSceneSvg({
+          beamTrace,
+          gaussianTrace,
+          renderMode,
+          scene,
+          showGaussianEnvelope: interaction.showGaussianEnvelope,
+          viewport: exportViewport!,
+        })
+
+        downloadBlob(
+          new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
+          request.scope === 'breadboard-only'
+            ? 'schema-lab-breadboard.svg'
+            : 'schema-lab-full-scheme.svg',
+        )
+        setExportRequest(undefined)
+        return
+      }
 
       const dataUrl = stage.toDataURL({
         mimeType:
@@ -386,7 +454,7 @@ function App() {
             ? 'schema-lab-breadboard.png'
             : 'schema-lab-full-scheme.png',
         )
-      } else {
+      } else if (request.action.endsWith('pdf')) {
         const pdfBlob = createSingleImagePdfBlob({
           jpegDataUrl: dataUrl,
           widthPx: EXPORT_CANVAS_WIDTH_PX,
@@ -399,11 +467,20 @@ function App() {
             ? 'schema-lab-breadboard.pdf'
             : 'schema-lab-full-scheme.pdf',
         )
+      } else {
+        const pptxBlob = await createSingleImagePptxBlob(dataUrl)
+
+        downloadBlob(
+          pptxBlob,
+          request.scope === 'breadboard-only'
+            ? 'schema-lab-breadboard.pptx'
+            : 'schema-lab-full-scheme.pptx',
+        )
       }
 
       setExportRequest(undefined)
     },
-    [],
+    [beamTrace, exportViewport, gaussianTrace, interaction.showGaussianEnvelope, renderMode, scene],
   )
 
   useEffect(() => {
@@ -567,18 +644,26 @@ function App() {
     <div className="app-shell">
       <Toolbar
         beamTrace={beamTrace}
+        isInspectorCollapsed={isInspectorCollapsed}
+        isLibraryCollapsed={isLibraryCollapsed}
         isWarningPulse={isWarningReviewOpen}
         onExportAction={handleExportAction}
         onImportSceneJson={() => fileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
+        onToggleInspector={handleToggleInspector}
+        onToggleLibrary={handleToggleLibrary}
         warnings={sceneWarnings}
       />
 
-      <div className="workspace">
-        <ComponentLibrary />
+      <div
+        className={`workspace${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isInspectorCollapsed ? ' is-inspector-collapsed' : ''}`}
+      >
+        <div className="workspace__left-panel">
+          {!isLibraryCollapsed ? <ComponentLibrary /> : null}
+        </div>
 
-        <section className="canvas-panel" data-tour="canvas-panel">
+        <section className="canvas-panel workspace__canvas" data-tour="canvas-panel">
           <div className="canvas-panel__header">
             <div>
               <h1>Schema-Lab</h1>
@@ -655,7 +740,11 @@ function App() {
           </div>
         </section>
 
-        <InspectorPanel beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
+        <div className="workspace__right-panel">
+          {!isInspectorCollapsed ? (
+            <InspectorPanel beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
+          ) : null}
+        </div>
       </div>
 
       <input

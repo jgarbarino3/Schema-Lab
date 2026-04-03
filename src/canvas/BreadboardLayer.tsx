@@ -46,6 +46,7 @@ export function BreadboardLayer({
   return (
     <Layer>
       <Group
+        name="breadboard-hit"
         listening
         onClick={(event) => {
           event.cancelBubble = true
@@ -64,6 +65,7 @@ export function BreadboardLayer({
           cornerRadius={4}
           fill={boardFill}
           height={breadboard.heightMm}
+          name="breadboard-hit"
           shadowBlur={6}
           shadowColor="#000000"
           shadowOpacity={0.22}
