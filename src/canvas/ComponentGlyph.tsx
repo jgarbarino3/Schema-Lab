@@ -69,24 +69,28 @@ export function ComponentGlyph({
         />
       )
     case 'curved-mirror': {
-      const bow = isConvex ? -1 : 1
-      const perpOffset = Math.min(width, height) * 0.28 * bow
+      const sign = isConvex ? -1 : 1
+      const maxBow = Math.min(width, height) * 0.22 * sign
+      const x0 = boundsMm.x + width - inset
+      const y0 = boundsMm.y + inset
+      const x1 = boundsMm.x + inset
+      const y1 = boundsMm.y + height - inset
+      const steps = 10
+      const pts: number[] = []
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const parabola = 4 * t * (1 - t)
+        const bx = x0 + (x1 - x0) * t + maxBow * parabola
+        const by = y0 + (y1 - y0) * t - maxBow * parabola
+        pts.push(bx, by)
+      }
       return (
         <Line
-          bezier
           lineCap="round"
-          points={[
-            boundsMm.x + width - inset,
-            boundsMm.y + inset,
-            centerX + perpOffset,
-            centerY - perpOffset,
-            centerX + perpOffset,
-            centerY - perpOffset,
-            boundsMm.x + inset,
-            boundsMm.y + height - inset,
-          ]}
+          points={pts}
           stroke={stroke}
           strokeWidth={1.75}
+          tension={0.4}
         />
       )
     }
