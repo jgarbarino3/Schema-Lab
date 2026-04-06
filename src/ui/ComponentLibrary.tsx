@@ -7,13 +7,13 @@ import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { useEditorStore } from '../state/editorStore'
 
 const LINE_COLOR_PRESETS = [
-  { color: '#ff3333', label: 'Red' },
-  { color: '#33cc33', label: 'Green' },
-  { color: '#3366ff', label: 'Blue' },
-  { color: '#ffcc00', label: 'Yellow' },
-  { color: '#ff33ff', label: 'Magenta' },
-  { color: '#33ccff', label: 'Cyan' },
-  { color: '#ff8833', label: 'Orange' },
+  { color: '#ff0000', label: 'Red' },
+  { color: '#00ff00', label: 'Green' },
+  { color: '#0088ff', label: 'Blue' },
+  { color: '#ffee00', label: 'Yellow' },
+  { color: '#ff00ff', label: 'Magenta' },
+  { color: '#00eeff', label: 'Cyan' },
+  { color: '#ff8800', label: 'Orange' },
   { color: '#ffffff', label: 'White' },
 ]
 

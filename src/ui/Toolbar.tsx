@@ -646,8 +646,8 @@ export function Toolbar({
             {interaction.activeTool === 'line' ? (
               <div className="toolbar__color-swatches" data-tour="line-color">
                 {[
-                  '#ff3333', '#33cc33', '#3366ff', '#ffcc00',
-                  '#ff33ff', '#33ccff', '#ff8833', '#ffffff',
+                  '#ff0000', '#00ff00', '#0088ff', '#ffee00',
+                  '#ff00ff', '#00eeff', '#ff8800', '#ffffff',
                 ].map((color) => (
                   <button
                     aria-label={`Line color ${color}`}

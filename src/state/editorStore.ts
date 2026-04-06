@@ -1078,7 +1078,7 @@ const initialInteraction: InteractionState = {
   isSpacePanning: false,
   isPointerPanning: false,
   isWarningsOpen: false,
-  lineColor: '#ff3333',
+  lineColor: '#ff0000',
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
