@@ -1,4 +1,4 @@
-import { Circle, Ellipse, Line, Rect } from 'react-konva'
+import { Arc, Circle, Ellipse, Line, Rect } from 'react-konva'
 import type { BoundsMm, ComponentGlyph as ComponentGlyphType } from '../domain/types'
 
 interface ComponentGlyphProps {
@@ -94,29 +94,34 @@ export function ComponentGlyph({
         />
       )
     }
-    case 'beamsplitter':
+    case 'beamsplitter': {
+      const bsSize = Math.max(6, Math.min(width, height) * 0.38)
       return (
         <>
-          <Line
-            dash={[2.2, 2.2]}
-            lineCap="round"
-            points={[
-              boundsMm.x + inset,
-              boundsMm.y + height - inset,
-              boundsMm.x + width - inset,
-              boundsMm.y + inset,
-            ]}
+          <Rect
+            fill={fill ?? 'rgba(157, 210, 216, 0.1)'}
+            height={bsSize}
+            rotation={45}
             stroke={stroke}
-            strokeWidth={1.35}
+            strokeWidth={1}
+            width={bsSize}
+            x={centerX}
+            y={centerY - bsSize * 0.707}
           />
           <Line
-            opacity={0.7}
-            points={[centerX, boundsMm.y + inset, centerX, boundsMm.y + height - inset]}
+            lineCap="round"
+            points={[
+              centerX - bsSize * 0.5,
+              centerY + bsSize * 0.5,
+              centerX + bsSize * 0.5,
+              centerY - bsSize * 0.5,
+            ]}
             stroke={stroke}
-            strokeWidth={0.85}
+            strokeWidth={1.1}
           />
         </>
       )
+    }
     case 'lens':
       return (
         <Ellipse
@@ -155,29 +160,34 @@ export function ComponentGlyph({
           />
         </>
       )
-    case 'attenuator':
+    case 'attenuator': {
+      const wedgeH = Math.max(8, Math.min(width, height) * 0.48)
+      const wedgeW = wedgeH * 0.6
       return (
-        <>
-          <Circle
-            radius={opticRadius}
-            stroke={stroke}
-            strokeWidth={1.2}
-            x={centerX}
-            y={centerY}
-          />
-          <Line
-            lineCap="round"
-            points={[centerX - opticRadius, centerY, centerX + opticRadius, centerY]}
-            stroke={stroke}
-            strokeWidth={0.9}
-          />
-        </>
+        <Line
+          closed
+          fill={fill ?? 'rgba(237, 216, 155, 0.2)'}
+          lineJoin="round"
+          points={[
+            centerX - wedgeW * 0.5,
+            centerY + wedgeH * 0.5,
+            centerX,
+            centerY - wedgeH * 0.5,
+            centerX + wedgeW * 0.5,
+            centerY + wedgeH * 0.5,
+          ]}
+          stroke={stroke}
+          strokeWidth={1.1}
+        />
       )
-    case 'polarizer':
+    }
+    case 'polarizer': {
+      const pr = opticRadius
+      const ax = 0.707
       return (
         <>
           <Circle
-            radius={opticRadius}
+            radius={pr}
             stroke={stroke}
             strokeWidth={1.1}
             x={centerX}
@@ -186,21 +196,39 @@ export function ComponentGlyph({
           <Line
             lineCap="round"
             points={[
-              centerX - opticRadius * 0.9,
-              centerY + opticRadius * 0.9,
-              centerX + opticRadius * 0.9,
-              centerY - opticRadius * 0.9,
+              centerX - pr * ax,
+              centerY + pr * ax,
+              centerX + pr * ax,
+              centerY - pr * ax,
             ]}
             stroke={stroke}
             strokeWidth={1.05}
           />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[
+              centerX + pr * ax - pr * 0.3,
+              centerY - pr * ax - pr * 0.15,
+              centerX + pr * ax,
+              centerY - pr * ax,
+              centerX + pr * ax + pr * 0.15,
+              centerY - pr * ax + pr * 0.3,
+            ]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
         </>
       )
-    case 'waveplate':
+    }
+    case 'waveplate': {
+      const wr = opticRadius
+      const wax = 0.707
+      const tickLen = wr * 0.35
       return (
         <>
           <Circle
-            radius={opticRadius}
+            radius={wr}
             stroke={stroke}
             strokeWidth={1.1}
             x={centerX}
@@ -208,28 +236,77 @@ export function ComponentGlyph({
           />
           <Line
             lineCap="round"
-            points={[centerX - opticRadius * 0.8, centerY, centerX + opticRadius * 0.8, centerY]}
+            points={[
+              centerX - wr * wax,
+              centerY + wr * wax,
+              centerX + wr * wax,
+              centerY - wr * wax,
+            ]}
             stroke={stroke}
             strokeWidth={1}
           />
           <Line
             lineCap="round"
-            points={[centerX, centerY - opticRadius * 0.8, centerX, centerY + opticRadius * 0.8]}
+            points={[
+              centerX - tickLen * wax,
+              centerY - tickLen * wax,
+              centerX + tickLen * wax,
+              centerY + tickLen * wax,
+            ]}
             stroke={stroke}
-            strokeWidth={0.85}
+            strokeWidth={0.9}
           />
         </>
       )
-    case 'iris':
+    }
+    case 'iris': {
+      const irisHalf = Math.max(5, Math.min(width, height) * 0.32)
+      const irisGap = irisHalf * 0.35
       return (
-        <Circle
-          radius={opticRadius}
-          stroke={stroke}
-          strokeWidth={1.2}
-          x={centerX}
-          y={centerY}
-        />
+        <>
+          <Line
+            lineCap="round"
+            points={[centerX, centerY - irisHalf, centerX, centerY - irisGap]}
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, centerY + irisGap, centerX, centerY + irisHalf]}
+            stroke={stroke}
+            strokeWidth={1.4}
+          />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[
+              centerX - irisGap * 0.9,
+              centerY - irisGap * 1.5,
+              centerX,
+              centerY - irisGap,
+              centerX + irisGap * 0.9,
+              centerY - irisGap * 1.5,
+            ]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[
+              centerX - irisGap * 0.9,
+              centerY + irisGap * 1.5,
+              centerX,
+              centerY + irisGap,
+              centerX + irisGap * 0.9,
+              centerY + irisGap * 1.5,
+            ]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+        </>
       )
+    }
     case 'bbo':
       return (
         <Line
@@ -358,54 +435,69 @@ export function ComponentGlyph({
           />
         </>
       )
-    case 'detector':
+    case 'detector': {
+      const dr = Math.max(4.5, Math.min(width, height) * 0.26)
       return (
         <>
-          <Circle
-            radius={Math.max(4, Math.min(width, height) * 0.22)}
+          <Arc
+            angle={180}
+            innerRadius={0}
+            outerRadius={dr}
+            rotation={-90}
             stroke={stroke}
-            strokeWidth={1}
-            x={centerX}
+            strokeWidth={1.1}
+            x={centerX + dr * 0.15}
             y={centerY}
           />
           <Line
-            points={[centerX - 6, centerY + 7, centerX + 6, centerY + 7]}
+            lineCap="round"
+            points={[
+              centerX + dr * 0.15,
+              centerY - dr,
+              centerX + dr * 0.15,
+              centerY + dr,
+            ]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={1.1}
           />
         </>
       )
-    case 'beam-dump':
+    }
+    case 'beam-dump': {
+      const bdW = Math.max(10, width * 0.4)
+      const bdH = Math.max(10, height * 0.42)
+      const bdX = centerX - bdW / 2
+      const bdY = centerY - bdH / 2
       return (
         <>
           <Rect
-            cornerRadius={2}
+            cornerRadius={1.5}
             fill={fill ?? 'rgba(80, 64, 52, 0.18)'}
-            height={Math.max(12, height * 0.44)}
+            height={bdH}
             stroke={stroke}
             strokeWidth={1}
-            width={Math.max(12, width * 0.44)}
-            x={centerX - Math.max(12, width * 0.44) / 2}
-            y={centerY - Math.max(12, height * 0.44) / 2}
+            width={bdW}
+            x={bdX}
+            y={bdY}
           />
-          <Line
-            points={[
-              centerX - 5,
-              centerY - 5,
-              centerX + 5,
-              centerY + 5,
-              centerX,
-              centerY,
-              centerX + 5,
-              centerY - 5,
-              centerX - 5,
-              centerY + 5,
-            ]}
-            stroke={stroke}
-            strokeWidth={1}
-          />
+          {[0.25, 0.5, 0.75].map((f) => (
+            <Line
+              key={f}
+              lineCap="round"
+              points={[
+                bdX + bdW * f - bdH * 0.15,
+                bdY,
+                bdX + bdW * f + bdH * 0.15,
+                bdY + bdH,
+              ]}
+              opacity={0.7}
+              stroke={stroke}
+              strokeWidth={0.7}
+            />
+          ))}
         </>
       )
+    }
     case 'mount':
       return (
         <>
