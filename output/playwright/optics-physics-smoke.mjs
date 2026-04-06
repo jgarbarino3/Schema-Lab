@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
 const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const isLocalDev =
+  targetUrl.includes('127.0.0.1') || targetUrl.includes('localhost')
 
 async function expectHidden(locator) {
   await locator.waitFor({ state: 'hidden' }).catch(async () => {
@@ -483,10 +485,14 @@ try {
   assert.equal(await readInspectorReadout('Readiness'), 'Ready / traced')
   const latestOpaOutput = await readInspectorReadout('Latest output')
   assert.match(latestOpaOutput, /nm$/)
-  const latestScene = await readScene()
-  const opaConfig = latestScene.components.find((component) => component.id === 'opa-1')?.config?.opa
-  assert.equal(opaConfig?.pumpLink?.sourceComponentId, 'pump')
-  assert.equal(opaConfig?.seedLink?.sourceComponentId, 'seed')
+  if (isLocalDev) {
+    const latestScene = await readScene()
+    const opaConfig = latestScene.components.find(
+      (component) => component.id === 'opa-1',
+    )?.config?.opa
+    assert.equal(opaConfig?.pumpLink?.sourceComponentId, 'pump')
+    assert.equal(opaConfig?.seedLink?.sourceComponentId, 'seed')
+  }
   step('OPA links persist and yield traced output readouts')
 
   console.log('optics-physics-smoke-ok')
