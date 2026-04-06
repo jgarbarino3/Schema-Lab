@@ -159,4 +159,149 @@ describe('deterministic beam tracing', () => {
     expect(shgEvent?.transmittedPowerMw).toBeGreaterThan(0)
     expect(shgSegment?.wavelengthNm).toBe(400)
   })
+
+  it('adds internal optical path and femtosecond delay for delay-line components', () => {
+    const source = makeEnabledSource({
+      anchorMm: { x: -60, y: 137.5 },
+    })
+    const stage = makeComponent('sample-stage', {
+      id: 'stage-1',
+      variantId: 'pi-m-112-1dg1',
+      anchorMm: { x: 120, y: 137.5 },
+      config: {
+        ...createDefaultComponentConfig('sample-stage', 'pi-m-112-1dg1'),
+        delayLine: {
+          positionMm: 10,
+          travelMm: 25,
+          topology: 'double-pass',
+          zeroDelayOffsetFs: 0,
+        },
+      },
+    })
+
+    const trace = traceSceneBeams(makeScene([source, stage]))
+    const stageEvent = trace.events.find((event) => event.componentId === stage.id)!
+    const stageSegment = trace.segments.find((segment) => segment.parentInteractionId === stageEvent.id || segment.id === stageEvent.inputSegmentId)!
+
+    expect(stageEvent.physicsKind).toBe('delay-line')
+    expect(stageEvent.internalOpticalPathMm).toBeCloseTo(20, 4)
+    expect(stageSegment.internalOpticalPathMm).toBeCloseTo(20, 4)
+    expect(stageEvent.timeDelayFs).toBeGreaterThan(60000)
+  })
+
+  it('transforms polarization and power through polarizers and waveplates', () => {
+    const source = makeEnabledSource({
+      config: {
+        ...createDefaultComponentConfig('laser-source'),
+        source: {
+          ...createDefaultComponentConfig('laser-source').source!,
+          isEnabled: true,
+          polarization: {
+            basis: 'ray-local',
+            presetId: 'linear-in-plane',
+            inPlaneAmplitude: 1,
+            outOfPlaneAmplitude: 0,
+            relativePhaseDeg: 0,
+          },
+          powerMw: 100,
+          normalizedPowerPercent: 100,
+        },
+      },
+    })
+    const waveplate = makeComponent('waveplate', {
+      id: 'wp-1',
+      anchorMm: { x: 60, y: 112.5 },
+      config: {
+        ...createDefaultComponentConfig('waveplate', 'half-wave'),
+        waveplate: {
+          kind: 'half',
+          axisLocalDeg: 22.5,
+          retardanceDeg: 180,
+          insertionLossPercent: 0,
+        },
+      },
+    })
+    const polarizer = makeComponent('polarizer', {
+      id: 'pol-1',
+      anchorMm: { x: 140, y: 112.5 },
+      config: {
+        ...createDefaultComponentConfig('polarizer'),
+        polarizer: {
+          axisLocalDeg: 45,
+          extinctionRatio: 1000,
+          insertionLossPercent: 0,
+        },
+      },
+    })
+
+    const trace = traceSceneBeams(makeScene([source, waveplate, polarizer]))
+    const waveplateEvent = trace.events.find((event) => event.componentId === waveplate.id)!
+    const polarizerEvent = trace.events.find((event) => event.componentId === polarizer.id)!
+
+    expect(waveplateEvent.physicsKind).toBe('waveplate')
+    expect(waveplateEvent.outputPolarization?.tag.toLowerCase()).toContain('elliptical')
+    expect(polarizerEvent.physicsKind).toBe('polarizer')
+    expect(polarizerEvent.transmittedPowerMw).toBeGreaterThan(40)
+    expect(polarizerEvent.transmittedPowerMw).toBeLessThan(100)
+  })
+
+  it('generates linked OPA outputs when pump and seed inputs are configured', () => {
+    const pump = makeEnabledSource({
+      id: 'pump',
+      label: 'Pump',
+      config: {
+        ...createDefaultComponentConfig('laser-source'),
+        source: {
+          ...createDefaultComponentConfig('laser-source').source!,
+          isEnabled: true,
+          wavelengthNm: 800,
+          powerMw: 100,
+          normalizedPowerPercent: 100,
+        },
+      },
+    })
+    const seed = makeEnabledSource({
+      id: 'seed',
+      label: 'Seed',
+      anchorMm: { x: -60, y: 212.5 },
+      config: {
+        ...createDefaultComponentConfig('laser-source'),
+        source: {
+          ...createDefaultComponentConfig('laser-source').source!,
+          isEnabled: true,
+          wavelengthNm: 1030,
+          powerMw: 60,
+          normalizedPowerPercent: 100,
+        },
+      },
+    })
+    const opa = makeComponent('opa-module', {
+      id: 'opa-1',
+      variantId: 'opa-gain-stage',
+      anchorMm: { x: 120, y: 212.5 },
+      config: {
+        ...createDefaultComponentConfig('opa-module', 'opa-gain-stage'),
+        opa: {
+          role: 'gain',
+          pumpLink: { sourceComponentId: 'pump' },
+          seedLink: { sourceComponentId: 'seed' },
+          outputMode: 'signal+idler',
+          conversionEfficiencyPercent: 20,
+          signalWavelengthNm: 650,
+          idlerWavelengthNm: 1350,
+          outputBandwidthNm: 35,
+        },
+      },
+    })
+
+    const trace = traceSceneBeams(makeScene([pump, seed, opa]))
+    const opaEvent = trace.events.find((event) => event.componentId === opa.id)!
+    const generatedPaths = trace.pathSummaries.filter(
+      (path) => path.sourceComponentId === opa.id,
+    )
+
+    expect(opaEvent.physicsKind).toBe('opa-gain')
+    expect(generatedPaths.length).toBeGreaterThanOrEqual(1)
+    expect(generatedPaths.some((path) => Math.abs(path.wavelengthNm - 650) < 1)).toBe(true)
+  })
 })

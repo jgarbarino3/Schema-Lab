@@ -2,6 +2,7 @@ import { getSourcePreset } from './sourcePresets'
 import type {
   BboCrystalConfig,
   BoundsMm,
+  CurvedMirrorConfig,
   ComponentBeamPhysics,
   ComponentCategory,
   ComponentConfig,
@@ -11,12 +12,17 @@ import type {
   ComponentRenderHint,
   ComponentType,
   ComponentVariant,
+  DelayLineConfig,
   LensConfig,
   MountMode,
+  OpaConfig,
+  PolarizerConfig,
   PortDefinition,
   PortKind,
   ResolvedComponentSpec,
   SourceLane,
+  TelescopeConfig,
+  WaveplateConfig,
 } from './types'
 
 function bounds(x: number, y: number, width: number, height: number): BoundsMm {
@@ -129,7 +135,10 @@ const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
   'lens',
   'filter',
   'iris',
+  'polarizer',
+  'waveplate',
   'bbo-crystal',
+  'telescope',
   'fiber-coupler',
   'detector',
 ]
@@ -159,10 +168,21 @@ function getDefaultMountVisual(
         boundsMm: bounds(-21, -21, 42, 42),
         renderHint: renderHint('circle', '#2a332d', '#aac39f', 'mount'),
       }
+    case 'polarizer':
+    case 'waveplate':
+      return {
+        boundsMm: bounds(-19, -19, 38, 38),
+        renderHint: renderHint('circle', '#2e313d', '#c9cdd7', 'mount'),
+      }
     case 'bbo-crystal':
       return {
         boundsMm: bounds(-18, -14, 36, 28),
         renderHint: renderHint('rect', '#362d45', '#cfc0ef', 'mount'),
+      }
+    case 'telescope':
+      return {
+        boundsMm: bounds(-28, -18, 56, 36),
+        renderHint: renderHint('capsule', '#28333d', '#98b0c7', 'support'),
       }
     case 'fiber-coupler':
       return {
@@ -221,6 +241,29 @@ function mirrorPhysics(
   }
 }
 
+function curvedMirrorPhysics(args: {
+  minNm: number
+  maxNm: number
+  reflectivityPercent: number
+  absorptionPercent: number
+  radiusOfCurvatureMm: number
+  isConvex?: boolean
+}): ComponentBeamPhysics {
+  return {
+    kind: 'curved-mirror',
+    opticalApertureMm: 25.4,
+    supportedWavelengthNm: {
+      minNm: args.minNm,
+      maxNm: args.maxNm,
+    },
+    reflectivityPercent: args.reflectivityPercent,
+    designIncidenceDeg: 45,
+    absorptionPercent: args.absorptionPercent,
+    defaultRadiusOfCurvatureMm: args.radiusOfCurvatureMm,
+    isConvex: args.isConvex ?? false,
+  }
+}
+
 function beamsplitterPhysics(): ComponentBeamPhysics {
   return {
     kind: 'beamsplitter',
@@ -269,19 +312,162 @@ function irisPhysics(maxApertureMm: number, defaultApertureMm: number): Componen
   }
 }
 
-function passThroughPhysics(
+function attenuatorPhysics(args: {
+  transmissionPercent: number
+  minNm: number
+  maxNm: number
+  apertureMm: number
+  orientation: 'horizontal' | 'vertical'
+}): ComponentBeamPhysics {
+  return {
+    kind: 'attenuator',
+    opticalApertureMm: args.apertureMm,
+    transmissionPercent: args.transmissionPercent,
+    supportedWavelengthNm: {
+      minNm: args.minNm,
+      maxNm: args.maxNm,
+    },
+    orientation: args.orientation,
+  }
+}
+
+function polarizerPhysics(
   transmissionPercent: number,
-  minNm: number,
-  maxNm: number,
-  opticalApertureMm = 25.4,
+  extinctionRatio: number,
+  apertureMm: number,
 ): ComponentBeamPhysics {
   return {
-    kind: 'pass-through',
-    opticalApertureMm,
+    kind: 'polarizer',
+    opticalApertureMm: apertureMm,
+    transmissionPercent,
+    extinctionRatio,
+    supportedWavelengthNm: {
+      minNm: 300,
+      maxNm: 2000,
+    },
+  }
+}
+
+function waveplatePhysics(
+  retardanceDeg: number,
+  transmissionPercent: number,
+  apertureMm: number,
+): ComponentBeamPhysics {
+  return {
+    kind: 'waveplate',
+    opticalApertureMm: apertureMm,
     transmissionPercent,
     supportedWavelengthNm: {
-      minNm,
-      maxNm,
+      minNm: 300,
+      maxNm: 2000,
+    },
+    defaultRetardanceDeg: retardanceDeg,
+  }
+}
+
+function delayLinePhysics(
+  relayRole: 'manual-stage' | 'motorized-stage' | 'periscope',
+  defaultTravelMm: number,
+  apertureMm: number,
+  transmissionPercent = 97,
+): ComponentBeamPhysics {
+  return {
+    kind: 'delay-line',
+    opticalApertureMm: apertureMm,
+    transmissionPercent,
+    supportedWavelengthNm: {
+      minNm: 250,
+      maxNm: 2200,
+    },
+    defaultTravelMm,
+    relayRole,
+  }
+}
+
+function telescopePhysics(args: {
+  mode: 'transmission' | 'reflection'
+  element1Mm: number
+  element2Mm: number
+  separationMm: number
+  clearApertureMm: number
+  transmissionPercent?: number
+}): ComponentBeamPhysics {
+  return {
+    kind: 'telescope',
+    opticalApertureMm: args.clearApertureMm,
+    transmissionPercent: args.transmissionPercent ?? 96,
+    supportedWavelengthNm: {
+      minNm: 250,
+      maxNm: 2200,
+    },
+    mode: args.mode,
+    defaultElement1Mm: args.element1Mm,
+    defaultElement2Mm: args.element2Mm,
+    defaultSeparationMm: args.separationMm,
+    defaultClearApertureMm: args.clearApertureMm,
+  }
+}
+
+function opaWhiteLightPhysics(
+  outputWavelengthNm: number,
+  outputBandwidthNm: number,
+  efficiencyPercent: number,
+): ComponentBeamPhysics {
+  return {
+    kind: 'opa-white-light',
+    opticalApertureMm: 6,
+    transmissionPercent: 92,
+    supportedWavelengthNm: {
+      minNm: 350,
+      maxNm: 1200,
+    },
+    defaultOutputWavelengthNm: outputWavelengthNm,
+    defaultOutputBandwidthNm: outputBandwidthNm,
+    defaultConversionEfficiencyPercent: efficiencyPercent,
+  }
+}
+
+function opaCombinerPhysics(): ComponentBeamPhysics {
+  return {
+    kind: 'opa-combiner',
+    opticalApertureMm: 8,
+    transmissionPercent: 95,
+    supportedWavelengthNm: {
+      minNm: 250,
+      maxNm: 2200,
+    },
+  }
+}
+
+function opaGainPhysics(args: {
+  signalWavelengthNm: number
+  idlerWavelengthNm: number
+  bandwidthNm: number
+  efficiencyPercent: number
+}): ComponentBeamPhysics {
+  return {
+    kind: 'opa-gain',
+    opticalApertureMm: 8,
+    transmissionPercent: 94,
+    supportedWavelengthNm: {
+      minNm: 250,
+      maxNm: 2400,
+    },
+    defaultSignalWavelengthNm: args.signalWavelengthNm,
+    defaultIdlerWavelengthNm: args.idlerWavelengthNm,
+    defaultBandwidthNm: args.bandwidthNm,
+    defaultConversionEfficiencyPercent: args.efficiencyPercent,
+  }
+}
+
+function relayPhysics(transmissionPercent: number, apertureMm: number): ComponentBeamPhysics {
+  return {
+    kind: 'relay',
+    opticalApertureMm: apertureMm,
+    transmissionPercent,
+    supportedWavelengthNm: {
+      minNm: 250,
+      maxNm: 2200,
     },
   }
 }
@@ -598,6 +784,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'DELAY-MANUAL',
         description: 'Manual delay axis with knob-driven travel for OPA timing paths.',
         footprintBoundsMm: bounds(-80, -30, 160, 60),
+        visualBodyBoundsMm: bounds(-74, -22, 148, 44),
+        hitBoundsMm: bounds(-84, -34, 168, 68),
+        opticalCenterMm: { x: 0, y: 0 },
+        ports: [
+          port('west', 'Input', 'beam-input', -80, 0, 'west'),
+          port('east', 'Output', 'beam-output', 80, 0, 'east'),
+        ],
+        physics: delayLinePhysics('manual-stage', 75, 18, 97),
       },
       {
         id: 'periscope',
@@ -606,6 +800,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'PERISCOPE',
         description: 'Periscope assembly for beam-height transfer between planes.',
         footprintBoundsMm: bounds(-22, -48, 44, 96),
+        visualBodyBoundsMm: bounds(-16, -42, 32, 84),
+        hitBoundsMm: bounds(-26, -52, 52, 104),
+        opticalCenterMm: { x: 0, y: 0 },
+        ports: [
+          port('south', 'Input', 'beam-input', 0, 48, 'south'),
+          port('north', 'Output', 'beam-output', 0, -48, 'north'),
+        ],
+        physics: relayPhysics(95, 12),
       },
       {
         id: 'white-light-cell',
@@ -678,16 +880,29 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: 'Concave Mirror',
         vendor: 'Generic',
         sku: 'CONCAVE-1IN',
-        description: '1 in concave mirror placeholder with simplified steering physics.',
-        physics: mirrorPhysics(350, 1600, 96, 1.5),
+        description: '1 in concave mirror with spherical reflective curvature.',
+        physics: curvedMirrorPhysics({
+          minNm: 350,
+          maxNm: 1600,
+          reflectivityPercent: 96,
+          absorptionPercent: 1.5,
+          radiusOfCurvatureMm: 200,
+        }),
       },
       {
         id: 'convex-1in',
         label: 'Convex Mirror',
         vendor: 'Generic',
         sku: 'CONVEX-1IN',
-        description: '1 in convex mirror placeholder with simplified steering physics.',
-        physics: mirrorPhysics(350, 1600, 95, 2),
+        description: '1 in convex mirror with spherical reflective curvature.',
+        physics: curvedMirrorPhysics({
+          minNm: 350,
+          maxNm: 1600,
+          reflectivityPercent: 95,
+          absorptionPercent: 2,
+          radiusOfCurvatureMm: 250,
+          isConvex: true,
+        }),
       },
     ],
   },
@@ -924,7 +1139,13 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('circle', '#4d4635', '#efd89b', 'attenuator'),
     mountRenderHint: renderHint('circle', 'rgba(68, 62, 48, 0.84)', '#bca875', 'mount'),
-    physics: passThroughPhysics(50, 350, 2000, 25.4),
+    physics: attenuatorPhysics({
+      transmissionPercent: 50,
+      minNm: 350,
+      maxNm: 2000,
+      apertureMm: 25.4,
+      orientation: 'horizontal',
+    }),
     recommendedHardware: {
       mount: 'Rotation-compatible ND filter mount',
       post: 'RS1.5P4M + RSHT1.5/M',
@@ -934,31 +1155,96 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'variable-nd-horizontal',
         label: 'Variable ND Attenuator',
         description: 'Scalar attenuation optic in a horizontal mount orientation.',
-        physics: {
-          kind: 'pass-through',
-          opticalApertureMm: 25.4,
+        physics: attenuatorPhysics({
           transmissionPercent: 50,
-          supportedWavelengthNm: {
-            minNm: 350,
-            maxNm: 2000,
-          },
+          minNm: 350,
+          maxNm: 2000,
+          apertureMm: 25.4,
           orientation: 'horizontal',
-        },
+        }),
       },
       {
         id: 'variable-nd-vertical',
         label: 'Variable ND Attenuator',
         description: 'Scalar attenuation optic in a vertical mount orientation.',
-        physics: {
-          kind: 'pass-through',
-          opticalApertureMm: 25.4,
+        physics: attenuatorPhysics({
           transmissionPercent: 50,
-          supportedWavelengthNm: {
-            minNm: 350,
-            maxNm: 2000,
-          },
+          minNm: 350,
+          maxNm: 2000,
+          apertureMm: 25.4,
           orientation: 'vertical',
-        },
+        }),
+      },
+    ],
+  },
+  {
+    type: 'polarizer',
+    category: 'conditioning',
+    defaultLabel: 'Polarizer',
+    familyLabel: 'Polarizer',
+    defaultVariantId: 'lpvis100',
+    footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-8.5, -8.5, 17, 17),
+    mountVisualBoundsMm: bounds(-18, -18, 36, 36),
+    hitBoundsMm: bounds(-16, -16, 32, 32),
+    mount: mount('clamp-capable', -9, -9, 18, 18),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -12.7, 0, 'west'),
+      port('east', 'Output', 'beam-output', 12.7, 0, 'east'),
+    ],
+    renderHint: renderHint('circle', '#3a4034', '#d7f0a4', 'polarizer'),
+    mountRenderHint: renderHint('circle', 'rgba(55, 61, 46, 0.86)', '#aebd83', 'mount'),
+    physics: polarizerPhysics(86, 1000, 25.4),
+    recommendedHardware: {
+      mount: 'Rotation-compatible polarizer mount',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
+    variants: [
+      {
+        id: 'lpvis100',
+        label: 'Linear Polarizer',
+        vendor: 'Generic',
+        sku: 'LP-VIS-100',
+        description: 'Visible/NIR linear polarizer with strong extinction.',
+      },
+    ],
+  },
+  {
+    type: 'waveplate',
+    category: 'conditioning',
+    defaultLabel: 'Waveplate',
+    familyLabel: 'Waveplate',
+    defaultVariantId: 'half-wave',
+    footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-8.5, -8.5, 17, 17),
+    mountVisualBoundsMm: bounds(-18, -18, 36, 36),
+    hitBoundsMm: bounds(-16, -16, 32, 32),
+    mount: mount('clamp-capable', -9, -9, 18, 18),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -12.7, 0, 'west'),
+      port('east', 'Output', 'beam-output', 12.7, 0, 'east'),
+    ],
+    renderHint: renderHint('circle', '#3f3653', '#d4c4ff', 'waveplate'),
+    mountRenderHint: renderHint('circle', 'rgba(54, 45, 71, 0.86)', '#aa9ccf', 'mount'),
+    physics: waveplatePhysics(180, 98, 25.4),
+    recommendedHardware: {
+      mount: 'RSP1/M or equivalent rotation mount',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
+    variants: [
+      {
+        id: 'half-wave',
+        label: 'Half-Wave Plate',
+        description: 'Half-wave plate for polarization rotation.',
+        physics: waveplatePhysics(180, 98, 25.4),
+      },
+      {
+        id: 'quarter-wave',
+        label: 'Quarter-Wave Plate',
+        description: 'Quarter-wave plate for linear/circular conversion.',
+        physics: waveplatePhysics(90, 98, 25.4),
       },
     ],
   },
@@ -1084,6 +1370,56 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
   },
   {
+    type: 'telescope',
+    category: 'focusing',
+    defaultLabel: 'Telescope',
+    familyLabel: 'Telescope',
+    defaultVariantId: 'beam-expander-2x',
+    footprintBoundsMm: bounds(-35, -18, 70, 36),
+    visualBodyBoundsMm: bounds(-30, -12, 60, 24),
+    mountVisualBoundsMm: bounds(-40, -20, 80, 40),
+    hitBoundsMm: bounds(-42, -22, 84, 44),
+    mount: mount('clamp-capable', -18, -18, 36, 36),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -35, 0, 'west'),
+      port('east', 'Output', 'beam-output', 35, 0, 'east'),
+    ],
+    renderHint: renderHint('capsule', '#324157', '#bed5ff', 'telescope'),
+    mountRenderHint: renderHint('capsule', 'rgba(50, 62, 84, 0.84)', '#9fb2d6', 'support'),
+    physics: telescopePhysics({
+      mode: 'transmission',
+      element1Mm: 50,
+      element2Mm: 100,
+      separationMm: 150,
+      clearApertureMm: 25.4,
+    }),
+    recommendedHardware: {
+      mount: 'Dual lens or mirror rail assembly',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
+    variants: [
+      {
+        id: 'beam-expander-2x',
+        label: 'Transmission Telescope',
+        description: 'Two-lens telescope for ~2x beam expansion.',
+      },
+      {
+        id: 'reflective-compressor-2x',
+        label: 'Reflective Telescope',
+        description: 'Two-mirror reflective telescope with spherical elements.',
+        physics: telescopePhysics({
+          mode: 'reflection',
+          element1Mm: 200,
+          element2Mm: 100,
+          separationMm: 300,
+          clearApertureMm: 25.4,
+          transmissionPercent: 94,
+        }),
+      },
+    ],
+  },
+  {
     type: 'sample-stage',
     category: 'sample',
     defaultLabel: 'Sample / Stage',
@@ -1099,7 +1435,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       port('east', 'Output', 'beam-output', 25, 0, 'east'),
     ],
     renderHint: renderHint('rect', '#5d342d', '#efab98', 'sample'),
-    physics: passThroughPhysics(95, 350, 1600, 18),
+    physics: delayLinePhysics('manual-stage', 25, 18, 97),
     recommendedHardware: {
       mount: 'Integrated translation stage base',
       post: 'Direct breadboard mounting',
@@ -1128,6 +1464,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           port('west', 'Input', 'beam-input', -42.5, 0, 'west'),
           port('east', 'Output', 'beam-output', 42.5, 0, 'east'),
         ],
+        physics: delayLinePhysics('manual-stage', 25, 18, 97),
       },
       {
         id: 'pi-ls-180',
@@ -1147,6 +1484,55 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           port('west', 'Input', 'beam-input', -325.5, 0, 'west'),
           port('east', 'Output', 'beam-output', 325.5, 0, 'east'),
         ],
+        physics: delayLinePhysics('motorized-stage', 205, 18, 97),
+      },
+    ],
+  },
+  {
+    type: 'opa-module',
+    category: 'nonlinear',
+    defaultLabel: 'OPA Module',
+    familyLabel: 'OPA Module',
+    defaultVariantId: 'white-light-generator',
+    footprintBoundsMm: bounds(-24, -18, 48, 36),
+    visualBodyBoundsMm: bounds(-20, -14, 40, 28),
+    hitBoundsMm: bounds(-28, -22, 56, 44),
+    mount: mount('hole-mounted', -24, -18, 48, 36),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -24, 0, 'west'),
+      port('east', 'Output', 'beam-output', 24, 0, 'east'),
+      port('north', 'Pump', 'beam-input', 0, -18, 'north'),
+      port('south', 'Seed', 'beam-input', 0, 18, 'south'),
+    ],
+    renderHint: renderHint('rect', '#4b3556', '#f2b4ff', 'opa'),
+    physics: opaWhiteLightPhysics(650, 140, 8),
+    recommendedHardware: {
+      mount: 'OPA crystal and steering assembly',
+      post: 'Direct table or breadboard mounting',
+    },
+    variants: [
+      {
+        id: 'white-light-generator',
+        label: 'White-Light Generator',
+        description: 'Broadband seed generation block for OPA layouts.',
+      },
+      {
+        id: 'pump-seed-combiner',
+        label: 'Pump / Seed Combiner',
+        description: 'Combines or aligns pump and seed channels before gain.',
+        physics: opaCombinerPhysics(),
+      },
+      {
+        id: 'opa-gain-stage',
+        label: 'OPA Gain Stage',
+        description: 'Block-level OPA gain stage with signal/idler generation.',
+        physics: opaGainPhysics({
+          signalWavelengthNm: 650,
+          idlerWavelengthNm: 1350,
+          bandwidthNm: 45,
+          efficiencyPercent: 18,
+        }),
       },
     ],
   },
@@ -1469,16 +1855,55 @@ export function createDefaultComponentConfig(
       return {
         attenuator: {
           transmissionPercent:
-            spec.physics.kind === 'pass-through'
+            spec.physics.kind === 'attenuator'
               ? spec.physics.transmissionPercent
               : 50,
           orientation:
-            spec.physics.kind === 'pass-through' &&
-            'orientation' in spec.physics &&
+            spec.physics.kind === 'attenuator' &&
             spec.physics.orientation === 'vertical'
               ? 'vertical'
               : 'horizontal',
         },
+        support: supportConfig,
+      }
+    }
+    case 'polarizer': {
+      const physics = spec.physics.kind === 'polarizer' ? spec.physics : undefined
+
+      const defaultConfig: PolarizerConfig = {
+        axisLocalDeg: 0,
+        extinctionRatio: physics?.extinctionRatio ?? 1000,
+        insertionLossPercent: Math.max(
+          0,
+          roundToTenth(100 - (physics?.transmissionPercent ?? 86)),
+        ),
+      }
+
+      return {
+        polarizer: defaultConfig,
+        support: supportConfig,
+      }
+    }
+    case 'waveplate': {
+      const physics = spec.physics.kind === 'waveplate' ? spec.physics : undefined
+      const defaultRetardanceDeg = physics?.defaultRetardanceDeg ?? 180
+      const defaultConfig: WaveplateConfig = {
+        kind:
+          defaultRetardanceDeg <= 100
+            ? 'quarter'
+            : defaultRetardanceDeg >= 170 && defaultRetardanceDeg <= 190
+              ? 'half'
+              : 'custom',
+        axisLocalDeg: 0,
+        retardanceDeg: defaultRetardanceDeg,
+        insertionLossPercent: Math.max(
+          0,
+          roundToTenth(100 - (physics?.transmissionPercent ?? 98)),
+        ),
+      }
+
+      return {
+        waveplate: defaultConfig,
         support: supportConfig,
       }
     }
@@ -1518,6 +1943,97 @@ export function createDefaultComponentConfig(
         support: supportConfig,
       }
     }
+    case 'mirror': {
+      if (spec.physics.kind !== 'curved-mirror') {
+        return supportConfig
+          ? {
+              support: supportConfig,
+            }
+          : {}
+      }
+
+      const defaultConfig: CurvedMirrorConfig = {
+        radiusOfCurvatureMm: spec.physics.defaultRadiusOfCurvatureMm,
+        isConvex: spec.physics.isConvex,
+      }
+
+      return {
+        curvedMirror: defaultConfig,
+        support: supportConfig,
+      }
+    }
+    case 'sample-stage':
+    case 'support-hardware': {
+      const physics = spec.physics.kind === 'delay-line' ? spec.physics : undefined
+
+      if (!physics) {
+        return supportConfig
+          ? {
+              support: supportConfig,
+            }
+          : {}
+      }
+
+      const defaultConfig: DelayLineConfig = {
+        positionMm: 0,
+        travelMm: physics.defaultTravelMm,
+        topology: 'double-pass',
+        zeroDelayOffsetFs: 0,
+      }
+
+      return {
+        delayLine: defaultConfig,
+        support: supportConfig,
+      }
+    }
+    case 'telescope': {
+      const physics = spec.physics.kind === 'telescope' ? spec.physics : undefined
+
+      const defaultConfig: TelescopeConfig = {
+        mode: physics?.mode ?? 'transmission',
+        element1Mm: physics?.defaultElement1Mm ?? 50,
+        element2Mm: physics?.defaultElement2Mm ?? 100,
+        separationMm: physics?.defaultSeparationMm ?? 150,
+        clearApertureMm:
+          physics?.defaultClearApertureMm ?? physics?.opticalApertureMm ?? 25.4,
+      }
+
+      return {
+        telescope: defaultConfig,
+        support: supportConfig,
+      }
+    }
+    case 'opa-module': {
+      const physics = spec.physics
+      const defaultConfig: OpaConfig =
+        physics.kind === 'opa-white-light'
+          ? {
+              role: 'white-light',
+              targetWavelengthNm: physics.defaultOutputWavelengthNm,
+              outputBandwidthNm: physics.defaultOutputBandwidthNm,
+              conversionEfficiencyPercent: physics.defaultConversionEfficiencyPercent,
+              bandwidthScale: 4,
+            }
+          : physics.kind === 'opa-gain'
+            ? {
+                role: 'gain',
+                outputMode: 'signal+idler',
+                targetWavelengthNm: physics.defaultSignalWavelengthNm,
+                outputBandwidthNm: physics.defaultBandwidthNm,
+                conversionEfficiencyPercent: physics.defaultConversionEfficiencyPercent,
+                signalWavelengthNm: physics.defaultSignalWavelengthNm,
+                idlerWavelengthNm: physics.defaultIdlerWavelengthNm,
+                pumpDepletionPercent: 15,
+              }
+            : {
+                role: 'combiner',
+              }
+
+      return {
+        opa: defaultConfig,
+        support: supportConfig,
+      }
+    }
     default:
       return supportConfig
         ? {
@@ -1525,6 +2041,10 @@ export function createDefaultComponentConfig(
           }
         : {}
   }
+}
+
+function roundToTenth(value: number) {
+  return Math.round(value * 10) / 10
 }
 
 export function isExternalSource(type: ComponentType) {

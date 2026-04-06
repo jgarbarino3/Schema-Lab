@@ -373,6 +373,26 @@ function BeamInspectionSection({
           <strong>{beamSelection.interaction?.componentLabel ?? 'n/a'}</strong>
         </div>
         <div>
+          <span>Optical path</span>
+          <strong>
+            {beamSelection.segment
+              ? `${beamSelection.segment.opticalPathMm.toFixed(2)} mm`
+              : beamSelection.path
+                ? `${beamSelection.path.totalOpticalPathMm.toFixed(2)} mm`
+                : 'n/a'}
+          </strong>
+        </div>
+        <div>
+          <span>Delay</span>
+          <strong>
+            {beamSelection.segment
+              ? `${beamSelection.segment.timeDelayFs.toFixed(1)} fs`
+              : beamSelection.path
+                ? `${beamSelection.path.finalTimeDelayFs.toFixed(1)} fs`
+                : 'n/a'}
+          </strong>
+        </div>
+        <div>
           <span>Outcome</span>
           <strong>
             {beamSelection.interaction?.outcomeClass ??
@@ -474,6 +494,7 @@ function BeamInspectionSection({
               <div>
                 <strong>{row.zPositionMm.toFixed(2)} mm</strong>
                 <span>waist @ {row.waistOffsetMm.toFixed(2)} mm</span>
+                <span>{row.timeDelayFs.toFixed(1)} fs</span>
               </div>
               <div>
                 <strong>{row.spotRadiusMm.toFixed(3)} mm r</strong>
@@ -580,10 +601,29 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
     (state) => state.updateSelectedBeamSplitter,
   )
   const updateSelectedLens = useEditorStore((state) => state.updateSelectedLens)
+  const updateSelectedCurvedMirror = useEditorStore(
+    (state) => state.updateSelectedCurvedMirror,
+  )
+  const updateSelectedAttenuator = useEditorStore(
+    (state) => state.updateSelectedAttenuator,
+  )
+  const updateSelectedPolarizer = useEditorStore(
+    (state) => state.updateSelectedPolarizer,
+  )
+  const updateSelectedWaveplate = useEditorStore(
+    (state) => state.updateSelectedWaveplate,
+  )
   const updateSelectedIris = useEditorStore((state) => state.updateSelectedIris)
   const updateSelectedBboCrystal = useEditorStore(
     (state) => state.updateSelectedBboCrystal,
   )
+  const updateSelectedDelayLine = useEditorStore(
+    (state) => state.updateSelectedDelayLine,
+  )
+  const updateSelectedTelescope = useEditorStore(
+    (state) => state.updateSelectedTelescope,
+  )
+  const updateSelectedOpa = useEditorStore((state) => state.updateSelectedOpa)
   const updateSelectedSupport = useEditorStore(
     (state) => state.updateSelectedSupport,
   )
@@ -596,6 +636,16 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
   )
   const mountVisibilityDefaults = useEditorStore(
     (state) => state.mountVisibilityDefaults,
+  )
+  const linkableSources = useMemo(
+    () =>
+      scene.components.filter(
+        (component) =>
+          component.id !==
+            (selection.type === 'component' ? selection.componentId : undefined) &&
+          component.config.source?.isEnabled,
+      ),
+    [scene.components, selection],
   )
 
   const selectedComponent =
@@ -1715,6 +1765,57 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
           </div>
         ) : null}
 
+        {inspectedComponent.type === 'mirror' && inspectedComponent.config.curvedMirror ? (
+          <div className="inspector__subsection">
+            <h3>Curved Mirror</h3>
+
+            <div className="inspector__grid">
+              <NumberField
+                label="ROC (mm)"
+                onChange={(radiusOfCurvatureMm) =>
+                  updateSelectedCurvedMirror({ radiusOfCurvatureMm })
+                }
+                step={1}
+                value={inspectedComponent.config.curvedMirror.radiusOfCurvatureMm}
+              />
+              <Field label="Shape">
+                <select
+                  onChange={(event) =>
+                    updateSelectedCurvedMirror({
+                      isConvex: event.target.value === 'convex',
+                    })
+                  }
+                  value={inspectedComponent.config.curvedMirror.isConvex ? 'convex' : 'concave'}
+                >
+                  <option value="concave">Concave</option>
+                  <option value="convex">Convex</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Effective focal length</span>
+                <strong>
+                  {(
+                    inspectedComponent.config.curvedMirror.radiusOfCurvatureMm /
+                    2
+                  ).toFixed(2)}{' '}
+                  mm
+                </strong>
+              </div>
+              <div>
+                <span>Output waist offset</span>
+                <strong>
+                  {strongestGaussianInteraction?.outputLocal
+                    ? `${strongestGaussianInteraction.outputLocal.waistOffsetMm.toFixed(2)} mm`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {inspectedComponent.type === 'beamsplitter' && inspectedComponent.config.beamSplitter ? (
           <div className="inspector__subsection">
             <h3>Beamsplitter</h3>
@@ -1770,6 +1871,140 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
               step={0.1}
               value={inspectedComponent.config.iris.apertureMm}
             />
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'attenuator' && inspectedComponent.config.attenuator ? (
+          <div className="inspector__subsection">
+            <h3>Attenuator</h3>
+
+            <div className="inspector__grid">
+              <NumberField
+                label="Transmission (%)"
+                onChange={(transmissionPercent) =>
+                  updateSelectedAttenuator({ transmissionPercent })
+                }
+                value={inspectedComponent.config.attenuator.transmissionPercent}
+              />
+              <Field label="Orientation">
+                <select
+                  onChange={(event) =>
+                    updateSelectedAttenuator({
+                      orientation: event.target.value as 'horizontal' | 'vertical',
+                    })
+                  }
+                  value={inspectedComponent.config.attenuator.orientation}
+                >
+                  <option value="horizontal">Horizontal</option>
+                  <option value="vertical">Vertical</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Incoming power</span>
+                <strong>
+                  {strongestIncomingEvent
+                    ? `${strongestIncomingEvent.incomingPowerMw.toFixed(2)} mW`
+                    : 'n/a'}
+                </strong>
+              </div>
+              <div>
+                <span>Output power</span>
+                <strong>
+                  {strongestIncomingEvent?.transmittedPowerMw !== undefined
+                    ? `${strongestIncomingEvent.transmittedPowerMw.toFixed(2)} mW`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'polarizer' && inspectedComponent.config.polarizer ? (
+          <div className="inspector__subsection">
+            <h3>Polarizer</h3>
+
+            <div className="inspector__grid">
+              <NumberField
+                label="Axis (deg)"
+                onChange={(axisLocalDeg) => updateSelectedPolarizer({ axisLocalDeg })}
+                step={0.5}
+                value={inspectedComponent.config.polarizer.axisLocalDeg}
+              />
+              <NumberField
+                label="Extinction ratio"
+                onChange={(extinctionRatio) =>
+                  updateSelectedPolarizer({ extinctionRatio })
+                }
+                step={10}
+                value={inspectedComponent.config.polarizer.extinctionRatio}
+              />
+              <NumberField
+                label="Insertion loss (%)"
+                onChange={(insertionLossPercent) =>
+                  updateSelectedPolarizer({ insertionLossPercent })
+                }
+                step={0.1}
+                value={inspectedComponent.config.polarizer.insertionLossPercent}
+              />
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Outgoing polarization</span>
+                <strong>{strongestIncomingEvent?.outputPolarization?.tag ?? 'n/a'}</strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'waveplate' && inspectedComponent.config.waveplate ? (
+          <div className="inspector__subsection">
+            <h3>Waveplate</h3>
+
+            <div className="inspector__grid">
+              <Field label="Kind">
+                <select
+                  onChange={(event) =>
+                    updateSelectedWaveplate({
+                      kind: event.target.value as 'quarter' | 'half' | 'custom',
+                      retardanceDeg:
+                        event.target.value === 'quarter'
+                          ? 90
+                          : event.target.value === 'half'
+                            ? 180
+                            : inspectedComponent.config.waveplate!.retardanceDeg,
+                    })
+                  }
+                  value={inspectedComponent.config.waveplate.kind}
+                >
+                  <option value="quarter">Quarter</option>
+                  <option value="half">Half</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+              <NumberField
+                label="Axis (deg)"
+                onChange={(axisLocalDeg) => updateSelectedWaveplate({ axisLocalDeg })}
+                step={0.5}
+                value={inspectedComponent.config.waveplate.axisLocalDeg}
+              />
+              <NumberField
+                label="Retardance (deg)"
+                onChange={(retardanceDeg) => updateSelectedWaveplate({ retardanceDeg })}
+                step={0.5}
+                value={inspectedComponent.config.waveplate.retardanceDeg}
+              />
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Outgoing polarization</span>
+                <strong>{strongestIncomingEvent?.outputPolarization?.tag ?? 'n/a'}</strong>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1904,6 +2139,323 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
                 scene beam defaults.
               </p>
             )}
+          </div>
+        ) : null}
+
+        {(inspectedComponent.type === 'sample-stage' ||
+          inspectedComponent.type === 'support-hardware') &&
+        inspectedComponent.config.delayLine ? (
+          <div className="inspector__subsection">
+            <h3>Delay Line</h3>
+
+            <div className="inspector__grid">
+              <Field label="Scan slider">
+                <input
+                  max={inspectedComponent.config.delayLine.travelMm}
+                  min={0}
+                  onChange={(event) =>
+                    updateSelectedDelayLine({
+                      positionMm: Number(event.target.value),
+                    })
+                  }
+                  step={0.1}
+                  type="range"
+                  value={inspectedComponent.config.delayLine.positionMm}
+                />
+              </Field>
+              <NumberField
+                label="Position (mm)"
+                onChange={(positionMm) => updateSelectedDelayLine({ positionMm })}
+                step={0.1}
+                value={inspectedComponent.config.delayLine.positionMm}
+              />
+              <NumberField
+                label="Travel (mm)"
+                onChange={(travelMm) => updateSelectedDelayLine({ travelMm })}
+                step={0.1}
+                value={inspectedComponent.config.delayLine.travelMm}
+              />
+              <NumberField
+                label="Zero offset (fs)"
+                onChange={(zeroDelayOffsetFs) =>
+                  updateSelectedDelayLine({ zeroDelayOffsetFs })
+                }
+                step={1}
+                value={inspectedComponent.config.delayLine.zeroDelayOffsetFs}
+              />
+              <Field label="Topology">
+                <select
+                  onChange={(event) =>
+                    updateSelectedDelayLine({
+                      topology: event.target.value as 'single-pass' | 'double-pass',
+                    })
+                  }
+                  value={inspectedComponent.config.delayLine.topology}
+                >
+                  <option value="single-pass">Single-pass</option>
+                  <option value="double-pass">Double-pass</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Internal path add</span>
+                <strong>
+                  {(
+                    inspectedComponent.config.delayLine.positionMm *
+                    (inspectedComponent.config.delayLine.topology === 'single-pass' ? 1 : 2)
+                  ).toFixed(2)}{' '}
+                  mm
+                </strong>
+              </div>
+              <div>
+                <span>Derived delay</span>
+                <strong>
+                  {(
+                    inspectedComponent.config.delayLine.zeroDelayOffsetFs +
+                    inspectedComponent.config.delayLine.positionMm *
+                      (inspectedComponent.config.delayLine.topology === 'single-pass' ? 1 : 2) *
+                      3335.6409519815
+                  ).toFixed(1)}{' '}
+                  fs
+                </strong>
+              </div>
+              <div>
+                <span>Latest traced delay</span>
+                <strong>
+                  {strongestIncomingEvent
+                    ? `${strongestIncomingEvent.timeDelayFs.toFixed(1)} fs`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'telescope' && inspectedComponent.config.telescope ? (
+          <div className="inspector__subsection">
+            <h3>Telescope</h3>
+
+            <div className="inspector__grid">
+              <Field label="Mode">
+                <select
+                  onChange={(event) =>
+                    updateSelectedTelescope({
+                      mode: event.target.value as 'transmission' | 'reflection',
+                    })
+                  }
+                  value={inspectedComponent.config.telescope.mode}
+                >
+                  <option value="transmission">Transmission</option>
+                  <option value="reflection">Reflection</option>
+                </select>
+              </Field>
+              <NumberField
+                label={
+                  inspectedComponent.config.telescope.mode === 'reflection'
+                    ? 'Mirror 1 ROC (mm)'
+                    : 'Lens 1 f (mm)'
+                }
+                onChange={(element1Mm) => updateSelectedTelescope({ element1Mm })}
+                step={1}
+                value={inspectedComponent.config.telescope.element1Mm}
+              />
+              <NumberField
+                label={
+                  inspectedComponent.config.telescope.mode === 'reflection'
+                    ? 'Mirror 2 ROC (mm)'
+                    : 'Lens 2 f (mm)'
+                }
+                onChange={(element2Mm) => updateSelectedTelescope({ element2Mm })}
+                step={1}
+                value={inspectedComponent.config.telescope.element2Mm}
+              />
+              <NumberField
+                label="Separation (mm)"
+                onChange={(separationMm) => updateSelectedTelescope({ separationMm })}
+                step={1}
+                value={inspectedComponent.config.telescope.separationMm}
+              />
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Nominal magnification</span>
+                <strong>
+                  {(
+                    inspectedComponent.config.telescope.element2Mm /
+                    Math.max(0.1, inspectedComponent.config.telescope.element1Mm)
+                  ).toFixed(2)}
+                  x
+                </strong>
+              </div>
+              <div>
+                <span>Output waist offset</span>
+                <strong>
+                  {strongestGaussianInteraction?.outputLocal
+                    ? `${strongestGaussianInteraction.outputLocal.waistOffsetMm.toFixed(2)} mm`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'opa-module' && inspectedComponent.config.opa ? (
+          <div className="inspector__subsection">
+            <h3>OPA Module</h3>
+
+            <div className="inspector__grid">
+              <Field label="Role">
+                <select
+                  onChange={(event) =>
+                    updateSelectedOpa({
+                      role: event.target.value as 'white-light' | 'combiner' | 'gain',
+                    })
+                  }
+                  value={inspectedComponent.config.opa.role}
+                >
+                  <option value="white-light">White-light</option>
+                  <option value="combiner">Combiner</option>
+                  <option value="gain">Gain</option>
+                </select>
+              </Field>
+              <NumberField
+                label="Target λ (nm)"
+                onChange={(targetWavelengthNm) =>
+                  updateSelectedOpa({ targetWavelengthNm })
+                }
+                step={1}
+                value={inspectedComponent.config.opa.targetWavelengthNm ?? 650}
+              />
+              <NumberField
+                label="Bandwidth (nm)"
+                onChange={(outputBandwidthNm) =>
+                  updateSelectedOpa({ outputBandwidthNm })
+                }
+                step={1}
+                value={inspectedComponent.config.opa.outputBandwidthNm ?? 45}
+              />
+              <NumberField
+                label="Efficiency (%)"
+                onChange={(conversionEfficiencyPercent) =>
+                  updateSelectedOpa({ conversionEfficiencyPercent })
+                }
+                step={0.5}
+                value={inspectedComponent.config.opa.conversionEfficiencyPercent ?? 10}
+              />
+              {inspectedComponent.config.opa.role === 'gain' ? (
+                <Field label="Output mode">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedOpa({
+                        outputMode: event.target.value as 'signal' | 'idler' | 'signal+idler',
+                      })
+                    }
+                    value={inspectedComponent.config.opa.outputMode ?? 'signal+idler'}
+                  >
+                    <option value="signal">Signal</option>
+                    <option value="idler">Idler</option>
+                    <option value="signal+idler">Signal + idler</option>
+                  </select>
+                </Field>
+              ) : null}
+              {inspectedComponent.config.opa.role !== 'white-light' ? (
+                <Field label="Pump link">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedOpa({
+                        pumpLink: event.target.value
+                          ? { sourceComponentId: event.target.value }
+                          : undefined,
+                      })
+                    }
+                    value={inspectedComponent.config.opa.pumpLink?.sourceComponentId ?? ''}
+                  >
+                    <option value="">None</option>
+                    {linkableSources.map((component) => (
+                      <option key={component.id} value={component.id}>
+                        {component.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              {inspectedComponent.config.opa.role !== 'white-light' ? (
+                <Field label="Seed link">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedOpa({
+                        seedLink: event.target.value
+                          ? { sourceComponentId: event.target.value }
+                          : undefined,
+                      })
+                    }
+                    value={inspectedComponent.config.opa.seedLink?.sourceComponentId ?? ''}
+                  >
+                    <option value="">None</option>
+                    {linkableSources.map((component) => (
+                      <option key={component.id} value={component.id}>
+                        {component.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+              {inspectedComponent.config.opa.role === 'gain' ? (
+                <Field label="Signal link">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedOpa({
+                        signalLink: event.target.value
+                          ? { sourceComponentId: event.target.value }
+                          : undefined,
+                      })
+                    }
+                    value={inspectedComponent.config.opa.signalLink?.sourceComponentId ?? ''}
+                  >
+                    <option value="">None</option>
+                    {linkableSources.map((component) => (
+                      <option key={component.id} value={component.id}>
+                        {component.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+            </div>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Readiness</span>
+                <strong>{beamEvents.length > 0 ? 'Ready / traced' : 'Waiting for inputs'}</strong>
+              </div>
+              <div>
+                <span>Pump link</span>
+                <strong>{inspectedComponent.config.opa.pumpLink?.sourceComponentId ?? 'none'}</strong>
+              </div>
+              <div>
+                <span>Seed link</span>
+                <strong>
+                  {inspectedComponent.config.opa.seedLink?.sourceComponentId ??
+                    inspectedComponent.config.opa.signalLink?.sourceComponentId ??
+                    'none'}
+                </strong>
+              </div>
+              <div>
+                <span>Input mode</span>
+                <strong>Real beam hits override linked fallback</strong>
+              </div>
+              <div>
+                <span>Latest output</span>
+                <strong>
+                  {beamEvents[0]?.outputWavelengthNm
+                    ? `${beamEvents[0].outputWavelengthNm.toFixed(1)} nm`
+                    : 'n/a'}
+                </strong>
+              </div>
+            </div>
           </div>
         ) : null}
 

@@ -111,7 +111,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(6)
+    expect(migrated.version).toBe(7)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -120,7 +120,7 @@ describe('scene serialization', () => {
     })
   })
 
-  it('migrates a version 2 scene into version 5 with default polarization and Gaussian fields', () => {
+  it('migrates a version 2 scene into version 7 with default polarization and Gaussian fields', () => {
     const seedScene = createEmptyScene()
     const v2Json = JSON.stringify({
       kind: 'schema-lab.scene',
@@ -166,7 +166,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(6)
+    expect(migrated.version).toBe(7)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -177,7 +177,7 @@ describe('scene serialization', () => {
     expect(bbo?.config.support?.includeMount).toBe(true)
   })
 
-  it('migrates a version 3 scene into version 5 with default Gaussian and lens fields', () => {
+  it('migrates a version 3 scene into version 7 with default Gaussian and lens fields', () => {
     const seedScene = createEmptyScene()
     const v3Json = JSON.stringify({
       kind: 'schema-lab.scene',
@@ -219,7 +219,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(6)
+    expect(migrated.version).toBe(7)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

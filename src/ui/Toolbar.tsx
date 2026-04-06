@@ -311,6 +311,24 @@ export function Toolbar({
               </p>
             </section>
             <section>
+              <h3>Focused Optics Physics</h3>
+              <p>
+                Curved mirrors, telescopes, attenuators, polarizers, waveplates, and delay lines now participate in the traced beam model. Delay lines add internal optical path and femtosecond delay without changing the drawn 2D centerline.
+              </p>
+            </section>
+            <section>
+              <h3>OPA Modules</h3>
+              <p>
+                White-light generators, pump or seed combiners, and OPA gain stages use block-level optics physics. Real coincident beam hits take priority, and inspector pump or seed links only fill any missing inputs as fallback.
+              </p>
+            </section>
+            <section>
+              <h3>Current Limits</h3>
+              <p>
+                Periscopes are still 2D relays in this pass, and SpectraPro readouts stay metadata-based. Full 3D beam height, grating dispersion, and nonlinear phase-matching internals are still deferred.
+              </p>
+            </section>
+            <section>
               <h3>Sources</h3>
               <p>
                 Standard laser sources stay in off-board source lanes. In optical-table mode, large laser-body variants can also sit directly on the table. Pick a first target in the inspector, then align the source when that model supports beam launch.
@@ -337,7 +355,7 @@ export function Toolbar({
             <section>
               <h3>Guide</h3>
               <p>
-                Guide reopens the first-run walkthrough and explains placement, inspector states, realistic/simple mode, warnings, sources, BBO tunables, and export flow.
+                Guide reopens the first-run walkthrough and explains placement, inspector states, realistic/simple mode, warnings, sources, delay and OPA controls, BBO tunables, and export flow.
               </p>
             </section>
           </div>,

@@ -6,7 +6,12 @@ import {
   roundMm,
 } from './geometry'
 import { getSceneWorldBoundsMm } from './placement'
-import { createPolarizationSnapshot, getPolarizationReflectivityPercent } from './polarization'
+import {
+  applyPolarizerToSnapshot,
+  applyWaveplateToSnapshot,
+  createPolarizationSnapshot,
+  getPolarizationReflectivityPercent,
+} from './polarization'
 import { getWorldPortsForComponent } from './ports'
 import type {
   BeamAttenuationClass,
@@ -34,6 +39,7 @@ import type {
 const MAX_TRACE_DEPTH = 24
 const MIN_POWER_MW = 0.05
 const RAY_EPSILON_MM = 0.01
+const FS_PER_MM = 3335.6409519815
 
 interface RayState {
   beamId: string
@@ -54,6 +60,8 @@ interface RayState {
   sourcePowerMw: number
   wavelengthNm: number
   attenuationClass: BeamAttenuationClass
+  opticalPathMm: number
+  timeDelayFs: number
   parentInteractionId?: string
 }
 
@@ -79,6 +87,12 @@ interface OutgoingRayTemplate {
   beamDiameterMm: number
   generation: number
   outcomeClass: BeamOutcomeClass
+  sourceComponentId?: string
+  sourceLabel?: string
+  sourcePowerMw?: number
+  divergenceMrad?: number
+  opticalPathMm?: number
+  timeDelayFs?: number
 }
 
 interface TraceResolution {
@@ -94,8 +108,28 @@ interface TraceResolution {
   acceptanceFraction: number
   wasClipped: boolean
   partialAcceptance: boolean
+  internalOpticalPathMm: number
+  outputPolarization?: PolarizationSnapshot
   note?: string
   outgoing: OutgoingRayTemplate[]
+}
+
+interface OpaInputSample {
+  componentId: string
+  componentLabel: string
+  pathId: string
+  polarization: PolarizationSnapshot
+  powerMw: number
+  wavelengthNm: number
+  bandwidthNm: number
+  beamDiameterMm: number
+  divergenceMrad: number
+}
+
+interface OpaInputState {
+  pump?: OpaInputSample
+  seed?: OpaInputSample
+  signal?: OpaInputSample
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -540,14 +574,27 @@ function resolveSegmentOutcome(ray: RayState, status: BeamSegment['status']): Be
   return 'transmitted'
 }
 
+function getTimeDelayFs(opticalPathMm: number) {
+  return roundMm(opticalPathMm * FS_PER_MM)
+}
+
 function makeSegment(args: {
   endMm: Vector2Mm
   id: string
+  internalOpticalPathMm?: number
   powerMw: number
   ray: RayState
   startMm: Vector2Mm
   status: BeamSegment['status']
 }) {
+  const geometricLengthMm = Math.hypot(
+    args.endMm.x - args.startMm.x,
+    args.endMm.y - args.startMm.y,
+  )
+  const internalOpticalPathMm = roundMm(args.internalOpticalPathMm ?? 0)
+  const effectiveOpticalLengthMm = roundMm(geometricLengthMm + internalOpticalPathMm)
+  const opticalPathMm = roundMm(args.ray.opticalPathMm + effectiveOpticalLengthMm)
+
   return {
     id: args.id,
     beamId: args.ray.beamId,
@@ -571,6 +618,11 @@ function makeSegment(args: {
     polarization: args.ray.polarization,
     parentEventId: args.ray.parentInteractionId,
     parentInteractionId: args.ray.parentInteractionId,
+    geometricLengthMm: roundMm(geometricLengthMm),
+    internalOpticalPathMm,
+    effectiveOpticalLengthMm,
+    opticalPathMm,
+    timeDelayFs: getTimeDelayFs(opticalPathMm),
   } satisfies BeamSegment
 }
 
@@ -670,6 +722,8 @@ function createSourceRay(
     sourcePowerMw,
     wavelengthNm: config.wavelengthNm,
     attenuationClass: 'normal' as const,
+    opticalPathMm: 0,
+    timeDelayFs: 0,
   } satisfies RayState
 }
 
@@ -678,7 +732,10 @@ function traceMirror(
   candidate: IntersectionCandidate,
   ray: RayState,
 ): TraceResolution | undefined {
-  if (candidate.spec.physics.kind !== 'mirror') {
+  if (
+    candidate.spec.physics.kind !== 'mirror' &&
+    candidate.spec.physics.kind !== 'curved-mirror'
+  ) {
     return undefined
   }
 
@@ -711,6 +768,8 @@ function traceMirror(
     acceptanceFraction: reflectivityPercent / 100,
     wasClipped: false,
     partialAcceptance: reflectivityPercent < 99.5,
+    internalOpticalPathMm: 0,
+    outputPolarization: ray.polarization,
     note: `${createNote(candidate.spec)} • ${ray.polarization.tag}`,
     outgoing:
       outgoingPowerMw > MIN_POWER_MW
@@ -858,9 +917,142 @@ function traceBeamsplitter(
     acceptanceFraction: (reflectPercent + transmitPercent) / 100,
     wasClipped: false,
     partialAcceptance: effectiveLossPercent > 0,
+    internalOpticalPathMm: 0,
+    outputPolarization: ray.polarization,
     note: `${createNote(candidate.spec)} • ${ray.polarization.tag}`,
     outgoing,
   }
+}
+
+function getDelayLineInternalPathMm(component: ComponentInstance) {
+  const config = component.config.delayLine
+
+  if (!config) {
+    return 0
+  }
+
+  const multiplier = config.topology === 'single-pass' ? 1 : 2
+  return roundMm(Math.max(0, config.positionMm) * multiplier)
+}
+
+function getNearestPortId(
+  component: ComponentInstance,
+  hitPointMm: Vector2Mm,
+) {
+  const ports = getWorldPortsForComponent(component)
+  let nearestPortId: string | undefined
+  let nearestDistance = Number.POSITIVE_INFINITY
+
+  for (const port of ports) {
+    const distance = Math.hypot(
+      port.worldPositionMm.x - hitPointMm.x,
+      port.worldPositionMm.y - hitPointMm.y,
+    )
+
+    if (distance < nearestDistance) {
+      nearestPortId = port.id
+      nearestDistance = distance
+    }
+  }
+
+  return nearestPortId
+}
+
+function createOpaInputSampleFromRay(
+  component: ComponentInstance,
+  ray: RayState,
+  beamDiameterMm: number,
+): OpaInputSample {
+  return {
+    componentId: component.id,
+    componentLabel: component.label,
+    pathId: ray.pathId,
+    polarization: ray.polarization,
+    powerMw: ray.powerMw,
+    wavelengthNm: ray.wavelengthNm,
+    bandwidthNm: ray.bandwidthNm,
+    beamDiameterMm,
+    divergenceMrad: ray.divergenceMrad,
+  }
+}
+
+function resolveLinkedOpaInput(
+  scene: SceneDocument,
+  link?: { sourceComponentId?: string; pathId?: string },
+): OpaInputSample | undefined {
+  if (!link?.sourceComponentId && !link?.pathId) {
+    return undefined
+  }
+
+  const component = link.sourceComponentId
+    ? scene.components.find((item) => item.id === link.sourceComponentId)
+    : undefined
+  const source = component?.config.source
+
+  if (!source?.isEnabled) {
+    return undefined
+  }
+
+  return {
+    componentId: component!.id,
+    componentLabel: component!.label,
+    pathId: link.pathId ?? `linked:${component!.id}`,
+    polarization: createPolarizationSnapshot(source.polarization),
+    powerMw: roundMm(source.powerMw * (source.normalizedPowerPercent / 100)),
+    wavelengthNm: source.wavelengthNm,
+    bandwidthNm: source.bandwidthNm,
+    beamDiameterMm: source.beamDiameterMm,
+    divergenceMrad: source.divergenceMrad,
+  }
+}
+
+function getOpaPortRole(
+  component: ComponentInstance,
+  hitPointMm: Vector2Mm,
+): keyof OpaInputState | undefined {
+  const nearestPortId = getNearestPortId(component, hitPointMm)
+
+  switch (nearestPortId) {
+    case 'north':
+      return 'pump'
+    case 'south':
+      return 'seed'
+    case 'west':
+      return 'signal'
+    default:
+      return undefined
+  }
+}
+
+function combineOpaPolarizations(samples: OpaInputSample[]) {
+  const totalPower = samples.reduce((sum, sample) => sum + sample.powerMw, 0) || 1
+
+  return createPolarizationSnapshot({
+    basis: 'ray-local',
+    presetId: 'elliptical',
+    inPlaneAmplitude: roundMm(
+      Math.sqrt(
+        samples.reduce(
+          (sum, sample) =>
+            sum + sample.powerMw * sample.polarization.inPlaneFraction,
+          0,
+        ) / totalPower,
+      ),
+    ),
+    outOfPlaneAmplitude: roundMm(
+      Math.sqrt(
+        samples.reduce(
+          (sum, sample) =>
+            sum + sample.powerMw * sample.polarization.outOfPlaneFraction,
+          0,
+        ) / totalPower,
+      ),
+    ),
+    relativePhaseDeg: roundMm(
+      samples.reduce((sum, sample) => sum + sample.polarization.relativePhaseDeg, 0) /
+        samples.length,
+    ),
+  })
 }
 
 function tracePassThrough(
@@ -902,6 +1094,8 @@ function tracePassThrough(
         acceptanceFraction: transmissionPercent / 100,
         wasClipped: false,
         partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         filterTransmissionClass: estimate.transmissionClass,
         note: `${createNote(candidate.spec)} • ${estimate.transmissionClass} ${estimate.transmissionPercent.toFixed(1)}%`,
         outgoing:
@@ -964,6 +1158,8 @@ function tracePassThrough(
         acceptanceFraction: passFraction,
         wasClipped: passFraction < 0.999,
         partialAcceptance: passFraction > 0 && passFraction < 0.999,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         note: `${createNote(candidate.spec)} • aperture ${apertureMm.toFixed(1)} mm`,
         outgoing:
           outgoingPowerMw > MIN_POWER_MW
@@ -1091,8 +1287,197 @@ function tracePassThrough(
         acceptanceFraction: compatibilityFactor,
         wasClipped: false,
         partialAcceptance: compatibilityFactor < 0.999,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         note: `${createNote(candidate.spec)} • ${polarizationSummary.compatibilityPercent.toFixed(1)}% polarization compatibility`,
         outgoing,
+      }
+    }
+    case 'attenuator': {
+      const transmissionPercent =
+        (candidate.component.config.attenuator?.transmissionPercent ??
+          candidate.spec.physics.transmissionPercent) *
+        (candidate.spec.physics.supportedWavelengthNm
+          ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+          : 1)
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const powerPercent = roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100)
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent,
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : 'attenuated',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
+        note: `${createNote(candidate.spec)} • ND ${transmissionPercent.toFixed(1)}%`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(
+                    candidate.hitPointMm,
+                    scaleVector(ray.directionMm, RAY_EPSILON_MM),
+                  ),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: ray.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power' ? 'low-power' : 'attenuated',
+                },
+              ]
+            : [],
+      }
+    }
+    case 'polarizer': {
+      const transformed = applyPolarizerToSnapshot({
+        polarization: ray.polarization,
+        axisLocalDeg: candidate.component.config.polarizer?.axisLocalDeg ?? 0,
+        extinctionRatio: candidate.component.config.polarizer?.extinctionRatio ?? candidate.spec.physics.extinctionRatio,
+      })
+      const insertionLossScale = 1 - ((candidate.component.config.polarizer?.insertionLossPercent ?? 0) / 100)
+      const transmissionPercent = roundMm(
+        100 *
+          transformed.transmissionFraction *
+          Math.max(0, insertionLossScale) *
+          (candidate.spec.physics.supportedWavelengthNm
+            ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+            : 1),
+      )
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const powerPercent = roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100)
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent,
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : 'attenuated',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: transformed.polarization,
+        note: `${createNote(candidate.spec)} • axis ${(candidate.component.config.polarizer?.axisLocalDeg ?? 0).toFixed(1)}°`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: transformed.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power' ? 'low-power' : 'attenuated',
+                },
+              ]
+            : [],
+      }
+    }
+    case 'waveplate': {
+      const transformed = applyWaveplateToSnapshot({
+        polarization: ray.polarization,
+        axisLocalDeg: candidate.component.config.waveplate?.axisLocalDeg ?? 0,
+        retardanceDeg:
+          candidate.component.config.waveplate?.retardanceDeg ??
+          candidate.spec.physics.defaultRetardanceDeg,
+      })
+      const transmissionPercent =
+        Math.max(
+          0,
+          candidate.spec.physics.transmissionPercent -
+            (candidate.component.config.waveplate?.insertionLossPercent ?? 0),
+        ) *
+        (candidate.spec.physics.supportedWavelengthNm
+          ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+          : 1)
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const powerPercent = roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100)
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent,
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : 'attenuated',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: transformed,
+        note: `${createNote(candidate.spec)} • axis ${(candidate.component.config.waveplate?.axisLocalDeg ?? 0).toFixed(1)}° • retardance ${(candidate.component.config.waveplate?.retardanceDeg ?? candidate.spec.physics.defaultRetardanceDeg).toFixed(1)}°`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: transformed,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power'
+                      ? 'low-power'
+                      : attenuationClass === 'attenuated'
+                        ? 'attenuated'
+                        : 'transmitted',
+                },
+              ]
+            : [],
       }
     }
     case 'pass-through': {
@@ -1126,6 +1511,8 @@ function tracePassThrough(
         acceptanceFraction: transmissionPercent / 100,
         wasClipped: false,
         partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         note: createNote(candidate.spec),
         outgoing:
           outgoingPowerMw > MIN_POWER_MW
@@ -1192,6 +1579,8 @@ function tracePassThrough(
         acceptanceFraction: transmissionPercent / 100,
         wasClipped: false,
         partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         note: `${createNote(candidate.spec)} • f ${focalLengthMm.toFixed(1)} mm • CA ${clearApertureMm.toFixed(1)} mm`,
         outgoing:
           outgoingPowerMw > MIN_POWER_MW
@@ -1238,12 +1627,420 @@ function tracePassThrough(
         acceptanceFraction: 1,
         wasClipped: false,
         partialAcceptance: false,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
         note: createNote(candidate.spec),
         outgoing: [],
       }
     }
+    case 'delay-line': {
+      const transmissionPercent =
+        candidate.spec.physics.transmissionPercent *
+        (candidate.spec.physics.supportedWavelengthNm
+          ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+          : 1)
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const internalOpticalPathMm = getDelayLineInternalPathMm(candidate.component)
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent: roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100),
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : attenuationClass === 'attenuated'
+                ? 'attenuated'
+                : 'transmitted',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm,
+        outputPolarization: ray.polarization,
+        note: `${createNote(candidate.spec)} • ${candidate.component.config.delayLine?.positionMm?.toFixed(2) ?? '0.00'} mm scan`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: ray.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power'
+                      ? 'low-power'
+                      : attenuationClass === 'attenuated'
+                        ? 'attenuated'
+                        : 'transmitted',
+                },
+              ]
+            : [],
+      }
+    }
+    case 'relay': {
+      const transmissionPercent =
+        candidate.spec.physics.transmissionPercent *
+        (candidate.spec.physics.supportedWavelengthNm
+          ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+          : 1)
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent: roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100),
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : attenuationClass === 'attenuated'
+                ? 'attenuated'
+                : 'transmitted',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
+        note: `${createNote(candidate.spec)} • 2D relay only`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: ray.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power'
+                      ? 'low-power'
+                      : attenuationClass === 'attenuated'
+                        ? 'attenuated'
+                        : 'transmitted',
+                },
+              ]
+            : [],
+      }
+    }
+    case 'telescope': {
+      const transmissionPercent =
+        candidate.spec.physics.transmissionPercent *
+        (candidate.spec.physics.supportedWavelengthNm
+          ? getRangeFactor(ray.wavelengthNm, candidate.spec.physics.supportedWavelengthNm)
+          : 1)
+      const outgoingPowerMw = roundMm(ray.powerMw * (transmissionPercent / 100))
+      const internalOpticalPathMm = roundMm(candidate.component.config.telescope?.separationMm ?? candidate.spec.physics.defaultSeparationMm)
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: transmissionPercent / 100,
+        powerPercent: roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100),
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : attenuationClass === 'low-power'
+              ? 'low-power'
+              : attenuationClass === 'attenuated'
+                ? 'attenuated'
+                : 'transmitted',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: transmissionPercent / 100,
+        wasClipped: false,
+        partialAcceptance: transmissionPercent < 99,
+        internalOpticalPathMm,
+        outputPolarization: ray.polarization,
+        note: `${createNote(candidate.spec)} • sep ${(candidate.component.config.telescope?.separationMm ?? candidate.spec.physics.defaultSeparationMm).toFixed(1)} mm`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: ray.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: ray.wavelengthNm,
+                  bandwidthNm: ray.bandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation,
+                  outcomeClass:
+                    attenuationClass === 'low-power'
+                      ? 'low-power'
+                      : attenuationClass === 'attenuated'
+                        ? 'attenuated'
+                        : 'transmitted',
+                },
+              ]
+            : [],
+      }
+    }
+    case 'opa-white-light': {
+      const efficiencyPercent =
+        candidate.component.config.opa?.conversionEfficiencyPercent ??
+        candidate.spec.physics.defaultConversionEfficiencyPercent
+      const outgoingPowerMw = roundMm(ray.powerMw * (efficiencyPercent / 100))
+      const attenuationClass = classifyAttenuationClass({
+        acceptanceFraction: efficiencyPercent / 100,
+        powerPercent: roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100),
+        blocked: outgoingPowerMw <= MIN_POWER_MW,
+      })
+      const nextBandwidthNm = Math.max(
+        candidate.spec.physics.defaultOutputBandwidthNm,
+        roundMm(ray.bandwidthNm * (candidate.component.config.opa?.bandwidthScale ?? 4)),
+      )
+      const nextWavelengthNm =
+        candidate.component.config.opa?.targetWavelengthNm ??
+        candidate.spec.physics.defaultOutputWavelengthNm
+
+      return {
+        interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+        outcomeClass:
+          outgoingPowerMw <= MIN_POWER_MW
+            ? 'blocked'
+            : 'attenuated',
+        transmittedPowerMw: outgoingPowerMw,
+        lostPowerMw: roundMm(ray.powerMw - outgoingPowerMw),
+        acceptanceFraction: efficiencyPercent / 100,
+        wasClipped: false,
+        partialAcceptance: efficiencyPercent < 99,
+        internalOpticalPathMm: 0,
+        outputPolarization: ray.polarization,
+        outputWavelengthNm: nextWavelengthNm,
+        note: `${createNote(candidate.spec)} • WL ${(nextWavelengthNm).toFixed(1)} nm / ${nextBandwidthNm.toFixed(1)} nm`,
+        outgoing:
+          outgoingPowerMw > MIN_POWER_MW
+            ? [
+                {
+                  attenuationClass,
+                  branchKind: 'continued',
+                  directionMm: ray.directionMm,
+                  originMm: addVectors(candidate.hitPointMm, scaleVector(ray.directionMm, RAY_EPSILON_MM)),
+                  pathMode: 'continue',
+                  pathRole: ray.pathRole,
+                  polarization: ray.polarization,
+                  powerMw: outgoingPowerMw,
+                  wavelengthNm: nextWavelengthNm,
+                  bandwidthNm: nextBandwidthNm,
+                  beamDiameterMm: propagatedBeamDiameterMm,
+                  generation: ray.generation + 1,
+                  outcomeClass: attenuationClass === 'low-power' ? 'low-power' : 'attenuated',
+                },
+              ]
+            : [],
+      }
+    }
     default:
       return undefined
+  }
+}
+
+function traceOpaModule(
+  scene: SceneDocument,
+  candidate: IntersectionCandidate,
+  ray: RayState,
+  propagatedBeamDiameterMm: number,
+  opaInputsByComponent: Map<string, OpaInputState>,
+  emittedOpaKeys: Set<string>,
+): TraceResolution | undefined {
+  const physics = candidate.spec.physics
+
+  if (
+    physics.kind !== 'opa-combiner' &&
+    physics.kind !== 'opa-gain'
+  ) {
+    return undefined
+  }
+
+  const currentInputs = opaInputsByComponent.get(candidate.component.id) ?? {}
+  const role = getOpaPortRole(candidate.component, candidate.hitPointMm)
+  const nextInputs: OpaInputState = {
+    ...currentInputs,
+    ...(role
+      ? {
+          [role]: createOpaInputSampleFromRay(
+            candidate.component,
+            ray,
+            propagatedBeamDiameterMm,
+          ),
+        }
+      : {}),
+  }
+
+  if (!nextInputs.pump) {
+    nextInputs.pump = resolveLinkedOpaInput(scene, candidate.component.config.opa?.pumpLink)
+  }
+  if (!nextInputs.seed) {
+    nextInputs.seed = resolveLinkedOpaInput(scene, candidate.component.config.opa?.seedLink)
+  }
+  if (!nextInputs.signal) {
+    nextInputs.signal = resolveLinkedOpaInput(scene, candidate.component.config.opa?.signalLink)
+  }
+
+  opaInputsByComponent.set(candidate.component.id, nextInputs)
+
+  const readyInputs =
+    physics.kind === 'opa-combiner'
+      ? nextInputs.pump && nextInputs.seed
+      : nextInputs.pump && (nextInputs.seed ?? nextInputs.signal)
+
+  const emissionKey = `${candidate.component.id}:${physics.kind}:${nextInputs.pump?.pathId ?? 'pump'}:${nextInputs.seed?.pathId ?? nextInputs.signal?.pathId ?? 'seed'}`
+
+  if (!readyInputs || emittedOpaKeys.has(emissionKey)) {
+    return {
+      interactionKind: 'blocked',
+      outcomeClass: 'blocked',
+      acceptanceFraction: 0,
+      wasClipped: false,
+      partialAcceptance: true,
+      internalOpticalPathMm: 0,
+      outputPolarization: ray.polarization,
+      note: `${createNote(candidate.spec)} • waiting for ${!nextInputs.pump ? 'pump' : 'seed'}`,
+      outgoing: [],
+    }
+  }
+
+  emittedOpaKeys.add(emissionKey)
+  const inputSeed = nextInputs.seed ?? nextInputs.signal!
+  const pump = nextInputs.pump!
+  const conversionEfficiencyPercent =
+    candidate.component.config.opa?.conversionEfficiencyPercent ??
+    (physics.kind === 'opa-gain' ? physics.defaultConversionEfficiencyPercent : 90)
+  const outgoingPowerMw =
+    physics.kind === 'opa-combiner'
+      ? roundMm((pump.powerMw + inputSeed.powerMw) * 0.5 * (conversionEfficiencyPercent / 100))
+      : roundMm(
+          Math.min(pump.powerMw, inputSeed.powerMw * 4) *
+            (conversionEfficiencyPercent / 100),
+        )
+  const outputMode = candidate.component.config.opa?.outputMode ?? 'signal+idler'
+  const signalWavelengthNm =
+    candidate.component.config.opa?.signalWavelengthNm ??
+    candidate.component.config.opa?.targetWavelengthNm ??
+    (physics.kind === 'opa-gain' ? physics.defaultSignalWavelengthNm : inputSeed.wavelengthNm)
+  const idlerWavelengthNm =
+    candidate.component.config.opa?.idlerWavelengthNm ??
+    (physics.kind === 'opa-gain'
+      ? physics.defaultIdlerWavelengthNm
+      : Math.max(350, roundMm((pump.wavelengthNm * inputSeed.wavelengthNm) / Math.max(1, Math.abs(pump.wavelengthNm - inputSeed.wavelengthNm)))))
+  const outputBandwidthNm =
+    candidate.component.config.opa?.outputBandwidthNm ??
+    (physics.kind === 'opa-gain'
+      ? physics.defaultBandwidthNm
+      : Math.max(pump.bandwidthNm, inputSeed.bandwidthNm))
+  const attenuationClass = classifyAttenuationClass({
+    acceptanceFraction: conversionEfficiencyPercent / 100,
+    powerPercent: 100,
+    blocked: outgoingPowerMw <= MIN_POWER_MW,
+  })
+  const outputPolarization = combineOpaPolarizations([pump, inputSeed])
+  const outputOriginMm = addVectors(
+    candidate.hitPointMm,
+    scaleVector(ray.directionMm, RAY_EPSILON_MM),
+  )
+  const outputDivergenceMrad = inputSeed.divergenceMrad
+  const outputBeamDiameterMm = inputSeed.beamDiameterMm
+  const outgoing: OutgoingRayTemplate[] = []
+
+  if (outgoingPowerMw > MIN_POWER_MW) {
+    if (physics.kind === 'opa-combiner' || outputMode === 'signal' || outputMode === 'signal+idler') {
+      outgoing.push({
+        attenuationClass,
+        branchKind: 'root',
+        directionMm: ray.directionMm,
+        originMm: outputOriginMm,
+        pathMode: 'branch',
+        pathRole: 'fundamental',
+        polarization: outputPolarization,
+        powerMw: outputMode === 'signal+idler' && physics.kind === 'opa-gain'
+          ? roundMm(outgoingPowerMw * 0.62)
+          : outgoingPowerMw,
+        wavelengthNm: signalWavelengthNm,
+        bandwidthNm: outputBandwidthNm,
+        beamDiameterMm: outputBeamDiameterMm,
+        generation: Math.max(pump.divergenceMrad, inputSeed.divergenceMrad) > 0 ? ray.generation + 1 : ray.generation + 1,
+        outcomeClass: 'transmitted',
+        sourceComponentId: candidate.component.id,
+        sourceLabel: candidate.component.label,
+        sourcePowerMw: outgoingPowerMw,
+        divergenceMrad: outputDivergenceMrad,
+      })
+    }
+
+    if (physics.kind === 'opa-gain' && (outputMode === 'idler' || outputMode === 'signal+idler')) {
+      outgoing.push({
+        attenuationClass,
+        branchKind: 'root',
+        directionMm: ray.directionMm,
+        originMm: outputOriginMm,
+        pathMode: 'branch',
+        pathRole: 'fundamental',
+        polarization: outputPolarization,
+        powerMw:
+          outputMode === 'signal+idler' ? roundMm(outgoingPowerMw * 0.38) : outgoingPowerMw,
+        wavelengthNm: idlerWavelengthNm,
+        bandwidthNm: outputBandwidthNm,
+        beamDiameterMm: outputBeamDiameterMm,
+        generation: ray.generation + 1,
+        outcomeClass: 'transmitted',
+        sourceComponentId: candidate.component.id,
+        sourceLabel: candidate.component.label,
+        sourcePowerMw: outgoingPowerMw,
+        divergenceMrad: outputDivergenceMrad,
+      })
+    }
+  }
+
+  return {
+    interactionKind: outgoing.length > 0 ? 'transmission' : 'blocked',
+    outcomeClass: outgoing.length > 0 ? 'transmitted' : 'blocked',
+    transmittedPowerMw: outgoingPowerMw,
+    lostPowerMw: roundMm(ray.powerMw),
+    acceptanceFraction: conversionEfficiencyPercent / 100,
+    wasClipped: false,
+    partialAcceptance: outgoing.length === 0,
+    internalOpticalPathMm: 0,
+    outputPolarization,
+    outputWavelengthNm: signalWavelengthNm,
+    note:
+      physics.kind === 'opa-combiner'
+        ? `${createNote(candidate.spec)} • pump+seed combined`
+        : `${createNote(candidate.spec)} • ${outputMode} generated`,
+    outgoing,
   }
 }
 
@@ -1282,6 +2079,8 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
   const queue: RayState[] = []
   const segments: BeamSegment[] = []
   const events: BeamInteractionEvent[] = []
+  const opaInputsByComponent = new Map<string, OpaInputState>()
+  const emittedOpaKeys = new Set<string>()
   let beamIndex = 0
   let pathIndex = 0
   let segmentIndex = 0
@@ -1318,6 +2117,7 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
         makeSegment({
           endMm: getEscapedSegmentEndMm(scene, ray),
           id: `segment-${(segmentIndex += 1)}`,
+          internalOpticalPathMm: 0,
           powerMw: ray.powerMw,
           ray,
           startMm: ray.originMm,
@@ -1332,9 +2132,28 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
       ray.divergenceMrad,
       intersection.rayDistanceMm,
     )
+
+    const resolution =
+      traceMirror(scene, intersection, ray) ??
+      traceBeamsplitter(scene, intersection, ray) ??
+      traceOpaModule(
+        scene,
+        intersection,
+        ray,
+        propagatedBeamDiameterMm,
+        opaInputsByComponent,
+        emittedOpaKeys,
+      ) ??
+      tracePassThrough(scene, intersection, ray)
+
+    if (!resolution) {
+      continue
+    }
+
     const inputSegment = makeSegment({
       endMm: intersection.hitPointMm,
       id: `segment-${(segmentIndex += 1)}`,
+      internalOpticalPathMm: resolution.internalOpticalPathMm,
       powerMw: ray.powerMw,
       ray: {
         ...ray,
@@ -1345,15 +2164,6 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
     })
 
     segments.push(inputSegment)
-
-    const resolution =
-      traceMirror(scene, intersection, ray) ??
-      traceBeamsplitter(scene, intersection, ray) ??
-      tracePassThrough(scene, intersection, ray)
-
-    if (!resolution) {
-      continue
-    }
 
     const eventId = `event-${(eventIndex += 1)}`
     const resolvedBranches: Array<{
@@ -1388,7 +2198,6 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
         branchKind: outgoing.branchKind,
         depth: ray.depth + 1,
         directionMm: outgoing.directionMm,
-        divergenceMrad: ray.divergenceMrad,
         generation: outgoing.generation,
         originMm: addVectors(
           outgoing.originMm,
@@ -1398,11 +2207,14 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
         pathRole: outgoing.pathRole,
         polarization: outgoing.polarization,
         powerMw: outgoing.powerMw,
-        sourceComponentId: ray.sourceComponentId,
-        sourceLabel: ray.sourceLabel,
-        sourcePowerMw: ray.sourcePowerMw,
+        sourceComponentId: outgoing.sourceComponentId ?? ray.sourceComponentId,
+        sourceLabel: outgoing.sourceLabel ?? ray.sourceLabel,
+        sourcePowerMw: outgoing.sourcePowerMw ?? ray.sourcePowerMw,
         wavelengthNm: outgoing.wavelengthNm,
         attenuationClass: outgoing.attenuationClass,
+        divergenceMrad: outgoing.divergenceMrad ?? ray.divergenceMrad,
+        opticalPathMm: inputSegment.opticalPathMm,
+        timeDelayFs: inputSegment.timeDelayFs,
         parentInteractionId: eventId,
       })
     }
@@ -1420,6 +2232,7 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
       hitPointMm: intersection.hitPointMm,
       incidenceAngleDeg: intersection.incidenceAngleDeg,
       interactionKind: resolution.interactionKind,
+      physicsKind: intersection.spec.physics.kind,
       outcomeClass: resolution.outcomeClass,
       incomingPowerMw: roundMm(ray.powerMw),
       reflectedPowerMw: resolution.reflectedPowerMw,
@@ -1432,10 +2245,15 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
       outputWavelengthNm: resolution.outputWavelengthNm,
       branchResults: buildBranchResults(ray.sourcePowerMw, resolvedBranches),
       polarization: ray.polarization,
+      outputPolarization: resolution.outputPolarization,
       filterTransmissionClass: resolution.filterTransmissionClass,
       acceptanceFraction: roundMm(resolution.acceptanceFraction),
       wasClipped: resolution.wasClipped,
       partialAcceptance: resolution.partialAcceptance,
+      geometricLengthMm: inputSegment.geometricLengthMm,
+      internalOpticalPathMm: inputSegment.internalOpticalPathMm,
+      opticalPathMm: inputSegment.opticalPathMm,
+      timeDelayFs: inputSegment.timeDelayFs,
       note: resolution.note,
     })
   }
@@ -1461,6 +2279,8 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
         segmentIds: [segment.id],
         interactionIds: [],
         outcomeClass: segment.outcomeClass,
+        totalOpticalPathMm: segment.opticalPathMm,
+        finalTimeDelayFs: segment.timeDelayFs,
       })
       continue
     }
@@ -1468,6 +2288,8 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
     existing.segmentIds.push(segment.id)
     existing.finalPowerMw = segment.powerMw
     existing.outcomeClass = segment.outcomeClass
+    existing.totalOpticalPathMm = segment.opticalPathMm
+    existing.finalTimeDelayFs = segment.timeDelayFs
   }
 
   for (const event of events) {
@@ -1486,6 +2308,8 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
     if (!continuesPath) {
       summary.finalPowerMw = 0
       summary.outcomeClass = event.outcomeClass
+      summary.totalOpticalPathMm = event.opticalPathMm
+      summary.finalTimeDelayFs = event.timeDelayFs
     }
   }
 
@@ -1495,20 +2319,26 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
     const sourceConfig = component.config.source
 
     if (!sourceConfig?.isEnabled) {
-      continue
+      if (component.type !== 'opa-module') {
+        continue
+      }
     }
 
     summariesBySource.set(component.id, {
       sourceComponentId: component.id,
       sourceLabel: component.label,
-      wavelengthNm: sourceConfig.wavelengthNm,
-      bandwidthNm: sourceConfig.bandwidthNm,
+      wavelengthNm: sourceConfig?.wavelengthNm ?? component.config.opa?.targetWavelengthNm ?? 0,
+      bandwidthNm: sourceConfig?.bandwidthNm ?? component.config.opa?.outputBandwidthNm ?? 0,
       powerMw: roundMm(
-        sourceConfig.powerMw * (sourceConfig.normalizedPowerPercent / 100),
+        sourceConfig
+          ? sourceConfig.powerMw * (sourceConfig.normalizedPowerPercent / 100)
+          : 0,
       ),
       generatedShgPowerMw: 0,
       terminalCount: 0,
-      polarizationTag: createPolarizationSnapshot(sourceConfig.polarization).tag,
+      polarizationTag: sourceConfig
+        ? createPolarizationSnapshot(sourceConfig.polarization).tag
+        : 'Generated optical state',
     })
   }
 
@@ -1516,6 +2346,16 @@ export function traceSceneBeams(scene: SceneDocument): BeamTraceResult {
     const summary = summariesBySource.get(event.sourceComponentId)
 
     if (!summary) {
+      summariesBySource.set(event.sourceComponentId, {
+        sourceComponentId: event.sourceComponentId,
+        sourceLabel: event.sourceLabel,
+        wavelengthNm: event.outputWavelengthNm ?? event.wavelengthNm,
+        bandwidthNm: event.bandwidthNm,
+        powerMw: event.transmittedPowerMw ?? event.generatedPowerMw ?? event.incomingPowerMw,
+        generatedShgPowerMw: event.generatedPowerMw ?? 0,
+        terminalCount: event.interactionKind === 'terminal' ? 1 : 0,
+        polarizationTag: event.outputPolarization?.tag ?? event.polarization.tag,
+      })
       continue
     }
 

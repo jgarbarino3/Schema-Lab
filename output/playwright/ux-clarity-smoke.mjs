@@ -347,18 +347,32 @@ try {
   assert.ok(beamInspectionVisible, 'Beam segment selection should be reachable on canvas')
   step('beam inspection selected from canvas')
 
-  await exportButton.click()
-  await exportMenu.waitFor()
-  assert.match(
-    await getDownloadName(() => exportMenu.getByRole('button', { name: 'Scene JSON' }).click()),
-    /schema-lab-scene\.json/i,
-  )
-  await exportButton.click()
-  await exportMenu.waitFor()
-  const pngDownload = await getDownloadName(() =>
-    exportMenu.getByRole('button', { name: 'Breadboard PNG' }).click(),
-  )
-  assert.match(pngDownload, /schema-lab-breadboard\.png/i)
+  const [sceneJsonDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    (async () => {
+      await exportButton.click()
+      await exportMenu.waitFor()
+      await exportMenu.getByRole('button', { name: 'Scene JSON' }).click()
+      await page
+        .getByRole('heading', { name: /Review Warnings Before Scene JSON/i })
+        .waitFor()
+      await page.getByRole('button', { name: 'Export anyway' }).click()
+    })(),
+  ])
+  assert.match(sceneJsonDownload.suggestedFilename(), /schema-lab-scene\.json/i)
+  const [pngDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    (async () => {
+      await exportButton.click()
+      await exportMenu.waitFor()
+      await exportMenu.getByRole('button', { name: 'Breadboard PNG' }).click()
+      await page
+        .getByRole('heading', { name: /Review Warnings Before Breadboard PNG/i })
+        .waitFor()
+      await page.getByRole('button', { name: 'Export anyway' }).click()
+    })(),
+  ])
+  assert.match(pngDownload.suggestedFilename(), /schema-lab-breadboard\.png/i)
   step('download exports initiated')
 
   if (canUseDevModuleFallback) {

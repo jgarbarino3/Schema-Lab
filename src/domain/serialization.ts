@@ -58,6 +58,11 @@ const POLARIZATION_PRESET_VALUES: PolarizationPresetId[] = [
   'elliptical',
 ]
 const GAUSSIAN_INPUT_MODE_VALUES = ['derived', 'explicit-waist'] as const
+const DELAY_LINE_TOPOLOGY_VALUES = ['single-pass', 'double-pass'] as const
+const WAVEPLATE_KIND_VALUES = ['quarter', 'half', 'custom'] as const
+const TELESCOPE_MODE_VALUES = ['transmission', 'reflection'] as const
+const OPA_ROLE_VALUES = ['white-light', 'combiner', 'gain'] as const
+const OPA_OUTPUT_MODE_VALUES = ['signal', 'idler', 'signal+idler'] as const
 
 const DEFAULT_BEAM_SETTINGS: SceneBeamSettings = {
   beamFidelityMode: 'geometric',
@@ -382,6 +387,39 @@ function parseComponentConfig(
                 : 'horizontal',
           }
         : defaults.attenuator,
+    curvedMirror:
+      isRecord(value.curvedMirror) && type === 'mirror'
+        ? {
+            radiusOfCurvatureMm: expectNumber(value.curvedMirror, 'radiusOfCurvatureMm'),
+            isConvex:
+              typeof value.curvedMirror.isConvex === 'boolean'
+                ? value.curvedMirror.isConvex
+                : false,
+          }
+        : defaults.curvedMirror,
+    polarizer:
+      isRecord(value.polarizer) && type === 'polarizer'
+        ? {
+            axisLocalDeg: expectNumber(value.polarizer, 'axisLocalDeg'),
+            extinctionRatio: expectNumber(value.polarizer, 'extinctionRatio'),
+            insertionLossPercent:
+              typeof value.polarizer.insertionLossPercent === 'number'
+                ? expectNumber(value.polarizer, 'insertionLossPercent')
+                : 0,
+          }
+        : defaults.polarizer,
+    waveplate:
+      isRecord(value.waveplate) && type === 'waveplate'
+        ? {
+            kind: expectEnum(value.waveplate, 'kind', [...WAVEPLATE_KIND_VALUES]),
+            axisLocalDeg: expectNumber(value.waveplate, 'axisLocalDeg'),
+            retardanceDeg: expectNumber(value.waveplate, 'retardanceDeg'),
+            insertionLossPercent:
+              typeof value.waveplate.insertionLossPercent === 'number'
+                ? expectNumber(value.waveplate, 'insertionLossPercent')
+                : 0,
+          }
+        : defaults.waveplate,
     iris:
       isRecord(value.iris) && type === 'iris'
         ? {
@@ -408,6 +446,110 @@ function parseComponentConfig(
                 : 0,
           }
         : defaults.bboCrystal,
+    delayLine:
+      isRecord(value.delayLine) &&
+      (type === 'sample-stage' || type === 'support-hardware')
+        ? {
+            positionMm:
+              typeof value.delayLine.positionMm === 'number'
+                ? expectNumber(value.delayLine, 'positionMm')
+                : 0,
+            travelMm: expectNumber(value.delayLine, 'travelMm'),
+            topology: expectEnum(
+              value.delayLine,
+              'topology',
+              [...DELAY_LINE_TOPOLOGY_VALUES],
+            ),
+            zeroDelayOffsetFs:
+              typeof value.delayLine.zeroDelayOffsetFs === 'number'
+                ? expectNumber(value.delayLine, 'zeroDelayOffsetFs')
+                : 0,
+          }
+        : defaults.delayLine,
+    telescope:
+      isRecord(value.telescope) && type === 'telescope'
+        ? {
+            mode: expectEnum(value.telescope, 'mode', [...TELESCOPE_MODE_VALUES]),
+            element1Mm: expectNumber(value.telescope, 'element1Mm'),
+            element2Mm: expectNumber(value.telescope, 'element2Mm'),
+            separationMm: expectNumber(value.telescope, 'separationMm'),
+            clearApertureMm: expectNumber(value.telescope, 'clearApertureMm'),
+          }
+        : defaults.telescope,
+    opa:
+      isRecord(value.opa) && type === 'opa-module'
+        ? {
+            role: expectEnum(value.opa, 'role', [...OPA_ROLE_VALUES]),
+            pumpLink: isRecord(value.opa.pumpLink)
+              ? {
+                  sourceComponentId:
+                    typeof value.opa.pumpLink.sourceComponentId === 'string'
+                      ? value.opa.pumpLink.sourceComponentId
+                      : undefined,
+                  pathId:
+                    typeof value.opa.pumpLink.pathId === 'string'
+                      ? value.opa.pumpLink.pathId
+                      : undefined,
+                }
+              : undefined,
+            seedLink: isRecord(value.opa.seedLink)
+              ? {
+                  sourceComponentId:
+                    typeof value.opa.seedLink.sourceComponentId === 'string'
+                      ? value.opa.seedLink.sourceComponentId
+                      : undefined,
+                  pathId:
+                    typeof value.opa.seedLink.pathId === 'string'
+                      ? value.opa.seedLink.pathId
+                      : undefined,
+                }
+              : undefined,
+            signalLink: isRecord(value.opa.signalLink)
+              ? {
+                  sourceComponentId:
+                    typeof value.opa.signalLink.sourceComponentId === 'string'
+                      ? value.opa.signalLink.sourceComponentId
+                      : undefined,
+                  pathId:
+                    typeof value.opa.signalLink.pathId === 'string'
+                      ? value.opa.signalLink.pathId
+                      : undefined,
+                }
+              : undefined,
+            outputMode:
+              typeof value.opa.outputMode === 'string'
+                ? expectEnum(value.opa, 'outputMode', [...OPA_OUTPUT_MODE_VALUES])
+                : defaults.opa?.outputMode,
+            targetWavelengthNm:
+              typeof value.opa.targetWavelengthNm === 'number'
+                ? expectNumber(value.opa, 'targetWavelengthNm')
+                : defaults.opa?.targetWavelengthNm,
+            outputBandwidthNm:
+              typeof value.opa.outputBandwidthNm === 'number'
+                ? expectNumber(value.opa, 'outputBandwidthNm')
+                : defaults.opa?.outputBandwidthNm,
+            conversionEfficiencyPercent:
+              typeof value.opa.conversionEfficiencyPercent === 'number'
+                ? expectNumber(value.opa, 'conversionEfficiencyPercent')
+                : defaults.opa?.conversionEfficiencyPercent,
+            bandwidthScale:
+              typeof value.opa.bandwidthScale === 'number'
+                ? expectNumber(value.opa, 'bandwidthScale')
+                : defaults.opa?.bandwidthScale,
+            pumpDepletionPercent:
+              typeof value.opa.pumpDepletionPercent === 'number'
+                ? expectNumber(value.opa, 'pumpDepletionPercent')
+                : defaults.opa?.pumpDepletionPercent,
+            signalWavelengthNm:
+              typeof value.opa.signalWavelengthNm === 'number'
+                ? expectNumber(value.opa, 'signalWavelengthNm')
+                : defaults.opa?.signalWavelengthNm,
+            idlerWavelengthNm:
+              typeof value.opa.idlerWavelengthNm === 'number'
+                ? expectNumber(value.opa, 'idlerWavelengthNm')
+                : defaults.opa?.idlerWavelengthNm,
+          }
+        : defaults.opa,
     support:
       isRecord(value.support) && typeof value.support.includeMount === 'boolean'
         ? {

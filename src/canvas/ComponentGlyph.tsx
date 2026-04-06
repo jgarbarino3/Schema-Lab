@@ -127,6 +127,71 @@ export function ComponentGlyph({
           />
         </>
       )
+    case 'attenuator':
+      return (
+        <>
+          <Circle
+            radius={opticRadius}
+            stroke={stroke}
+            strokeWidth={1.2}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX - opticRadius, centerY, centerX + opticRadius, centerY]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
+        </>
+      )
+    case 'polarizer':
+      return (
+        <>
+          <Circle
+            radius={opticRadius}
+            stroke={stroke}
+            strokeWidth={1.1}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - opticRadius * 0.9,
+              centerY + opticRadius * 0.9,
+              centerX + opticRadius * 0.9,
+              centerY - opticRadius * 0.9,
+            ]}
+            stroke={stroke}
+            strokeWidth={1.05}
+          />
+        </>
+      )
+    case 'waveplate':
+      return (
+        <>
+          <Circle
+            radius={opticRadius}
+            stroke={stroke}
+            strokeWidth={1.1}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX - opticRadius * 0.8, centerY, centerX + opticRadius * 0.8, centerY]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, centerY - opticRadius * 0.8, centerX, centerY + opticRadius * 0.8]}
+            stroke={stroke}
+            strokeWidth={0.85}
+          />
+        </>
+      )
     case 'iris':
       return (
         <Circle
@@ -156,6 +221,57 @@ export function ComponentGlyph({
           stroke={stroke}
           strokeWidth={1}
         />
+      )
+    case 'telescope':
+      return (
+        <>
+          <Ellipse
+            radiusX={Math.max(2.2, width * 0.08)}
+            radiusY={Math.max(5, height * 0.28)}
+            stroke={stroke}
+            strokeWidth={1}
+            x={centerX - width * 0.18}
+            y={centerY}
+          />
+          <Ellipse
+            radiusX={Math.max(2.2, width * 0.08)}
+            radiusY={Math.max(5, height * 0.28)}
+            stroke={stroke}
+            strokeWidth={1}
+            x={centerX + width * 0.18}
+            y={centerY}
+          />
+          <Line
+            points={[centerX - width * 0.08, centerY, centerX + width * 0.08, centerY]}
+            stroke={stroke}
+            strokeWidth={0.9}
+          />
+        </>
+      )
+    case 'opa':
+      return (
+        <>
+          <Rect
+            cornerRadius={3}
+            fill={fill ?? 'rgba(255, 255, 255, 0.08)'}
+            height={Math.max(10, height * 0.42)}
+            stroke={stroke}
+            strokeWidth={0.9}
+            width={Math.max(18, width * 0.5)}
+            x={centerX - Math.max(18, width * 0.5) / 2}
+            y={centerY - Math.max(10, height * 0.42) / 2}
+          />
+          <Line
+            points={[boundsMm.x + inset, centerY, centerX - width * 0.25, centerY]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+          <Line
+            points={[centerX + width * 0.25, centerY, boundsMm.x + width - inset, centerY]}
+            stroke={stroke}
+            strokeWidth={1}
+          />
+        </>
       )
     case 'sample':
       return (

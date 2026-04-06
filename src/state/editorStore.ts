@@ -49,11 +49,15 @@ import type {
   ComponentConfig,
   ComponentInstance,
   ComponentType,
+  CurvedMirrorConfig,
+  DelayLineConfig,
   OpticalTableModel,
   IrisConfig,
   LensConfig,
+  OpaConfig,
   PendingBreadboardPlacementState,
   PendingPlacementState,
+  PolarizerConfig,
   QuarterTurn,
   RenderMode,
   SceneBeamSettings,
@@ -62,9 +66,11 @@ import type {
   SnapMode,
   SourceConfig,
   SourceLane,
+  TelescopeConfig,
   ToolbarMenu,
   Vector2Mm,
   ViewportState,
+  WaveplateConfig,
 } from '../domain/types'
 import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
 
@@ -81,8 +87,15 @@ interface ComponentConfigUpdate {
   source?: Partial<SourceConfig>
   beamSplitter?: Partial<BeamSplitterConfig>
   lens?: Partial<LensConfig>
+  curvedMirror?: Partial<CurvedMirrorConfig>
+  attenuator?: Partial<NonNullable<ComponentConfig['attenuator']>>
+  polarizer?: Partial<PolarizerConfig>
+  waveplate?: Partial<WaveplateConfig>
   iris?: Partial<IrisConfig>
   bboCrystal?: Partial<BboCrystalConfig>
+  delayLine?: Partial<DelayLineConfig>
+  telescope?: Partial<TelescopeConfig>
+  opa?: Partial<OpaConfig>
   support?: {
     includeMount: boolean
   }
@@ -184,8 +197,15 @@ interface EditorStore {
   alignSelectedSourceToTarget: () => void
   updateSelectedBeamSplitter: (update: Partial<BeamSplitterConfig>) => void
   updateSelectedLens: (update: Partial<LensConfig>) => void
+  updateSelectedCurvedMirror: (update: Partial<CurvedMirrorConfig>) => void
+  updateSelectedAttenuator: (update: Partial<ComponentConfig['attenuator']>) => void
+  updateSelectedPolarizer: (update: Partial<PolarizerConfig>) => void
+  updateSelectedWaveplate: (update: Partial<WaveplateConfig>) => void
   updateSelectedIris: (update: Partial<IrisConfig>) => void
   updateSelectedBboCrystal: (update: Partial<BboCrystalConfig>) => void
+  updateSelectedDelayLine: (update: Partial<DelayLineConfig>) => void
+  updateSelectedTelescope: (update: Partial<TelescopeConfig>) => void
+  updateSelectedOpa: (update: Partial<OpaConfig>) => void
   updateSelectedSupport: (includeMount: boolean) => void
   updateSelectedGeometryOverride: (update: {
     widthMm?: number
@@ -672,6 +692,45 @@ function mergeComponentConfig(
           ...update.lens,
         }
       : current.lens,
+    curvedMirror: update.curvedMirror
+      ? {
+          ...(current.curvedMirror ?? {
+            radiusOfCurvatureMm: 200,
+            isConvex: false,
+          }),
+          ...update.curvedMirror,
+        }
+      : current.curvedMirror,
+    attenuator: update.attenuator
+      ? {
+          ...(current.attenuator ?? {
+            transmissionPercent: 50,
+            orientation: 'horizontal' as const,
+          }),
+          ...update.attenuator,
+        }
+      : current.attenuator,
+    polarizer: update.polarizer
+      ? {
+          ...(current.polarizer ?? {
+            axisLocalDeg: 0,
+            extinctionRatio: 1000,
+            insertionLossPercent: 14,
+          }),
+          ...update.polarizer,
+        }
+      : current.polarizer,
+    waveplate: update.waveplate
+      ? {
+          ...(current.waveplate ?? {
+            kind: 'half' as const,
+            axisLocalDeg: 0,
+            retardanceDeg: 180,
+            insertionLossPercent: 2,
+          }),
+          ...update.waveplate,
+        }
+      : current.waveplate,
     iris: update.iris
       ? {
           ...(current.iris ?? {
@@ -692,6 +751,37 @@ function mergeComponentConfig(
           ...update.bboCrystal,
         }
       : current.bboCrystal,
+    delayLine: update.delayLine
+      ? {
+          ...(current.delayLine ?? {
+            positionMm: 0,
+            travelMm: 25,
+            topology: 'double-pass' as const,
+            zeroDelayOffsetFs: 0,
+          }),
+          ...update.delayLine,
+        }
+      : current.delayLine,
+    telescope: update.telescope
+      ? {
+          ...(current.telescope ?? {
+            mode: 'transmission' as const,
+            element1Mm: 50,
+            element2Mm: 100,
+            separationMm: 150,
+            clearApertureMm: 25.4,
+          }),
+          ...update.telescope,
+        }
+      : current.telescope,
+    opa: update.opa
+      ? {
+          ...(current.opa ?? {
+            role: 'combiner' as const,
+          }),
+          ...update.opa,
+        }
+      : current.opa,
     support: update.support
       ? {
           ...(current.support ?? {
@@ -1876,6 +1966,210 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  updateSelectedCurvedMirror: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'mirror') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  curvedMirror: {
+                    ...pendingPlacement.draft.config.curvedMirror,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'mirror') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    curvedMirror: {
+                      ...component.config.curvedMirror,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedAttenuator: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'attenuator') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  attenuator: {
+                    ...pendingPlacement.draft.config.attenuator,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'attenuator') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    attenuator: {
+                      ...component.config.attenuator,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedPolarizer: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'polarizer') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  polarizer: {
+                    ...pendingPlacement.draft.config.polarizer,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'polarizer') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    polarizer: {
+                      ...component.config.polarizer,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedWaveplate: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'waveplate') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  waveplate: {
+                    ...pendingPlacement.draft.config.waveplate,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'waveplate') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    waveplate: {
+                      ...component.config.waveplate,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
   updateSelectedIris: (update) => {
     set((state) => {
       if (state.interaction.pendingPlacement?.draft.type === 'iris') {
@@ -1982,6 +2276,167 @@ export const useEditorStore = create<EditorStore>((set) => ({
                   config: mergeComponentConfig(component.config, {
                     bboCrystal: {
                       ...component.config.bboCrystal,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedDelayLine: (update) => {
+    set((state) => {
+      const pendingPlacement = state.interaction.pendingPlacement
+
+      if (
+        pendingPlacement &&
+        (pendingPlacement.draft.type === 'sample-stage' ||
+          pendingPlacement.draft.type === 'support-hardware')
+      ) {
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  delayLine: {
+                    ...pendingPlacement.draft.config.delayLine,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (
+        !selectedComponent ||
+        (selectedComponent.type !== 'sample-stage' &&
+          selectedComponent.type !== 'support-hardware')
+      ) {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    delayLine: {
+                      ...component.config.delayLine,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedTelescope: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'telescope') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  telescope: {
+                    ...pendingPlacement.draft.config.telescope,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'telescope') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    telescope: {
+                      ...component.config.telescope,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }
+    })
+  },
+
+  updateSelectedOpa: (update) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement?.draft.type === 'opa-module') {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  opa: {
+                    ...pendingPlacement.draft.config.opa,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || selectedComponent.type !== 'opa-module') {
+        return state
+      }
+
+      return {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    opa: {
+                      ...component.config.opa,
                       ...update,
                     },
                   }),

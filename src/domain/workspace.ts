@@ -17,6 +17,7 @@ import type {
 } from './types'
 import {
   OPTICAL_TABLE_SURFACE_ID,
+  SCENE_DOCUMENT_VERSION,
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './types'
 
@@ -417,7 +418,7 @@ export function convertSceneToOpticalTable(scene: SceneDocument): SceneDocument 
 
   return {
     ...scene,
-    version: 6,
+    version: SCENE_DOCUMENT_VERSION,
     workspace,
     components: scene.components.map((component) => ({
       ...component,
@@ -455,7 +456,7 @@ export function convertSceneToSingleBreadboard(args: {
 
   return {
     ...scene,
-    version: 6,
+    version: SCENE_DOCUMENT_VERSION,
     workspace: nextWorkspace,
     components: scene.components
       .filter((component) =>

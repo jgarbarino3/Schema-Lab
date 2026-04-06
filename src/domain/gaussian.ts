@@ -66,6 +66,47 @@ function applyThinLens(q: ComplexQMm, focalLengthMm: number) {
   return reciprocalComplex(inverseOut)
 }
 
+function applyCurvedMirror(
+  q: ComplexQMm,
+  radiusOfCurvatureMm: number,
+  isConvex: boolean,
+) {
+  const focalLengthMm = Math.max(Math.abs(radiusOfCurvatureMm), MIN_LENGTH_MM) / 2
+  return applyThinLens(q, isConvex ? -focalLengthMm : focalLengthMm)
+}
+
+function applyTelescope(
+  q: ComplexQMm,
+  component: ComponentInstance,
+  spec: ResolvedComponentSpec,
+) {
+  if (spec.physics.kind !== 'telescope') {
+    return q
+  }
+
+  const config = component.config.telescope
+  const mode = config?.mode ?? spec.physics.mode
+  const element1Mm = config?.element1Mm ?? spec.physics.defaultElement1Mm
+  const element2Mm = config?.element2Mm ?? spec.physics.defaultElement2Mm
+  const separationMm = config?.separationMm ?? spec.physics.defaultSeparationMm
+
+  if (mode === 'reflection') {
+    return applyCurvedMirror(
+      propagateFreeSpace(
+        applyCurvedMirror(q, element1Mm, element1Mm < 0),
+        separationMm,
+      ),
+      element2Mm,
+      element2Mm < 0,
+    )
+  }
+
+  return applyThinLens(
+    propagateFreeSpace(applyThinLens(q, element1Mm), separationMm),
+    element2Mm,
+  )
+}
+
 function createLocalReadout(
   q: ComplexQMm,
   wavelengthNm: number,
@@ -114,10 +155,6 @@ function createQFromPhysicalReadout(args: {
     realMm: inverseReal,
     imagMm: inverseImag,
   })
-}
-
-function getSegmentLengthMm(startMm: { x: number; y: number }, endMm: { x: number; y: number }) {
-  return Math.hypot(endMm.x - startMm.x, endMm.y - startMm.y)
 }
 
 function createDerivedSourceState(source: SourceConfig) {
@@ -207,6 +244,12 @@ function getApertureMm(
     case 'lens':
       return (
         component.config.lens?.clearApertureMm ??
+        spec.physics.defaultClearApertureMm ??
+        spec.physics.opticalApertureMm
+      )
+    case 'telescope':
+      return (
+        component.config.telescope?.clearApertureMm ??
         spec.physics.defaultClearApertureMm ??
         spec.physics.opticalApertureMm
       )
@@ -346,7 +389,9 @@ export function analyzeGaussianPaths(
         continue
       }
 
-      const lengthMm = getSegmentLengthMm(segment.startMm, segment.endMm)
+      const geometricLengthMm = segment.geometricLengthMm
+      const internalOpticalPathMm = segment.internalOpticalPathMm
+      const lengthMm = segment.effectiveOpticalLengthMm
       const startReadout = createLocalReadout(currentQ, segment.wavelengthNm)
       const propagatedQ = propagateFreeSpace(currentQ, lengthMm)
       const endReadout = createLocalReadout(propagatedQ, segment.wavelengthNm)
@@ -356,8 +401,13 @@ export function analyzeGaussianPaths(
         pathId: segment.pathId,
         sourceComponentId: segment.sourceComponentId,
         lengthMm: roundMm(lengthMm),
+        geometricLengthMm: roundMm(geometricLengthMm),
+        internalOpticalPathMm: roundMm(internalOpticalPathMm),
+        effectiveOpticalLengthMm: roundMm(lengthMm),
         startDistanceMm: roundMm(currentDistanceMm),
         endDistanceMm: roundMm(currentDistanceMm + lengthMm),
+        startTimeDelayFs: segment.timeDelayFs - roundMm(lengthMm * 3335.6409519815),
+        endTimeDelayFs: segment.timeDelayFs,
         start: startReadout,
         end: endReadout,
       })
@@ -384,15 +434,36 @@ export function analyzeGaussianPaths(
           ? classifyGaussianApertureStatus(endReadout.beamDiameterMm, apertureMm)
           : undefined
       const postOpticQ =
-        component &&
-        spec?.physics.kind === 'lens' &&
-        component.config.lens?.focalLengthMm !== undefined
-          ? applyThinLens(propagatedQ, component.config.lens.focalLengthMm)
-          : component && spec?.physics.kind === 'lens'
-            ? applyThinLens(propagatedQ, spec.physics.defaultFocalLengthMm)
-            : propagatedQ
-      const outputLocal =
         component && spec?.physics.kind === 'lens'
+          ? applyThinLens(
+              propagatedQ,
+              component.config.lens?.focalLengthMm ?? spec.physics.defaultFocalLengthMm,
+            )
+          : component && spec?.physics.kind === 'curved-mirror'
+            ? applyCurvedMirror(
+                propagatedQ,
+                component.config.curvedMirror?.radiusOfCurvatureMm ??
+                  spec.physics.defaultRadiusOfCurvatureMm,
+                component.config.curvedMirror?.isConvex ?? spec.physics.isConvex,
+              )
+            : component && spec?.physics.kind === 'delay-line'
+              ? propagateFreeSpace(
+                  propagatedQ,
+                  component.config.delayLine
+                    ? (component.config.delayLine.topology === 'single-pass'
+                        ? 1
+                        : 2) * component.config.delayLine.positionMm
+                    : 0,
+                )
+              : component && spec?.physics.kind === 'telescope'
+                ? applyTelescope(propagatedQ, component, spec)
+                : propagatedQ
+      const outputLocal =
+        component &&
+        (spec?.physics.kind === 'lens' ||
+          spec?.physics.kind === 'curved-mirror' ||
+          spec?.physics.kind === 'delay-line' ||
+          spec?.physics.kind === 'telescope')
           ? createLocalReadout(postOpticQ, event.wavelengthNm)
           : undefined
 
@@ -405,6 +476,7 @@ export function analyzeGaussianPaths(
         pathRole: pathSummary.pathRole,
         branchKind: pathSummary.branchKind,
         hitDistanceMm: roundMm(currentDistanceMm),
+        timeDelayFs: event.timeDelayFs,
         local: endReadout,
         outputLocal,
         apertureMm: apertureMm ? roundMm(apertureMm) : undefined,
@@ -492,6 +564,8 @@ export function analyzeGaussianPaths(
       final: finalReadout,
       segmentIds: pathSegmentIds,
       interactionIds: pathInteractionIds,
+      totalOpticalPathMm: pathSummary.totalOpticalPathMm,
+      finalTimeDelayFs: pathSummary.finalTimeDelayFs,
     })
   }
 
@@ -587,6 +661,7 @@ export function getGaussianPathTableRows(
       waistOffsetMm: segmentAnalysis.end.waistOffsetMm,
       waistRadiusMm: segmentAnalysis.end.waistRadiusMm,
       zPositionMm: segmentAnalysis.endDistanceMm,
+      timeDelayFs: segmentAnalysis.endTimeDelayFs,
     })
 
     const event = beamTrace.events.find(
@@ -612,6 +687,7 @@ export function getGaussianPathTableRows(
       waistOffsetMm: interactionAnalysis.local.waistOffsetMm,
       waistRadiusMm: interactionAnalysis.local.waistRadiusMm,
       zPositionMm: interactionAnalysis.hitDistanceMm,
+      timeDelayFs: interactionAnalysis.timeDelayFs,
     })
   }
 

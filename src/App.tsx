@@ -74,9 +74,12 @@ function downloadBlob(blob: Blob, filename: string) {
 
   link.href = objectUrl
   link.download = filename
+  document.body.append(link)
   link.click()
-
-  URL.revokeObjectURL(objectUrl)
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl)
+    link.remove()
+  }, 0)
 }
 
 function nextAnimationFrame() {
@@ -328,7 +331,8 @@ function App() {
             </p>
             <p>
               This is also where variants, lens values, BBO thickness and phase matching,
-              mount defaults, recommended hardware, and table or breadboard dimensions appear.
+              mount defaults, recommended hardware, table or breadboard dimensions, delay
+              scan controls, telescope settings, polarization optics, and OPA links appear.
             </p>
             <p>
               Collapse either side panel from the toolbar whenever you need more room in the
@@ -352,6 +356,10 @@ function App() {
               Once enabled, the Stage 2 beam path and Stage 3 Gaussian readouts update from
               that source.
             </p>
+            <p>
+              Delay stages add femtosecond path delay without bending the 2D centerline, and
+              OPA blocks prefer real beam hits before falling back to linked pump or seed inputs.
+            </p>
           </>
         ),
       },
@@ -368,6 +376,11 @@ function App() {
             <p>
               Export menus now group JSON, PNG, PDF, SVG, and PPTX. Reopen this guide anytime
               from the blue Guide button in the top toolbar.
+            </p>
+            <p>
+              Help also documents the new optics pass, including curved-mirror and telescope
+              Gaussian behavior, delay-line scan readouts, OPA fallback links, and the current
+              note that periscopes remain 2D relays until the later 3D pass.
             </p>
           </>
         ),

@@ -175,6 +175,108 @@ describe('gaussian/paraxial layer', () => {
     )
   })
 
+  it('applies a curved-mirror paraxial transform at the mirror plane', () => {
+    const source = makeEnabledSource({
+      config: {
+        ...createDefaultComponentConfig('laser-source'),
+        source: {
+          ...createDefaultComponentConfig('laser-source').source!,
+          isEnabled: true,
+          gaussianInputMode: 'explicit-waist',
+          waistRadiusMm: 0.4,
+          waistOffsetMm: -35,
+          wavelengthNm: 800,
+          powerMw: 100,
+          normalizedPowerPercent: 100,
+        },
+      },
+    })
+    const mirror = makeComponent('mirror', {
+      id: 'cm-1',
+      variantId: 'concave-1in',
+      anchorMm: { x: 120, y: 137.5 },
+      config: {
+        ...createDefaultComponentConfig('mirror', 'concave-1in'),
+        curvedMirror: {
+          radiusOfCurvatureMm: 200,
+          isConvex: false,
+        },
+      },
+    })
+    const { beamTrace, gaussianTrace } = makeGaussianTrace(makeScene([source, mirror]))
+    const event = beamTrace.events.find((item) => item.componentId === mirror.id)!
+    const analysis = getGaussianInteractionAnalysis(gaussianTrace, event.id)!
+
+    expect(analysis.outputLocal?.waistOffsetMm).not.toBeCloseTo(
+      analysis.local.waistOffsetMm,
+      2,
+    )
+  })
+
+  it('uses delay-line effective optical path for downstream Gaussian timing and z readouts', () => {
+    const source = makeEnabledSource()
+    const stage = makeComponent('sample-stage', {
+      id: 'stage-1',
+      variantId: 'pi-m-112-1dg1',
+      anchorMm: { x: 100, y: 137.5 },
+      config: {
+        ...createDefaultComponentConfig('sample-stage', 'pi-m-112-1dg1'),
+        delayLine: {
+          positionMm: 12,
+          travelMm: 25,
+          topology: 'double-pass',
+          zeroDelayOffsetFs: 0,
+        },
+      },
+    })
+    const detector = makeComponent('detector', {
+      id: 'det-1',
+      anchorMm: { x: 220, y: 137.5 },
+    })
+    const { beamTrace, gaussianTrace } = makeGaussianTrace(makeScene([source, stage, detector]))
+    const stageEvent = beamTrace.events.find((event) => event.componentId === stage.id)!
+    const stageAnalysis = gaussianTrace.segmentAnalyses.find(
+      (analysis) => analysis.segmentId === stageEvent.inputSegmentId,
+    )!
+    const downstreamSegment = beamTrace.segments.find(
+      (segment) => segment.parentInteractionId === stageEvent.id,
+    )!
+    const downstream = gaussianTrace.segmentAnalyses.find(
+      (analysis) => analysis.segmentId === downstreamSegment.id,
+    )!
+
+    expect(stageAnalysis.internalOpticalPathMm).toBeGreaterThanOrEqual(24)
+    expect(downstream.startTimeDelayFs).toBeGreaterThan(70000)
+    expect(downstream.endTimeDelayFs).toBeGreaterThan(70000)
+  })
+
+  it('applies telescope ABCD transforms to the selected path analysis', () => {
+    const source = makeEnabledSource()
+    const telescope = makeComponent('telescope', {
+      id: 'tel-1',
+      anchorMm: { x: 120, y: 137.5 },
+      config: {
+        ...createDefaultComponentConfig('telescope', 'beam-expander-2x'),
+        telescope: {
+          mode: 'transmission',
+          element1Mm: 50,
+          element2Mm: 100,
+          separationMm: 150,
+          clearApertureMm: 25.4,
+        },
+      },
+    })
+    const { beamTrace, gaussianTrace } = makeGaussianTrace(makeScene([source, telescope]))
+    const event = beamTrace.events.find((item) => item.componentId === telescope.id)!
+    const analysis = getGaussianInteractionAnalysis(gaussianTrace, event.id)!
+
+    expect(analysis.outputLocal).toBeDefined()
+    expect(analysis.outputLocal?.waistRadiusMm).not.toBeCloseTo(
+      analysis.local.waistRadiusMm,
+      2,
+    )
+  })
+
   it('inherits Gaussian state cleanly across beamsplitter branches', () => {
     const source = makeEnabledSource()
     const beamsplitter = makeComponent('beamsplitter', {

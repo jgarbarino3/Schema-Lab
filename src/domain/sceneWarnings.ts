@@ -118,6 +118,67 @@ export function deriveSceneWarnings(
         })
       }
     }
+
+    if (component.config.delayLine) {
+      const positionMm = component.config.delayLine.positionMm
+      const travelMm = component.config.delayLine.travelMm
+
+      if (positionMm < 0 || positionMm > travelMm) {
+        warnings.push({
+          id: createWarningId(['delay-range', component.id]),
+          category: 'optical',
+          severity: 'warning',
+          tier: 'advanced',
+          message: `${component.label} scan position is outside its configured travel range.`,
+          componentId: component.id,
+          highlightTarget: {
+            componentIds: [component.id],
+          },
+        })
+      }
+    }
+
+    if (component.type === 'telescope' && component.config.telescope) {
+      const { element1Mm, element2Mm, separationMm } = component.config.telescope
+
+      if (Math.abs(element1Mm) < 1e-6 || Math.abs(element2Mm) < 1e-6 || separationMm <= 0) {
+        warnings.push({
+          id: createWarningId(['telescope-config', component.id]),
+          category: 'optical',
+          severity: 'warning',
+          tier: 'advanced',
+          message: `${component.label} has an invalid telescope spacing or element value.`,
+          componentId: component.id,
+          highlightTarget: {
+            componentIds: [component.id],
+          },
+        })
+      }
+    }
+
+    if (component.type === 'opa-module' && component.config.opa) {
+      const role = component.config.opa.role
+      const interactions = beamTrace.events.filter((event) => event.componentId === component.id)
+      const hasPump = interactions.some((event) => event.note?.includes('pump')) || !!component.config.opa.pumpLink?.sourceComponentId
+      const hasSeed =
+        interactions.some((event) => event.note?.includes('seed')) ||
+        !!component.config.opa.seedLink?.sourceComponentId ||
+        !!component.config.opa.signalLink?.sourceComponentId
+
+      if ((role === 'combiner' || role === 'gain') && (!hasPump || !hasSeed)) {
+        warnings.push({
+          id: createWarningId(['opa-inputs', component.id]),
+          category: 'optical',
+          severity: 'warning',
+          tier: 'advanced',
+          message: `${component.label} is missing one or more required OPA inputs.`,
+          componentId: component.id,
+          highlightTarget: {
+            componentIds: [component.id],
+          },
+        })
+      }
+    }
   }
 
   for (const componentWarning of gaussianTrace.componentWarnings) {
@@ -155,6 +216,41 @@ export function deriveSceneWarnings(
           : undefined,
       },
     })
+  }
+
+  for (const event of beamTrace.events) {
+    const component = scene.components.find((item) => item.id === event.componentId)
+
+    if (!component) {
+      continue
+    }
+
+    const spec = getResolvedComponentSpecForInstance(component)
+    const supportedWindow =
+      'supportedWavelengthNm' in spec.physics ? spec.physics.supportedWavelengthNm : undefined
+
+    if (
+      supportedWindow &&
+      (event.wavelengthNm < supportedWindow.minNm || event.wavelengthNm > supportedWindow.maxNm)
+    ) {
+      warnings.push({
+        id: createWarningId(['wavelength-window', component.id, event.pathId]),
+        category: 'optical',
+        severity: 'warning',
+        tier: 'advanced',
+        message: `${component.label} is being used outside its nominal wavelength support window.`,
+        componentId: component.id,
+        interactionId: event.id,
+        pathId: event.pathId,
+        sourceComponentId: event.sourceComponentId,
+        highlightTarget: {
+          componentIds: [component.id],
+          interactionIds: [event.id],
+          pathIds: [event.pathId],
+          sourceComponentIds: [event.sourceComponentId],
+        },
+      })
+    }
   }
 
   return warnings

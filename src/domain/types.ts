@@ -1,6 +1,6 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 6 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 5 as const
+export const SCENE_DOCUMENT_VERSION = 7 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 6 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
 export const STAGE1_SCENE_DOCUMENT_VERSION = 1 as const
@@ -80,12 +80,21 @@ export type FilterMode = 'longpass' | 'shortpass' | 'bandpass'
 export type BeamInteractionKind =
   | 'source'
   | 'mirror'
+  | 'curved-mirror'
   | 'beamsplitter'
   | 'lens'
   | 'filter'
   | 'attenuator'
+  | 'polarizer'
+  | 'waveplate'
   | 'iris'
   | 'bbo'
+  | 'delay-line'
+  | 'telescope'
+  | 'opa-white-light'
+  | 'opa-combiner'
+  | 'opa-gain'
+  | 'relay'
   | 'pass-through'
   | 'terminal'
   | 'none'
@@ -133,8 +142,12 @@ export type ComponentType =
   | 'lens'
   | 'filter'
   | 'attenuator'
+  | 'polarizer'
+  | 'waveplate'
   | 'iris'
   | 'bbo-crystal'
+  | 'telescope'
+  | 'opa-module'
   | 'sample-stage'
   | 'fiber-coupler'
   | 'spectrometer'
@@ -165,8 +178,12 @@ export type ComponentGlyph =
   | 'lens'
   | 'filter'
   | 'attenuator'
+  | 'polarizer'
+  | 'waveplate'
   | 'iris'
   | 'bbo'
+  | 'telescope'
+  | 'opa'
   | 'sample'
   | 'fiber'
   | 'spectrometer'
@@ -272,6 +289,16 @@ export interface MirrorBeamPhysics extends BeamPhysicsBase {
   absorptionPercent: number
 }
 
+export interface CurvedMirrorBeamPhysics extends BeamPhysicsBase {
+  kind: 'curved-mirror'
+  supportedWavelengthNm: SpectralWindowNm
+  reflectivityPercent: number
+  designIncidenceDeg: number
+  absorptionPercent: number
+  defaultRadiusOfCurvatureMm: number
+  isConvex: boolean
+}
+
 export interface BeamsplitterBeamPhysics extends BeamPhysicsBase {
   kind: 'beamsplitter'
   supportedWavelengthNm: SpectralWindowNm
@@ -294,10 +321,24 @@ export interface FilterBeamPhysics extends BeamPhysicsBase {
 }
 
 export interface AttenuatorBeamPhysics extends BeamPhysicsBase {
-  kind: 'pass-through'
+  kind: 'attenuator'
   transmissionPercent: number
   supportedWavelengthNm?: SpectralWindowNm
   orientation: 'horizontal' | 'vertical'
+}
+
+export interface PolarizerBeamPhysics extends BeamPhysicsBase {
+  kind: 'polarizer'
+  transmissionPercent: number
+  extinctionRatio: number
+  supportedWavelengthNm?: SpectralWindowNm
+}
+
+export interface WaveplateBeamPhysics extends BeamPhysicsBase {
+  kind: 'waveplate'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  defaultRetardanceDeg: number
 }
 
 export interface IrisBeamPhysics extends BeamPhysicsBase {
@@ -328,6 +369,56 @@ export interface LensBeamPhysics extends BeamPhysicsBase {
   defaultClearApertureMm: number
 }
 
+export interface DelayLineBeamPhysics extends BeamPhysicsBase {
+  kind: 'delay-line'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  defaultTravelMm: number
+  relayRole: 'manual-stage' | 'motorized-stage' | 'periscope'
+}
+
+export interface TelescopeBeamPhysics extends BeamPhysicsBase {
+  kind: 'telescope'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  mode: 'transmission' | 'reflection'
+  defaultElement1Mm: number
+  defaultElement2Mm: number
+  defaultSeparationMm: number
+  defaultClearApertureMm: number
+}
+
+export interface OpaWhiteLightBeamPhysics extends BeamPhysicsBase {
+  kind: 'opa-white-light'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  defaultOutputWavelengthNm: number
+  defaultOutputBandwidthNm: number
+  defaultConversionEfficiencyPercent: number
+}
+
+export interface OpaCombinerBeamPhysics extends BeamPhysicsBase {
+  kind: 'opa-combiner'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+}
+
+export interface OpaGainBeamPhysics extends BeamPhysicsBase {
+  kind: 'opa-gain'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+  defaultSignalWavelengthNm: number
+  defaultIdlerWavelengthNm: number
+  defaultBandwidthNm: number
+  defaultConversionEfficiencyPercent: number
+}
+
+export interface RelayBeamPhysics extends BeamPhysicsBase {
+  kind: 'relay'
+  transmissionPercent: number
+  supportedWavelengthNm?: SpectralWindowNm
+}
+
 export interface TerminalBeamPhysics extends BeamPhysicsBase {
   kind: 'terminal'
   role: 'beam-dump' | 'detector' | 'spectrometer' | 'fiber-coupler'
@@ -341,12 +432,21 @@ export interface NoneBeamPhysics extends BeamPhysicsBase {
 export type ComponentBeamPhysics =
   | SourceBeamPhysics
   | MirrorBeamPhysics
+  | CurvedMirrorBeamPhysics
   | BeamsplitterBeamPhysics
   | LensBeamPhysics
   | FilterBeamPhysics
   | AttenuatorBeamPhysics
+  | PolarizerBeamPhysics
+  | WaveplateBeamPhysics
   | IrisBeamPhysics
   | BboBeamPhysics
+  | DelayLineBeamPhysics
+  | TelescopeBeamPhysics
+  | OpaWhiteLightBeamPhysics
+  | OpaCombinerBeamPhysics
+  | OpaGainBeamPhysics
+  | RelayBeamPhysics
   | PassThroughBeamPhysics
   | TerminalBeamPhysics
   | NoneBeamPhysics
@@ -425,6 +525,59 @@ export interface IrisConfig {
   apertureMm: number
 }
 
+export interface CurvedMirrorConfig {
+  radiusOfCurvatureMm: number
+  isConvex: boolean
+}
+
+export interface PolarizerConfig {
+  axisLocalDeg: number
+  extinctionRatio: number
+  insertionLossPercent: number
+}
+
+export interface WaveplateConfig {
+  kind: 'quarter' | 'half' | 'custom'
+  axisLocalDeg: number
+  retardanceDeg: number
+  insertionLossPercent: number
+}
+
+export interface DelayLineConfig {
+  positionMm: number
+  travelMm: number
+  topology: 'single-pass' | 'double-pass'
+  zeroDelayOffsetFs: number
+}
+
+export interface TelescopeConfig {
+  mode: 'transmission' | 'reflection'
+  element1Mm: number
+  element2Mm: number
+  separationMm: number
+  clearApertureMm: number
+}
+
+export interface OpaInputLink {
+  sourceComponentId?: string
+  pathId?: string
+}
+
+export interface OpaConfig {
+  role: 'white-light' | 'combiner' | 'gain'
+  pumpLink?: OpaInputLink
+  seedLink?: OpaInputLink
+  signalLink?: OpaInputLink
+  outputMode?: 'signal' | 'idler' | 'signal+idler'
+  targetWavelengthNm?: number
+  outputBandwidthNm?: number
+  conversionEfficiencyPercent?: number
+  bandwidthScale?: number
+  pumpDepletionPercent?: number
+  signalWavelengthNm?: number
+  idlerWavelengthNm?: number
+}
+
 export interface BboCrystalConfig {
   crystalType: 'type-i'
   interactionMode: BboInteractionMode
@@ -452,12 +605,18 @@ export interface ComponentConfig {
   source?: SourceConfig
   beamSplitter?: BeamSplitterConfig
   lens?: LensConfig
+  curvedMirror?: CurvedMirrorConfig
   attenuator?: {
     transmissionPercent: number
     orientation: 'horizontal' | 'vertical'
   }
+  polarizer?: PolarizerConfig
+  waveplate?: WaveplateConfig
   iris?: IrisConfig
   bboCrystal?: BboCrystalConfig
+  delayLine?: DelayLineConfig
+  telescope?: TelescopeConfig
+  opa?: OpaConfig
   support?: ComponentSupportConfig
 }
 
@@ -605,6 +764,11 @@ export interface BeamSegment {
   polarization: PolarizationSnapshot
   parentEventId?: string
   parentInteractionId?: string
+  geometricLengthMm: number
+  internalOpticalPathMm: number
+  effectiveOpticalLengthMm: number
+  opticalPathMm: number
+  timeDelayFs: number
 }
 
 export interface BeamBranchResult {
@@ -637,6 +801,7 @@ export interface BeamInteractionEvent {
     | 'terminal'
     | 'blocked'
     | 'shg'
+  physicsKind: BeamInteractionKind
   outcomeClass: BeamOutcomeClass
   incomingPowerMw: number
   reflectedPowerMw?: number
@@ -653,6 +818,11 @@ export interface BeamInteractionEvent {
   acceptanceFraction: number
   wasClipped: boolean
   partialAcceptance: boolean
+  outputPolarization?: PolarizationSnapshot
+  geometricLengthMm: number
+  internalOpticalPathMm: number
+  opticalPathMm: number
+  timeDelayFs: number
   note?: string
 }
 
@@ -680,6 +850,8 @@ export interface BeamPathSummary {
   segmentIds: string[]
   interactionIds: string[]
   outcomeClass: BeamOutcomeClass
+  totalOpticalPathMm: number
+  finalTimeDelayFs: number
 }
 
 export interface TerminalCaptureHit {
@@ -754,8 +926,13 @@ export interface GaussianSegmentAnalysis {
   pathId: string
   sourceComponentId: string
   lengthMm: number
+  geometricLengthMm: number
+  internalOpticalPathMm: number
+  effectiveOpticalLengthMm: number
   startDistanceMm: number
   endDistanceMm: number
+  startTimeDelayFs: number
+  endTimeDelayFs: number
   start: GaussianLocalReadout
   end: GaussianLocalReadout
 }
@@ -769,6 +946,7 @@ export interface GaussianInteractionAnalysis {
   pathRole: 'fundamental' | 'shg'
   branchKind: BeamBranchKind
   hitDistanceMm: number
+  timeDelayFs: number
   local: GaussianLocalReadout
   outputLocal?: GaussianLocalReadout
   apertureMm?: number
@@ -786,6 +964,8 @@ export interface GaussianPathAnalysis {
   final: GaussianLocalReadout
   segmentIds: string[]
   interactionIds: string[]
+  totalOpticalPathMm: number
+  finalTimeDelayFs: number
 }
 
 export interface GaussianComponentWarning {
@@ -816,6 +996,7 @@ export interface GaussianPathTableRow {
   waistOffsetMm: number
   waistRadiusMm: number
   zPositionMm: number
+  timeDelayFs: number
 }
 
 export interface GaussianWaistMarker {
