@@ -118,7 +118,7 @@ export function createTutorialScene(): SceneDocument {
   })
   const curvedMirror = createComponent({
     id: 'tutorial-curved-mirror',
-    type: 'mirror',
+    type: 'curved-mirror',
     variantId: 'concave-1in',
     label: 'Curved Mirror 1',
     anchorMm: { x: 120, y: 55 },

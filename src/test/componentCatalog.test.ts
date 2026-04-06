@@ -73,7 +73,7 @@ describe('component catalog variants', () => {
   })
 
   it('creates focused-optics defaults for the new configurable physics families', () => {
-    expect(createDefaultComponentConfig('mirror', 'concave-1in').curvedMirror).toMatchObject({
+    expect(createDefaultComponentConfig('curved-mirror', 'concave-1in').curvedMirror).toMatchObject({
       radiusOfCurvatureMm: 200,
       isConvex: false,
     })

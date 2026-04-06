@@ -389,7 +389,7 @@ function parseComponentConfig(
           }
         : defaults.attenuator,
     curvedMirror:
-      isRecord(value.curvedMirror) && type === 'mirror'
+      isRecord(value.curvedMirror) && (type === 'mirror' || type === 'curved-mirror')
         ? {
             radiusOfCurvatureMm: expectNumber(value.curvedMirror, 'radiusOfCurvatureMm'),
             isConvex:
@@ -567,7 +567,12 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
 
   const rawType = expectString(value, 'type')
   const migratedType = migrateLegacyType(rawType)
-  const type = migratedType.type
+  let type = migratedType.type
+
+  const rawVariantId = typeof value.variantId === 'string' ? value.variantId : undefined
+  if (type === 'mirror' && (rawVariantId === 'concave-1in' || rawVariantId === 'convex-1in')) {
+    type = 'curved-mirror'
+  }
 
   if (!COMPONENT_DEFINITIONS_BY_TYPE[type]) {
     throw new Error(`Unknown component type: ${type}.`)

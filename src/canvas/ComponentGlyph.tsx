@@ -66,6 +66,25 @@ export function ComponentGlyph({
           strokeWidth={1.75}
         />
       )
+    case 'curved-mirror':
+      return (
+        <Line
+          bezier
+          lineCap="round"
+          points={[
+            boundsMm.x + width - inset,
+            boundsMm.y + inset,
+            centerX + width * 0.22,
+            centerY - height * 0.22,
+            centerX - width * 0.22,
+            centerY + height * 0.22,
+            boundsMm.x + inset,
+            boundsMm.y + height - inset,
+          ]}
+          stroke={stroke}
+          strokeWidth={1.75}
+        />
+      )
     case 'beamsplitter':
       return (
         <>

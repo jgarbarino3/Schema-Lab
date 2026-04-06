@@ -2407,7 +2407,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateSelectedCurvedMirror: (update) => {
     set((state) => {
-      if (state.interaction.pendingPlacement?.draft.type === 'mirror') {
+      if (state.interaction.pendingPlacement?.draft.type === 'mirror' || state.interaction.pendingPlacement?.draft.type === 'curved-mirror') {
         const pendingPlacement = state.interaction.pendingPlacement
 
         return {
@@ -2431,7 +2431,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
 
-      if (!selectedComponent || selectedComponent.type !== 'mirror') {
+      if (!selectedComponent || (selectedComponent.type !== 'mirror' && selectedComponent.type !== 'curved-mirror')) {
         return state
       }
 

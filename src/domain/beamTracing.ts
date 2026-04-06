@@ -381,6 +381,7 @@ function getComponentSurfaceLocalMm(
 
   switch (componentType) {
     case 'mirror':
+    case 'curved-mirror':
     case 'beamsplitter':
       return {
         startMm: { x: halfAperture, y: -halfAperture },

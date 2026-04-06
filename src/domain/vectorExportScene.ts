@@ -419,6 +419,7 @@ function renderSimpleLocalGlyph(
 
   switch (glyph) {
     case 'mirror':
+    case 'curved-mirror':
       return [
         {
           kind: 'line',
@@ -606,6 +607,7 @@ function renderRealisticLocalHardware(
 
   switch (component.type) {
     case 'mirror':
+    case 'curved-mirror':
       return [
         ...mountNodes,
         {

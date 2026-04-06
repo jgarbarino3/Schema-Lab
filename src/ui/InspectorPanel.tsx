@@ -1841,7 +1841,7 @@ export function InspectorPanel({
           </div>
         ) : null}
 
-        {inspectedComponent.type === 'mirror' && inspectedComponent.config.curvedMirror ? (
+        {(inspectedComponent.type === 'mirror' || inspectedComponent.type === 'curved-mirror') && inspectedComponent.config.curvedMirror ? (
           <div className="inspector__subsection">
             <h3>Curved Mirror</h3>
 

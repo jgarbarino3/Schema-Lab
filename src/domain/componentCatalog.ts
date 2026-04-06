@@ -204,6 +204,7 @@ function getDefaultMountVisual(
 } {
   switch (type) {
     case 'mirror':
+    case 'curved-mirror':
     case 'beamsplitter':
     case 'filter':
     case 'lens':
@@ -947,6 +948,43 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         description: '1 in UV-enhanced aluminum mirror for post-BBO UV steering.',
         physics: mirrorPhysics(250, 700, 89, 4),
       },
+    ],
+  },
+  {
+    type: 'curved-mirror',
+    category: 'steering',
+    defaultLabel: 'Curved Mirror',
+    familyLabel: 'Curved Mirror',
+    defaultVariantId: 'concave-1in',
+    footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
+    visualBodyBoundsMm: bounds(-7.5, -7.5, 15, 15),
+    mountVisualBoundsMm: bounds(-16, -16, 32, 32),
+    hitBoundsMm: bounds(-14, -14, 28, 28),
+    mount: mount('clamp-capable', -9, -9, 18, 18),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('input-west', 'Input', 'beam-input', -12.7, 0, 'west'),
+      port('output-north', 'Reflected', 'beam-output', 0, -12.7, 'north'),
+    ],
+    renderHint: renderHint('rect', '#4b545d', '#c8d8e4', 'curved-mirror'),
+    mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#93a4af', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('mirror', 'cool-metal', 'kinematic-round', {
+      glassTint: '#dbeaf4',
+      accentFill: '#4d5760',
+      accentStroke: '#f2f7fb',
+    }),
+    physics: curvedMirrorPhysics({
+      minNm: 350,
+      maxNm: 1600,
+      reflectivityPercent: 96,
+      absorptionPercent: 1.5,
+      radiusOfCurvatureMm: 200,
+    }),
+    recommendedHardware: {
+      mount: 'Thorlabs KM100',
+      post: 'RS1.5P4M + RSHT1.5/M',
+    },
+    variants: [
       {
         id: 'concave-1in',
         label: 'Concave Mirror',
@@ -2052,17 +2090,16 @@ export function createDefaultComponentConfig(
       }
     }
     case 'mirror': {
-      if (spec.physics.kind !== 'curved-mirror') {
-        return supportConfig
-          ? {
-              support: supportConfig,
-            }
-          : {}
-      }
-
+      return supportConfig
+        ? {
+            support: supportConfig,
+          }
+        : {}
+    }
+    case 'curved-mirror': {
       const defaultConfig: CurvedMirrorConfig = {
-        radiusOfCurvatureMm: spec.physics.defaultRadiusOfCurvatureMm,
-        isConvex: spec.physics.isConvex,
+        radiusOfCurvatureMm: spec.physics.kind === 'curved-mirror' ? spec.physics.defaultRadiusOfCurvatureMm : 200,
+        isConvex: spec.physics.kind === 'curved-mirror' ? spec.physics.isConvex : false,
       }
 
       return {
