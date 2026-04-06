@@ -107,8 +107,14 @@ interface DragPreviewState {
   candidateAnchorMm: Vector2Mm
 }
 
+interface BreadboardDragPreview {
+  breadboardId: string
+  candidateAnchorMm: Vector2Mm
+}
+
 interface InteractionState {
   activeDragComponentId?: string
+  breadboardDragPreview?: BreadboardDragPreview
   dragPreview?: DragPreviewState
   pendingPlacement?: PendingPlacementState
   pendingBreadboardPlacement?: PendingBreadboardPlacementState
@@ -211,6 +217,10 @@ interface EditorStore {
   commitPendingPlacement: (anchorMm?: Vector2Mm) => void
   updatePendingBreadboardAnchor: (anchorMm: Vector2Mm) => void
   commitPendingBreadboardPlacement: (anchorMm?: Vector2Mm) => void
+  beginBreadboardDrag: (breadboardId: string) => void
+  updateBreadboardDrag: (breadboardId: string, anchorMm: Vector2Mm) => void
+  commitBreadboardDrag: (breadboardId: string, anchorMm?: Vector2Mm) => void
+  updateBreadboardPosition: (breadboardId: string, anchorMm: Vector2Mm) => void
   beginComponentDrag: (componentId: string) => void
   updateComponentDrag: (componentId: string, anchorMm: Vector2Mm) => void
   commitComponentDrag: (componentId: string, anchorMm?: Vector2Mm) => void
@@ -1507,6 +1517,120 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  beginBreadboardDrag: (breadboardId) => {
+    set((state) => {
+      if (state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const breadboard = state.scene.workspace.breadboards.find(
+        (item) => item.id === breadboardId,
+      )
+
+      if (!breadboard) {
+        return state
+      }
+
+      return {
+        selection: { type: 'breadboard' as const, surfaceId: breadboardId },
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: breadboardId,
+          breadboardDragPreview: {
+            breadboardId,
+            candidateAnchorMm: breadboard.anchorMm,
+          },
+          notice: undefined,
+        },
+      }
+    })
+  },
+
+  updateBreadboardDrag: (breadboardId, anchorMm) => {
+    set((state) => {
+      if (state.interaction.breadboardDragPreview?.breadboardId !== breadboardId) {
+        return state
+      }
+
+      return {
+        interaction: {
+          ...state.interaction,
+          breadboardDragPreview: {
+            breadboardId,
+            candidateAnchorMm: anchorMm,
+          },
+        },
+      }
+    })
+  },
+
+  commitBreadboardDrag: (breadboardId, anchorMm) => {
+    set((state) => {
+      if (state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const preview = state.interaction.breadboardDragPreview
+      const finalAnchor = anchorMm ?? preview?.candidateAnchorMm
+
+      if (!finalAnchor) {
+        return state
+      }
+
+      const roundedAnchor: Vector2Mm = {
+        x: roundMm(finalAnchor.x),
+        y: roundMm(finalAnchor.y),
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          workspace: {
+            ...state.scene.workspace,
+            breadboards: state.scene.workspace.breadboards.map((bb) =>
+              bb.id === breadboardId
+                ? { ...bb, anchorMm: roundedAnchor }
+                : bb,
+            ),
+          },
+        },
+        interaction: {
+          ...state.interaction,
+          breadboardDragPreview: undefined,
+        },
+      })
+    })
+  },
+
+  updateBreadboardPosition: (breadboardId, anchorMm) => {
+    set((state) => {
+      if (state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const roundedAnchor: Vector2Mm = {
+        x: roundMm(anchorMm.x),
+        y: roundMm(anchorMm.y),
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          workspace: {
+            ...state.scene.workspace,
+            breadboards: state.scene.workspace.breadboards.map((bb) =>
+              bb.id === breadboardId
+                ? { ...bb, anchorMm: roundedAnchor }
+                : bb,
+            ),
+          },
+        },
+      }, {
+        mergeKey: `breadboard-position-${breadboardId}`,
+      })
+    })
+  },
+
   beginComponentDrag: (componentId) => {
     set((state) => {
       const component = state.scene.components.find((item) => item.id === componentId)
@@ -1600,6 +1724,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         activeDragComponentId: undefined,
+        breadboardDragPreview: undefined,
         dragPreview: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,

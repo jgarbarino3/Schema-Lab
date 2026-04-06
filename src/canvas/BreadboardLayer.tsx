@@ -11,6 +11,7 @@ import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from '../domain/placemen
 import type {
   BreadboardModel,
   QuarterTurn,
+  ScreenPointPx,
   Vector2Mm,
   ViewportState,
 } from '../domain/types'
@@ -19,7 +20,11 @@ import { quarterTurnsToDegrees } from '../domain/geometry'
 interface BreadboardLayerProps {
   anchorMm?: Vector2Mm
   breadboard: BreadboardModel
+  draggable?: boolean
   isSelected: boolean
+  onDragEnd?: (screenPointPx: ScreenPointPx) => void
+  onDragMove?: (screenPointPx: ScreenPointPx) => void
+  onDragStart?: () => void
   onSelect: (event: KonvaEventObject<MouseEvent | TouchEvent>) => void
   opacity?: number
   palette?: {
@@ -37,7 +42,11 @@ interface BreadboardLayerProps {
 export function BreadboardLayer({
   anchorMm = { x: 0, y: 0 },
   breadboard,
+  draggable = false,
   isSelected,
+  onDragEnd,
+  onDragMove,
+  onDragStart,
   onSelect,
   opacity = 1,
   palette,
@@ -77,11 +86,42 @@ export function BreadboardLayer({
 
   const content = (
     <Group
+      draggable={draggable}
+      dragDistance={2}
       name="breadboard-hit"
       listening
       onClick={(event) => {
         event.cancelBubble = true
         onSelect(event)
+      }}
+      onDragEnd={(event) => {
+        if (!onDragEnd) {
+          return
+        }
+
+        event.cancelBubble = true
+        onDragEnd({ x: event.target.x(), y: event.target.y() })
+      }}
+      onDragMove={(event) => {
+        if (!onDragMove) {
+          return
+        }
+
+        event.cancelBubble = true
+        onDragMove({ x: event.target.x(), y: event.target.y() })
+      }}
+      onDragStart={(event) => {
+        if (!onDragStart) {
+          return
+        }
+
+        event.cancelBubble = true
+        onDragStart()
+      }}
+      onMouseDown={(event) => {
+        if (draggable) {
+          event.cancelBubble = true
+        }
       }}
       onTap={(event) => {
         event.cancelBubble = true

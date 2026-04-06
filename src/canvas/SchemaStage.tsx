@@ -99,6 +99,9 @@ export function SchemaStage({
   const setPointerPanning = useEditorStore((state) => state.setPointerPanning)
   const startLineDrawAt = useEditorStore((state) => state.startLineDrawAt)
   const commitLineDraw = useEditorStore((state) => state.commitLineDraw)
+  const beginBreadboardDrag = useEditorStore((state) => state.beginBreadboardDrag)
+  const updateBreadboardDrag = useEditorStore((state) => state.updateBreadboardDrag)
+  const commitBreadboardDrag = useEditorStore((state) => state.commitBreadboardDrag)
 
   const getStagePointerWorldMm = () => {
     const pointerPosition = stageRef.current?.getPointerPosition()
@@ -690,16 +693,28 @@ export function SchemaStage({
 
             {breadboardInstances.map((breadboard) => (
               <BreadboardLayer
-                anchorMm={breadboard.anchorMm}
+                anchorMm={
+                  interaction.breadboardDragPreview?.breadboardId === breadboard.id
+                    ? interaction.breadboardDragPreview.candidateAnchorMm
+                    : breadboard.anchorMm
+                }
                 breadboard={{
                   ...breadboard.model,
                   label: breadboard.label,
                 }}
+                draggable={!isPanMode && !isLineTool}
                 isSelected={
                   selection.type === 'breadboard' &&
                   selection.surfaceId === breadboard.id
                 }
                 key={breadboard.id}
+                onDragEnd={(screenPointPx) =>
+                  commitBreadboardDrag(breadboard.id, screenToWorld(screenPointPx, viewport))
+                }
+                onDragMove={(screenPointPx) =>
+                  updateBreadboardDrag(breadboard.id, screenToWorld(screenPointPx, viewport))
+                }
+                onDragStart={() => beginBreadboardDrag(breadboard.id)}
                 onSelect={() => handleBreadboardSelect(breadboard.id)}
                 renderInLayer={false}
                 rotationQuarterTurns={breadboard.rotationQuarterTurns}

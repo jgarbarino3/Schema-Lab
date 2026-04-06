@@ -607,6 +607,7 @@ export function InspectorPanel({
   const applyBreadboardPreset = useEditorStore(
     (state) => state.applyBreadboardPreset,
   )
+  const updateBreadboardPosition = useEditorStore((state) => state.updateBreadboardPosition)
   const updateOpticalTable = useEditorStore((state) => state.updateOpticalTable)
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
   const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
@@ -852,6 +853,33 @@ export function InspectorPanel({
                 value={boardLabel}
               />
             </Field>
+
+            {activeBreadboardInstance && opticalTable ? (
+              <div className="inspector__grid">
+                <NumberField
+                  label="X position (mm)"
+                  onChange={(x) =>
+                    updateBreadboardPosition(activeBreadboardInstance.id, {
+                      x,
+                      y: activeBreadboardInstance.anchorMm.y,
+                    })
+                  }
+                  step={1}
+                  value={activeBreadboardInstance.anchorMm.x}
+                />
+                <NumberField
+                  label="Y position (mm)"
+                  onChange={(y) =>
+                    updateBreadboardPosition(activeBreadboardInstance.id, {
+                      x: activeBreadboardInstance.anchorMm.x,
+                      y,
+                    })
+                  }
+                  step={1}
+                  value={activeBreadboardInstance.anchorMm.y}
+                />
+              </div>
+            ) : null}
 
             <div className="inspector__grid">
               <NumberField
