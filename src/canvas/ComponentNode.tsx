@@ -309,6 +309,7 @@ export function ComponentNode({
               boundsMm={bodyBoundsMm}
               fill={spec.renderHint.fill}
               glyph={spec.renderHint.glyph}
+              isConvex={instance.config.curvedMirror?.isConvex}
               stroke={stroke}
             />
           )}

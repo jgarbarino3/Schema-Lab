@@ -5,6 +5,7 @@ interface ComponentGlyphProps {
   boundsMm: BoundsMm
   fill?: string
   glyph: ComponentGlyphType
+  isConvex?: boolean
   stroke: string
 }
 
@@ -12,6 +13,7 @@ export function ComponentGlyph({
   boundsMm,
   fill,
   glyph,
+  isConvex,
   stroke,
 }: ComponentGlyphProps) {
   const centerX = boundsMm.x + boundsMm.width / 2
@@ -66,7 +68,9 @@ export function ComponentGlyph({
           strokeWidth={1.75}
         />
       )
-    case 'curved-mirror':
+    case 'curved-mirror': {
+      const bow = isConvex ? -1 : 1
+      const perpOffset = Math.min(width, height) * 0.28 * bow
       return (
         <Line
           bezier
@@ -74,10 +78,10 @@ export function ComponentGlyph({
           points={[
             boundsMm.x + width - inset,
             boundsMm.y + inset,
-            centerX + width * 0.22,
-            centerY - height * 0.22,
-            centerX - width * 0.22,
-            centerY + height * 0.22,
+            centerX + perpOffset,
+            centerY - perpOffset,
+            centerX + perpOffset,
+            centerY - perpOffset,
             boundsMm.x + inset,
             boundsMm.y + height - inset,
           ]}
@@ -85,6 +89,7 @@ export function ComponentGlyph({
           strokeWidth={1.75}
         />
       )
+    }
     case 'beamsplitter':
       return (
         <>
