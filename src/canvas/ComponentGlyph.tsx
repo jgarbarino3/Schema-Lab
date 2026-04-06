@@ -70,7 +70,7 @@ export function ComponentGlyph({
       )
     case 'curved-mirror': {
       const sign = isConvex ? 1 : -1
-      const maxBow = Math.min(width, height) * 0.38 * sign
+      const maxBow = Math.min(width, height) * 0.2 * sign
       const x0 = boundsMm.x + width - inset
       const y0 = boundsMm.y + inset
       const x1 = boundsMm.x + inset
