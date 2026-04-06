@@ -24,10 +24,6 @@ interface SpotlightRect {
   width: number
 }
 
-function clamp(value: number, minimum: number, maximum: number) {
-  return Math.min(maximum, Math.max(minimum, value))
-}
-
 export function OnboardingTour({
   currentStep,
   isOpen,
@@ -39,11 +35,14 @@ export function OnboardingTour({
 }: OnboardingTourProps) {
   const cardRef = useRef<HTMLDivElement | null>(null)
   const [spotlightRect, setSpotlightRect] = useState<SpotlightRect>()
+  const [offscreenDir, setOffscreenDir] = useState<'up' | 'down' | null>(null)
+  const cardStyleRef = useRef<Record<string, number> | undefined>(undefined)
   const step = steps[currentStep]
 
   const recalcSpotlight = useCallback(() => {
     if (!step?.selector) {
       setSpotlightRect(undefined)
+      setOffscreenDir(null)
       return
     }
 
@@ -51,6 +50,7 @@ export function OnboardingTour({
 
     if (!(element instanceof HTMLElement)) {
       setSpotlightRect(undefined)
+      setOffscreenDir(null)
       return
     }
 
@@ -59,15 +59,52 @@ export function OnboardingTour({
 
     setSpotlightRect({
       height: rect.height + padding * 2,
-      left: clamp(rect.left - padding, 12, window.innerWidth - 60),
-      top: clamp(rect.top - padding, 12, window.innerHeight - 60),
+      left: rect.left - padding,
+      top: rect.top - padding,
       width: rect.width + padding * 2,
     })
+    setOffscreenDir(null)
   }, [step?.selector])
+
+  const checkVisibility = useCallback(() => {
+    if (!step?.selector) {
+      setOffscreenDir(null)
+      return
+    }
+
+    const element = document.querySelector(step.selector)
+
+    if (!(element instanceof HTMLElement)) {
+      setOffscreenDir(null)
+      return
+    }
+
+    const rect = element.getBoundingClientRect()
+
+    if (rect.bottom < -10) {
+      setOffscreenDir('up')
+      setSpotlightRect(undefined)
+    } else if (rect.top > window.innerHeight + 10) {
+      setOffscreenDir('down')
+      setSpotlightRect(undefined)
+    } else {
+      if (offscreenDir !== null) {
+        const padding = 10
+        setSpotlightRect({
+          height: rect.height + padding * 2,
+          left: rect.left - padding,
+          top: rect.top - padding,
+          width: rect.width + padding * 2,
+        })
+      }
+      setOffscreenDir(null)
+    }
+  }, [step?.selector, offscreenDir])
 
   useLayoutEffect(() => {
     if (!isOpen) {
       setSpotlightRect(undefined)
+      setOffscreenDir(null)
       return
     }
 
@@ -79,18 +116,18 @@ export function OnboardingTour({
       return
     }
 
-    window.addEventListener('scroll', recalcSpotlight, { capture: true, passive: true })
+    window.addEventListener('scroll', checkVisibility, { capture: true, passive: true })
     window.addEventListener('resize', recalcSpotlight)
 
     return () => {
-      window.removeEventListener('scroll', recalcSpotlight, { capture: true } as EventListenerOptions)
+      window.removeEventListener('scroll', checkVisibility, { capture: true } as EventListenerOptions)
       window.removeEventListener('resize', recalcSpotlight)
     }
-  }, [isOpen, step?.selector, recalcSpotlight])
+  }, [isOpen, step?.selector, recalcSpotlight, checkVisibility])
 
   const cardStyle = useMemo(() => {
     if (!spotlightRect) {
-      return undefined
+      return cardStyleRef.current
     }
 
     const targetCenterX = spotlightRect.left + spotlightRect.width / 2
@@ -111,6 +148,7 @@ export function OnboardingTour({
       style.bottom = 20
     }
 
+    cardStyleRef.current = style
     return style
   }, [spotlightRect])
 
@@ -161,6 +199,13 @@ export function OnboardingTour({
             width: spotlightRect.width,
           }}
         />
+      ) : null}
+
+      {offscreenDir ? (
+        <div className={`tour-scroll-hint tour-scroll-hint--${offscreenDir}`}>
+          <span className="tour-scroll-hint__arrow">{offscreenDir === 'up' ? '↑' : '↓'}</span>
+          Scroll {offscreenDir}
+        </div>
       ) : null}
 
       <div className="tour-card" ref={cardRef} style={cardStyle}>
