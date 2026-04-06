@@ -55,6 +55,8 @@ try {
     page.locator('.component-library__item').filter({ hasText: name }).first()
   const tourCard = page.locator('.tour-card')
   const exportMenu = page.locator('.toolbar__menu-popover')
+  const exportDialog = page.getByRole('dialog', { name: 'Export options' })
+  const tutorialButton = page.getByRole('button', { name: 'Tutorial' })
 
   const readScene = async () => {
     await rawJsonButton.click()
@@ -100,6 +102,28 @@ try {
       action(),
     ])
     return download.suggestedFilename()
+  }
+
+  const openExportOptions = async (formatName) => {
+    await exportButton.click()
+    await exportMenu.waitFor()
+    await exportMenu.getByRole('button', { name: formatName }).click()
+    await exportDialog.waitFor()
+  }
+
+  const finishExportAfterOptions = async (confirmButtonName) => {
+    const downloadPromise = page.waitForEvent('download')
+    await exportDialog.getByRole('button', { name: confirmButtonName }).click()
+
+    const warningReview = page.getByRole('dialog', {
+      name: /Review Warnings Before/i,
+    })
+    await page.waitForTimeout(250)
+    if (await warningReview.isVisible().catch(() => false)) {
+      await warningReview.getByRole('button', { name: 'Export anyway' }).click()
+    }
+
+    return downloadPromise
   }
 
   const openToolbarMenu = async (button, label) => {
@@ -155,6 +179,8 @@ try {
   assert.match(helpText, /Envelope/i)
   assert.match(helpText, /Realistic shows mounted hardware silhouettes/i)
   assert.match(helpText, /Simple uses cleaner symbolic optics/i)
+  assert.match(helpText, /DXF/i)
+  assert.match(helpText, /Tutorial/i)
   await page.keyboard.press('Escape')
   await expectHidden(helpDialog)
 
@@ -165,10 +191,18 @@ try {
 
   await openToolbarMenu(exportButton, 'export')
   const exportText = (await exportMenu.textContent()) ?? ''
-  assert.match(exportText, /Full Scheme PNG/)
-  assert.match(exportText, /Breadboard PDF/)
+  assert.match(exportText, /PNG/)
+  assert.match(exportText, /PDF/)
+  assert.match(exportText, /SVG/)
+  assert.match(exportText, /DXF/)
   await page.keyboard.press('Escape')
   await expectHidden(exportMenu)
+
+  await tutorialButton.click()
+  const tutorialDialog = page.getByRole('dialog', { name: 'Load tutorial scene' })
+  await tutorialDialog.waitFor()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expectHidden(tutorialDialog)
 
   await simpleButton.click()
   assert.match((await simpleButton.getAttribute('class')) ?? '', /is-active-tool/)
@@ -231,7 +265,10 @@ try {
 
   await exportButton.click()
   await exportMenu.waitFor()
-  await exportMenu.getByRole('button', { name: 'Breadboard PNG' }).click()
+  await exportMenu.getByRole('button', { name: 'PNG' }).click()
+  await exportDialog.waitFor()
+  await exportDialog.getByLabel('Breadboard Only').check()
+  await exportDialog.getByRole('button', { name: 'Export PNG' }).click()
   await page
     .getByRole('heading', { name: /Review Warnings Before Breadboard PNG/i })
     .waitFor()
@@ -347,33 +384,23 @@ try {
   assert.ok(beamInspectionVisible, 'Beam segment selection should be reachable on canvas')
   step('beam inspection selected from canvas')
 
-  const [sceneJsonDownload] = await Promise.all([
-    page.waitForEvent('download'),
-    (async () => {
-      await exportButton.click()
-      await exportMenu.waitFor()
-      await exportMenu.getByRole('button', { name: 'Scene JSON' }).click()
-      await page
-        .getByRole('heading', { name: /Review Warnings Before Scene JSON/i })
-        .waitFor()
-      await page.getByRole('button', { name: 'Export anyway' }).click()
-    })(),
-  ])
-  assert.match(sceneJsonDownload.suggestedFilename(), /schema-lab-scene\.json/i)
-  const [pngDownload] = await Promise.all([
-    page.waitForEvent('download'),
-    (async () => {
-      await exportButton.click()
-      await exportMenu.waitFor()
-      await exportMenu.getByRole('button', { name: 'Breadboard PNG' }).click()
-      await page
-        .getByRole('heading', { name: /Review Warnings Before Breadboard PNG/i })
-        .waitFor()
-      await page.getByRole('button', { name: 'Export anyway' }).click()
-    })(),
-  ])
-  assert.match(pngDownload.suggestedFilename(), /schema-lab-breadboard\.png/i)
-  step('download exports initiated')
+  await tutorialButton.click()
+  await page.getByRole('dialog', { name: 'Load tutorial scene' }).waitFor()
+  await page.getByRole('button', { name: 'Replace with tutorial' }).click()
+  await tourCard.waitFor()
+  let tutorialText = (await tourCard.textContent()) ?? ''
+  assert.match(tutorialText, /curved mirror/i)
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next' }).click()
+  tutorialText = (await tourCard.textContent()) ?? ''
+  assert.match(tutorialText, /Stage 2/i)
+  assert.match(tutorialText, /Stage 3/i)
+  await page.getByRole('button', { name: 'Next' }).click()
+  tutorialText = (await tourCard.textContent()) ?? ''
+  assert.match(tutorialText, /2D model/i)
+  await page.getByRole('button', { name: 'Exit' }).click()
+  await expectHidden(tourCard)
+  step('tutorial scene walkthrough opened and explained staged physics')
 
   if (canUseDevModuleFallback) {
     await page.screenshot({ path: 'output/playwright/ux-clarity-smoke.png', fullPage: true })

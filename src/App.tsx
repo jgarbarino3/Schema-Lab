@@ -13,10 +13,16 @@ import { SchemaStage } from './canvas/SchemaStage'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
-import { createExportViewport, type ExportScope } from './domain/exportLayout'
+import {
+  createExportViewport,
+  type ExportFormat,
+  type ExportScope,
+  type SvgExportPreset,
+} from './domain/exportLayout'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
+import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
   getBreadboardInstances,
   getWorkspacePrimaryBreadboard,
@@ -28,10 +34,12 @@ import {
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
 import { ComponentLibrary } from './ui/ComponentLibrary'
+import { ExportOptionsModal } from './ui/ExportOptionsModal'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
+import { TutorialModal } from './ui/TutorialModal'
 import { WarningReviewModal } from './ui/WarningReviewModal'
 import { WorkspaceModeModal } from './ui/WorkspaceModeModal'
 
@@ -42,10 +50,12 @@ const RIGHT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.right-panel-collapsed'
 const OPTICAL_TABLE_SNAPSHOT_KEY = 'schema-lab.workspace.optical-table-snapshot'
 const EXPORT_CANVAS_WIDTH_PX = 1800
 const EXPORT_CANVAS_HEIGHT_PX = 1200
+const DEFAULT_SVG_PRESET: SvgExportPreset = 'engineering'
 
 interface ExportRequestState {
-  action: ExportAction
+  format: ExportFormat
   scope: ExportScope
+  svgPreset?: SvgExportPreset
 }
 
 type WorkspaceModalState =
@@ -156,17 +166,26 @@ function App() {
   const duplicateSelectedComponent = useEditorStore(
     (state) => state.duplicateSelectedComponent,
   )
+  const selectComponent = useEditorStore((state) => state.selectComponent)
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
+  )
+  const setShowGaussianEnvelope = useEditorStore(
+    (state) => state.setShowGaussianEnvelope,
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
-  const [pendingExportAction, setPendingExportAction] = useState<ExportAction>()
-  const [exportRequest, setExportRequest] = useState<ExportRequestState>()
+  const [pendingExportRequest, setPendingExportRequest] =
+    useState<ExportRequestState>()
+  const [exportOptionsFormat, setExportOptionsFormat] = useState<ExportFormat>()
+  const [rasterExportRequest, setRasterExportRequest] =
+    useState<ExportRequestState>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
+  const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
     readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
   )
@@ -230,7 +249,7 @@ function App() {
   )
   const pendingPlacement = interaction.pendingPlacement
   const pendingBreadboardPlacement = interaction.pendingBreadboardPlacement
-  const isWarningReviewOpen = pendingExportAction !== undefined
+  const isWarningReviewOpen = pendingExportRequest !== undefined
   const isWorkspaceModalOpen = workspaceModalState !== undefined
   const exportBreadboardSurfaceId =
     scene.workspace.kind === 'single-breadboard'
@@ -242,20 +261,20 @@ function App() {
           ? interaction.activeHostSurfaceId
           : breadboardInstances[0]?.id
   const exportViewport = useMemo(() => {
-    if (!exportRequest) {
+    if (!rasterExportRequest) {
       return undefined
     }
 
     return createExportViewport(
       scene,
-      exportRequest.scope,
+      rasterExportRequest.scope,
       {
         width: EXPORT_CANVAS_WIDTH_PX,
         height: EXPORT_CANVAS_HEIGHT_PX,
       },
       exportBreadboardSurfaceId,
     )
-  }, [exportBreadboardSurfaceId, exportRequest, scene])
+  }, [exportBreadboardSurfaceId, rasterExportRequest, scene])
   const selectedComponent =
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
@@ -276,7 +295,7 @@ function App() {
   const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
   const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
 
-  const onboardingSteps = useMemo<OnboardingStep[]>(
+  const guideSteps = useMemo<OnboardingStep[]>(
     () => [
       {
         title: 'Welcome to Schema-Lab',
@@ -321,6 +340,23 @@ function App() {
         ),
       },
       {
+        title: 'Collapse Panels from the Panels',
+        selector: '[data-tour=\"panel-library-toggle\"]',
+        body: (
+          <>
+            <p>
+              The side panels now collapse from their own headers instead of the top toolbar.
+              Each collapsed panel leaves a slim edge tab behind so you can reopen it without
+              sacrificing central viewport space.
+            </p>
+            <p>
+              This is the fastest way to temporarily expand the breadboard area while keeping
+              your current library or inspector context intact.
+            </p>
+          </>
+        ),
+      },
+      {
         title: 'Inspector States Are Explicit',
         selector: '[data-tour=\"inspector\"]',
         body: (
@@ -333,10 +369,6 @@ function App() {
               This is also where variants, lens values, BBO thickness and phase matching,
               mount defaults, recommended hardware, table or breadboard dimensions, delay
               scan controls, telescope settings, polarization optics, and OPA links appear.
-            </p>
-            <p>
-              Collapse either side panel from the toolbar whenever you need more room in the
-              central viewport without losing your current inspector or library state.
             </p>
           </>
         ),
@@ -365,22 +397,53 @@ function App() {
       },
       {
         title: 'Warnings and Export Review',
+        selector: '[data-tour=\"toolbar-controls\"]',
+        body: (
+          <>
+            <p>
+              Warning filters separate simple mechanical issues from advanced optical ones.
+              You can dismiss low-priority warnings for the current session, restore them later,
+              and export review only blocks on the warnings you have not dismissed.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Vector Export and Format Options',
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
             <p>
-              Export will pause if critical scene warnings remain. Review them in the
-              warning center, filter simple vs advanced warnings, dismiss low-priority items for
-              the current session, or bypass intentionally when you are ready.
+              Export now chooses a format family first, then opens a compact options dialog
+              for scope and SVG preset. Engineering SVG is the clean mm-native Inkscape output,
+              while DXF is the layout / CAD export for boards, holes, mounts, and components.
             </p>
             <p>
-              Export menus now group JSON, PNG, PDF, SVG, and PPTX. Reopen this guide anytime
-              from the blue Guide button in the top toolbar.
+              Export will still pause if unresolved warnings remain, so you can review them
+              before downloading PNG, PDF, SVG, DXF, or PPTX output.
             </p>
             <p>
-              Help also documents the new optics pass, including curved-mirror and telescope
+              Help also documents the newer optics pass, including curved-mirror and telescope
               Gaussian behavior, delay-line scan readouts, OPA fallback links, and the current
               note that periscopes remain 2D relays until the later 3D pass.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Try the Tutorial Scene',
+        selector: '[data-tour=\"toolbar-tutorial\"]',
+        body: (
+          <>
+            <p>
+              Tutorial asks before replacing the current scene, then loads a curated example
+              that demonstrates steering mirrors, curved-mirror behavior, attenuation,
+              polarization optics, a compact delay stage, a reflective telescope, BBO, and
+              detector readout.
+            </p>
+            <p>
+              It also explains the difference between Stage 2 deterministic tracing and Stage 3
+              Gaussian / paraxial analysis so the demo doubles as a capability walkthrough.
             </p>
           </>
         ),
@@ -388,6 +451,82 @@ function App() {
     ],
     [],
   )
+  const tutorialSteps = useMemo<OnboardingStep[]>(
+    () => [
+      {
+        title: 'Tutorial Scene Loaded',
+        selector: '[data-tour=\"canvas-panel\"]',
+        body: (
+          <>
+            <p>
+              This example intentionally mixes a steering branch at the top with a longer inline
+              branch across the middle so you can see multiple optics families working in one
+              deterministic scene.
+            </p>
+            <p>
+              The top branch shows flat-mirror steering into a curved mirror and then into a
+              detector. The main branch runs through attenuation, polarization control, delay,
+              reflective telescope behavior, BBO, and final detection.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Selected Delay Stage',
+        selector: '[data-tour=\"inspector\"]',
+        body: (
+          <>
+            <p>
+              The inspector is focused on the compact delay stage so you can adjust stage
+              position, travel, topology, and femtosecond offset immediately.
+            </p>
+            <p>
+              In this model, Stage 2 keeps the 2D centerline fixed while the stage adds internal
+              optical path length and timing delay. Stage 3 then uses that effective path length
+              for downstream Gaussian readouts.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'What the Engine Is Modeling',
+        selector: '[data-tour=\"toolbar-help\"]',
+        body: (
+          <>
+            <p>
+              Stage 2 is the deterministic engine: it resolves geometry, beam routing, power
+              loss, attenuation, simple polarization transforms, delay-line timing, and block-level
+              interaction logic such as BBO SHG and OPA module handoff.
+            </p>
+            <p>
+              Stage 3 is the analytical Gaussian layer on top of those resolved paths. It tracks
+              q-parameter propagation, waist shifts, spot size, curved-mirror / telescope ABCD
+              behavior, and aperture overfill warnings without replacing the Stage 2 geometry.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'What Is Still Deferred',
+        selector: '[data-tour=\"toolbar-export\"]',
+        body: (
+          <>
+            <p>
+              This tutorial is physically meaningful, but it is still a 2D model. Full 3D beam
+              height, full nonlinear material physics, full spectrometer internals, and pulse
+              chirp / GDD propagation are still intentionally deferred.
+            </p>
+            <p>
+              When you are ready, export Engineering SVG for clean Inkscape editing or DXF for
+              mechanical CAD-style layout work.
+            </p>
+          </>
+        ),
+      },
+    ],
+    [],
+  )
+  const onboardingSteps = tourMode === 'tutorial' ? tutorialSteps : guideSteps
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -435,6 +574,7 @@ function App() {
 
   const handleOpenOnboarding = () => {
     markOnboardingSeen()
+    setTourMode('guide')
     setOnboardingStep(0)
     setIsOnboardingOpen(true)
   }
@@ -472,25 +612,85 @@ function App() {
   }
 
   const handleExportAction = (action: ExportAction) => {
+    if (action === 'scene-json') {
+      downloadSceneJson()
+      return
+    }
+
+    setExportOptionsFormat(action)
+  }
+
+  const startExport = useCallback(
+    async (request: ExportRequestState) => {
+      if (request.format === 'svg') {
+        const { createSceneSvg } = await import('./domain/svgExport')
+        const svgMarkup = createSceneSvg({
+          beamTrace,
+          breadboardSurfaceId: exportBreadboardSurfaceId,
+          gaussianTrace,
+          renderMode,
+          scene,
+          scope: request.scope,
+          showGaussianEnvelope: interaction.showGaussianEnvelope,
+          svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
+        })
+        const presetSuffix =
+          request.svgPreset === 'presentation' ? '-presentation' : '-engineering'
+
+        downloadBlob(
+          new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
+          request.scope === 'breadboard-only'
+            ? `schema-lab-breadboard${presetSuffix}.svg`
+            : `schema-lab-full-scheme${presetSuffix}.svg`,
+        )
+        return
+      }
+
+      if (request.format === 'dxf') {
+        const { createSceneDxf } = await import('./domain/dxfExport')
+        const dxfMarkup = createSceneDxf({
+          beamTrace,
+          breadboardSurfaceId: exportBreadboardSurfaceId,
+          gaussianTrace,
+          renderMode,
+          scene,
+          scope: request.scope,
+          showGaussianEnvelope: interaction.showGaussianEnvelope,
+        })
+
+        downloadBlob(
+          new Blob([dxfMarkup], { type: 'application/dxf;charset=utf-8' }),
+          request.scope === 'breadboard-only'
+            ? 'schema-lab-breadboard.dxf'
+            : 'schema-lab-full-scheme.dxf',
+        )
+        return
+      }
+
+      setRasterExportRequest(request)
+    },
+    [
+      beamTrace,
+      exportBreadboardSurfaceId,
+      gaussianTrace,
+      interaction.showGaussianEnvelope,
+      renderMode,
+      scene,
+    ],
+  )
+
+  const handleConfirmExportOptions = (request: ExportRequestState) => {
+    setExportOptionsFormat(undefined)
+
     if (visibleSceneWarnings.length > 0) {
-      setPendingExportAction(action)
+      setPendingExportRequest(request)
       setSelectedWarningId(
         filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
       )
       return
     }
 
-    if (action === 'scene-json') {
-      downloadSceneJson()
-      return
-    }
-
-    setExportRequest({
-      action,
-      scope: action.startsWith('breadboard')
-        ? 'breadboard-only'
-        : 'full-scheme',
-    })
+    void startExport(request)
   }
 
   const handleRequestWorkspaceKind = (workspaceKind: WorkspaceKind) => {
@@ -567,43 +767,34 @@ function App() {
     })
   }
 
-  const finalizeExport = useCallback(
+  const handleOpenTutorial = () => {
+    markOnboardingSeen()
+    setIsTutorialModalOpen(true)
+  }
+
+  const handleLoadTutorial = () => {
+    const tutorialScene = createTutorialScene()
+
+    loadScene(tutorialScene)
+    selectComponent(TUTORIAL_FOCUS_COMPONENT_ID)
+    setShowGaussianEnvelope(true)
+    setTourMode('tutorial')
+    setOnboardingStep(0)
+    setIsTutorialModalOpen(false)
+    setIsOnboardingOpen(true)
+  }
+
+  const finalizeRasterExport = useCallback(
     async (stage: Konva.Stage, request: ExportRequestState) => {
       await nextAnimationFrame()
 
-      if (request.action.endsWith('svg')) {
-        const { createSceneSvg } = await import('./domain/svgExport')
-        const svgMarkup = createSceneSvg({
-          beamTrace,
-          breadboardSurfaceId: exportBreadboardSurfaceId,
-          gaussianTrace,
-          renderMode,
-          scene,
-          scope: request.scope,
-          showGaussianEnvelope: interaction.showGaussianEnvelope,
-          viewport: exportViewport!,
-        })
-
-        downloadBlob(
-          new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
-          request.scope === 'breadboard-only'
-            ? 'schema-lab-breadboard.svg'
-            : 'schema-lab-full-scheme.svg',
-        )
-        setExportRequest(undefined)
-        return
-      }
-
       const dataUrl = stage.toDataURL({
-        mimeType:
-          request.action === 'full-scheme-pdf' || request.action === 'breadboard-pdf'
-            ? 'image/jpeg'
-            : 'image/png',
+        mimeType: request.format === 'pdf' ? 'image/jpeg' : 'image/png',
         pixelRatio: 2,
         quality: 0.94,
       })
 
-      if (request.action.endsWith('png')) {
+      if (request.format === 'png') {
         const response = await fetch(dataUrl)
         const blob = await response.blob()
 
@@ -613,7 +804,7 @@ function App() {
             ? 'schema-lab-breadboard.png'
             : 'schema-lab-full-scheme.png',
         )
-      } else if (request.action.endsWith('pdf')) {
+      } else if (request.format === 'pdf') {
         const { createSingleImagePdfBlob } = await import('./domain/pdfExport')
         const pdfBlob = createSingleImagePdfBlob({
           jpegDataUrl: dataUrl,
@@ -639,17 +830,9 @@ function App() {
         )
       }
 
-      setExportRequest(undefined)
+      setRasterExportRequest(undefined)
     },
-    [
-      beamTrace,
-      exportBreadboardSurfaceId,
-      exportViewport,
-      gaussianTrace,
-      interaction.showGaussianEnvelope,
-      renderMode,
-      scene,
-    ],
+    [],
   )
 
   useEffect(() => {
@@ -684,15 +867,27 @@ function App() {
           return
         }
 
+        if (exportOptionsFormat) {
+          event.preventDefault()
+          setExportOptionsFormat(undefined)
+          return
+        }
+
         if (isWarningReviewOpen) {
           event.preventDefault()
-          setPendingExportAction(undefined)
+          setPendingExportRequest(undefined)
           return
         }
 
         if (isOnboardingOpen) {
           event.preventDefault()
           handleCloseOnboarding()
+          return
+        }
+
+        if (isTutorialModalOpen) {
+          event.preventDefault()
+          setIsTutorialModalOpen(false)
           return
         }
 
@@ -757,9 +952,11 @@ function App() {
     cancelActiveInteraction,
     deleteSelectedComponent,
     duplicateSelectedComponent,
+    exportOptionsFormat,
     interaction.isHelpOpen,
     isOnboardingOpen,
     isJsonModalOpen,
+    isTutorialModalOpen,
     isWorkspaceModalOpen,
     isWarningReviewOpen,
     openToolbarMenu,
@@ -768,6 +965,7 @@ function App() {
     selectedComponent,
     setHelpOpen,
     setOpenToolbarMenu,
+    setPendingExportRequest,
     setSpacePanning,
     setWorkspaceModalState,
   ])
@@ -822,16 +1020,13 @@ function App() {
       <Toolbar
         beamTrace={beamTrace}
         dismissedWarningCount={dismissedWarningIds.length}
-        isInspectorCollapsed={isInspectorCollapsed}
-        isLibraryCollapsed={isLibraryCollapsed}
         isWarningPulse={isWarningReviewOpen}
         onExportAction={handleExportAction}
         onImportSceneJson={() => fileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
+        onOpenTutorial={handleOpenTutorial}
         onRequestWorkspaceKind={handleRequestWorkspaceKind}
-        onToggleInspector={handleToggleInspector}
-        onToggleLibrary={handleToggleLibrary}
         warnings={visibleSceneWarnings}
         workspaceKind={scene.workspace.kind}
       />
@@ -840,7 +1035,17 @@ function App() {
         className={`workspace${isLibraryCollapsed ? ' is-library-collapsed' : ''}${isInspectorCollapsed ? ' is-inspector-collapsed' : ''}`}
       >
         <div className="workspace__left-panel">
-          {!isLibraryCollapsed ? <ComponentLibrary /> : null}
+          {!isLibraryCollapsed ? (
+            <ComponentLibrary onCollapse={handleToggleLibrary} />
+          ) : (
+            <button
+              className="workspace__edge-tab workspace__edge-tab--left"
+              onClick={handleToggleLibrary}
+              type="button"
+            >
+              Library
+            </button>
+          )}
         </div>
 
         <section className="canvas-panel workspace__canvas" data-tour="canvas-panel">
@@ -937,8 +1142,20 @@ function App() {
 
         <div className="workspace__right-panel">
           {!isInspectorCollapsed ? (
-            <InspectorPanel beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
-          ) : null}
+            <InspectorPanel
+              beamTrace={beamTrace}
+              gaussianTrace={gaussianTrace}
+              onCollapse={handleToggleInspector}
+            />
+          ) : (
+            <button
+              className="workspace__edge-tab workspace__edge-tab--right"
+              onClick={handleToggleInspector}
+              type="button"
+            >
+              Inspector
+            </button>
+          )}
         </div>
       </div>
 
@@ -948,6 +1165,17 @@ function App() {
         className="visually-hidden"
         onChange={handleImportFile}
         type="file"
+      />
+
+      <ExportOptionsModal
+        defaultScope={
+          scene.workspace.kind === 'optical-table' ? 'breadboard-only' : 'full-scheme'
+        }
+        defaultSvgPreset={DEFAULT_SVG_PRESET}
+        format={exportOptionsFormat}
+        isOpen={exportOptionsFormat !== undefined}
+        onCancel={() => setExportOptionsFormat(undefined)}
+        onConfirm={handleConfirmExportOptions}
       />
 
       <JsonModal
@@ -963,37 +1191,37 @@ function App() {
 
       <WarningReviewModal
         isOpen={isWarningReviewOpen}
-        onCancel={() => setPendingExportAction(undefined)}
+        onCancel={() => setPendingExportRequest(undefined)}
         onExportAnyway={() => {
-          const nextAction = pendingExportAction
+          const nextRequest = pendingExportRequest
 
-          setPendingExportAction(undefined)
+          setPendingExportRequest(undefined)
 
-          if (!nextAction) {
+          if (!nextRequest) {
             return
           }
 
-          if (nextAction === 'scene-json') {
-            downloadSceneJson()
-            return
-          }
-
-          setExportRequest({
-            action: nextAction,
-            scope: nextAction.startsWith('breadboard')
-              ? 'breadboard-only'
-              : 'full-scheme',
-          })
+          void startExport(nextRequest)
         }}
         onReviewWarnings={() => {
-          setPendingExportAction(undefined)
+          setPendingExportRequest(undefined)
           setWarningsOpen(true)
           setSelectedWarningId(
             filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
           )
         }}
-        exportLabel={pendingExportAction}
+        exportLabel={
+          pendingExportRequest
+            ? `${pendingExportRequest.scope === 'breadboard-only' ? 'Breadboard' : 'Full Scheme'} ${pendingExportRequest.format === 'svg' && pendingExportRequest.svgPreset === 'presentation' ? 'Presentation ' : pendingExportRequest.format === 'svg' ? 'Engineering ' : ''}${pendingExportRequest.format.toUpperCase()}`
+            : undefined
+        }
         warnings={visibleSceneWarnings}
+      />
+
+      <TutorialModal
+        isOpen={isTutorialModalOpen}
+        onCancel={() => setIsTutorialModalOpen(false)}
+        onConfirm={handleLoadTutorial}
       />
 
       <OnboardingTour
@@ -1026,19 +1254,19 @@ function App() {
         }
       />
 
-      {exportRequest && exportViewport ? (
+      {rasterExportRequest && exportViewport ? (
         <ExportStage
           beamTrace={beamTrace}
           breadboardSurfaceId={exportBreadboardSurfaceId}
           gaussianTrace={gaussianTrace}
           onReady={(stage) => {
-            if (stage && exportRequest) {
-              void finalizeExport(stage, exportRequest)
+            if (stage && rasterExportRequest) {
+              void finalizeRasterExport(stage, rasterExportRequest)
             }
           }}
           renderMode={renderMode}
           scene={scene}
-          scope={exportRequest.scope}
+          scope={rasterExportRequest.scope}
           showGaussianEnvelope={interaction.showGaussianEnvelope}
           viewport={exportViewport}
         />

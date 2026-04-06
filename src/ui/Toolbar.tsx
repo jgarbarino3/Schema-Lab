@@ -7,33 +7,22 @@ import {
   type MouseEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import type { ExportFormat } from '../domain/exportLayout'
 import type { BeamTraceResult, SceneWarning, WorkspaceKind } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 
-export type ExportAction =
-  | 'scene-json'
-  | 'full-scheme-png'
-  | 'full-scheme-pdf'
-  | 'full-scheme-svg'
-  | 'full-scheme-pptx'
-  | 'breadboard-png'
-  | 'breadboard-pdf'
-  | 'breadboard-svg'
-  | 'breadboard-pptx'
+export type ExportAction = 'scene-json' | ExportFormat
 
 interface ToolbarProps {
   beamTrace: BeamTraceResult
   dismissedWarningCount: number
-  isInspectorCollapsed: boolean
-  isLibraryCollapsed: boolean
   isWarningPulse: boolean
   onExportAction: (action: ExportAction) => void
   onImportSceneJson: () => void
   onOpenOnboarding: () => void
   onOpenJson: () => void
+  onOpenTutorial: () => void
   onRequestWorkspaceKind: (workspaceKind: WorkspaceKind) => void
-  onToggleInspector: () => void
-  onToggleLibrary: () => void
   warnings: SceneWarning[]
   workspaceKind: WorkspaceKind
 }
@@ -63,16 +52,13 @@ function getFloatingStyle(button: HTMLButtonElement | null) {
 export function Toolbar({
   beamTrace,
   dismissedWarningCount,
-  isInspectorCollapsed,
-  isLibraryCollapsed,
   isWarningPulse,
   onExportAction,
   onImportSceneJson,
   onOpenOnboarding,
   onOpenJson,
+  onOpenTutorial,
   onRequestWorkspaceKind,
-  onToggleInspector,
-  onToggleLibrary,
   warnings,
   workspaceKind,
 }: ToolbarProps) {
@@ -283,7 +269,7 @@ export function Toolbar({
             <section>
               <h3>Navigate</h3>
               <p>
-                Select is for placing and editing components. Hand drags the viewport. Space temporarily activates hand-pan, and the Library / Inspector toggles collapse either side panel to free more board space.
+                Select is for placing and editing components. Hand drags the viewport. Space temporarily activates hand-pan, and the collapse controls at the top of each side panel free more board space without changing the current scene.
               </p>
             </section>
             <section>
@@ -349,13 +335,19 @@ export function Toolbar({
             <section>
               <h3>Files</h3>
               <p>
-                Import loads scene JSON. Export includes scene JSON plus full-scheme and breadboard-only PNG, PDF, SVG, and PPTX outputs. Raw JSON opens the editable scene document directly.
+                Import loads scene JSON. Export now chooses a format family first, then scope and SVG preset in a compact dialog. Engineering SVG is the Inkscape-first mm-native vector output, DXF is the clean layout/CAD export, and Raw JSON opens the editable scene document directly.
               </p>
             </section>
             <section>
               <h3>Guide</h3>
               <p>
-                Guide reopens the first-run walkthrough and explains placement, inspector states, realistic/simple mode, warnings, sources, delay and OPA controls, BBO tunables, and export flow.
+                Guide reopens the walkthrough for placement, workspace modes, realistic/simple, panel collapse, warnings, vector export, and the new tutorial flow.
+              </p>
+            </section>
+            <section>
+              <h3>Tutorial</h3>
+              <p>
+                Tutorial replaces the current scene with a deterministic example setup after confirmation, then walks through what Stage 2 and Stage 3 are modeling so you can see the delay stage, curved-mirror / telescope behavior, and Gaussian readouts in context.
               </p>
             </section>
           </div>,
@@ -553,75 +545,47 @@ export function Toolbar({
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
-                    onExportAction('full-scheme-png')
+                    onExportAction('png')
                   }}
                   type="button"
                 >
-                  Full Scheme PNG
+                  PNG
                 </button>
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
-                    onExportAction('full-scheme-pdf')
+                    onExportAction('pdf')
                   }}
                   type="button"
                 >
-                  Full Scheme PDF
+                  PDF
                 </button>
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
-                    onExportAction('full-scheme-svg')
+                    onExportAction('svg')
                   }}
                   type="button"
                 >
-                  Full Scheme SVG
+                  SVG
                 </button>
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
-                    onExportAction('full-scheme-pptx')
+                    onExportAction('dxf')
                   }}
                   type="button"
                 >
-                  Full Scheme PPTX
-                </button>
-                <button
-                  data-tour="toolbar-export"
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onExportAction('breadboard-png')
-                  }}
-                  type="button"
-                >
-                  Breadboard PNG
+                  DXF
                 </button>
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
-                    onExportAction('breadboard-pdf')
+                    onExportAction('pptx')
                   }}
                   type="button"
                 >
-                  Breadboard PDF
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onExportAction('breadboard-svg')
-                  }}
-                  type="button"
-                >
-                  Breadboard SVG
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onExportAction('breadboard-pptx')
-                  }}
-                  type="button"
-                >
-                  Breadboard PPTX
+                  PPTX
                 </button>
               </>
             ) : null}
@@ -708,25 +672,6 @@ export function Toolbar({
               </button>
             </div>
 
-            <div className="toolbar__tool-group">
-              <button
-                aria-pressed={!isLibraryCollapsed}
-                className={!isLibraryCollapsed ? 'is-active-tool' : undefined}
-                onClick={onToggleLibrary}
-                type="button"
-              >
-                Library
-              </button>
-              <button
-                aria-pressed={!isInspectorCollapsed}
-                className={!isInspectorCollapsed ? 'is-active-tool' : undefined}
-                onClick={onToggleInspector}
-                type="button"
-              >
-                Inspector
-              </button>
-            </div>
-
             <button
               aria-expanded={openToolbarMenu === 'beam'}
               className={openToolbarMenu === 'beam' ? 'is-active-tool' : undefined}
@@ -791,6 +736,20 @@ export function Toolbar({
               type="button"
             >
               Guide
+            </button>
+
+            <button
+              className="toolbar__tutorial-button"
+              data-tour="toolbar-tutorial"
+              onClick={() => {
+                setHelpOpen(false)
+                setWarningsOpen(false)
+                setOpenToolbarMenu(undefined)
+                onOpenTutorial()
+              }}
+              type="button"
+            >
+              Tutorial
             </button>
 
             <span className="toolbar__pill">{activeSourceCount} live sources</span>

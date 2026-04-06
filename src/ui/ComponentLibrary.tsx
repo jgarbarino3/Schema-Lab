@@ -6,6 +6,10 @@ import {
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { useEditorStore } from '../state/editorStore'
 
+interface ComponentLibraryProps {
+  onCollapse: () => void
+}
+
 function describeMountMode(mode: string) {
   switch (mode) {
     case 'external-source':
@@ -19,7 +23,7 @@ function describeMountMode(mode: string) {
   }
 }
 
-export function ComponentLibrary() {
+export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const addComponent = useEditorStore((state) => state.addComponent)
   const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
   const workspaceKind = useEditorStore((state) => state.scene.workspace.kind)
@@ -33,11 +37,23 @@ export function ComponentLibrary() {
   return (
     <aside className="panel component-library" data-tour="component-library">
       <div className="panel__header">
-        <h2>Component Families</h2>
-        <p>
-          Choose a family to arm placement, then edit variants and tunable
-          properties in the inspector before you place it on the board.
-        </p>
+        <div className="panel__header-top">
+          <div>
+            <h2>Component Families</h2>
+            <p>
+              Choose a family to arm placement, then edit variants and tunable
+              properties in the inspector before you place it on the board.
+            </p>
+          </div>
+          <button
+            className="panel__collapse-button"
+            data-tour="panel-library-toggle"
+            onClick={onCollapse}
+            type="button"
+          >
+            Collapse
+          </button>
+        </div>
       </div>
 
       <div className="component-library__groups">

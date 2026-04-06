@@ -10,28 +10,7 @@ interface WarningReviewModalProps {
 }
 
 function formatExportLabel(exportLabel?: string) {
-  switch (exportLabel) {
-    case 'scene-json':
-      return 'Scene JSON'
-    case 'full-scheme-png':
-      return 'Full Scheme PNG'
-    case 'full-scheme-pdf':
-      return 'Full Scheme PDF'
-    case 'full-scheme-svg':
-      return 'Full Scheme SVG'
-    case 'full-scheme-pptx':
-      return 'Full Scheme PPTX'
-    case 'breadboard-png':
-      return 'Breadboard PNG'
-    case 'breadboard-pdf':
-      return 'Breadboard PDF'
-    case 'breadboard-svg':
-      return 'Breadboard SVG'
-    case 'breadboard-pptx':
-      return 'Breadboard PPTX'
-    default:
-      return 'Export'
-  }
+  return exportLabel ?? 'Export'
 }
 
 export function WarningReviewModal({

@@ -222,6 +222,12 @@ textarea {
   color: #f4fbff;
 }
 
+.toolbar__tutorial-button {
+  border-color: rgba(126, 192, 152, 0.42);
+  background: linear-gradient(180deg, rgba(42, 95, 62, 0.96), rgba(30, 68, 45, 0.96));
+  color: #f4fff7;
+}
+
 .toolbar__warning {
   position: relative;
 }
@@ -405,6 +411,7 @@ textarea {
   flex: 1;
   padding: 1rem;
   min-height: 0;
+  position: relative;
   transition: grid-template-columns 160ms ease;
 }
 
@@ -416,6 +423,7 @@ textarea {
 
 .workspace__left-panel {
   grid-column: 1;
+  position: relative;
 }
 
 .workspace__canvas {
@@ -424,6 +432,29 @@ textarea {
 
 .workspace__right-panel {
   grid-column: 3;
+  position: relative;
+}
+
+.workspace__edge-tab {
+  position: absolute;
+  top: 1rem;
+  z-index: 3;
+  min-height: 116px;
+  padding: 0.62rem 0.46rem;
+  border-radius: 12px;
+  letter-spacing: 0.04em;
+  text-orientation: mixed;
+  writing-mode: vertical-rl;
+}
+
+.workspace__edge-tab--left {
+  left: 0;
+  transform: translateX(-0.2rem);
+}
+
+.workspace__edge-tab--right {
+  right: 0;
+  transform: translateX(0.2rem);
 }
 
 .workspace.is-library-collapsed {
@@ -461,6 +492,20 @@ textarea {
 .canvas-panel__header {
   padding: 1rem 1rem 0.9rem;
   border-bottom: 1px solid rgba(136, 160, 174, 0.12);
+}
+
+.panel__header-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.panel__collapse-button {
+  align-self: flex-start;
+  padding: 0.46rem 0.72rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .panel__eyebrow {
@@ -907,6 +952,11 @@ textarea {
   border-color: rgba(245, 210, 140, 0.28);
 }
 
+.modal-shell__card--export,
+.modal-shell__card--tutorial {
+  max-width: 540px;
+}
+
 .modal-shell__header h2 {
   margin: 0;
 }
@@ -949,6 +999,41 @@ textarea {
   justify-content: flex-end;
   gap: 0.55rem;
   flex-wrap: wrap;
+}
+
+.modal-shell__form {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.modal-shell__fieldset {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(136, 160, 174, 0.16);
+  border-radius: 12px;
+  background: rgba(8, 12, 16, 0.34);
+}
+
+.modal-shell__fieldset legend {
+  padding: 0 0.25rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.modal-shell__choice {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  color: var(--text);
+}
+
+.modal-shell__choice input {
+  width: auto;
+  margin: 0;
 }
 
 .modal-shell__primary {

@@ -12,6 +12,15 @@ import {
 } from './workspace'
 
 export type ExportScope = 'breadboard-only' | 'full-scheme'
+export type ExportFormat = 'png' | 'pdf' | 'svg' | 'dxf' | 'pptx'
+export type VectorExportFormat = 'svg' | 'dxf'
+export type SvgExportPreset = 'engineering' | 'presentation'
+
+export interface SceneExportOptions {
+  format: ExportFormat
+  scope: ExportScope
+  svgPreset?: SvgExportPreset
+}
 
 const BOARD_TITLE_MARGIN_MM = 18
 const EXPORT_PADDING_MM = 10

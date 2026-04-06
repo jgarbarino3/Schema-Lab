@@ -46,6 +46,7 @@ try {
   const boardButton = page.getByRole('button', { exact: true, name: 'Board' })
   const warningButton = page.locator('.toolbar__warning-toggle')
   const exportMenu = page.locator('.toolbar__menu-popover')
+  const exportDialog = page.getByRole('dialog', { name: 'Export options' })
   const beamInspectionHeading = page.getByRole('heading', {
     name: 'Beam Inspection',
   })
@@ -91,6 +92,16 @@ try {
   const toolbarField = (label) =>
     page.locator('.toolbar__field').filter({ hasText: label })
 
+  const requestSvgExport = async (scope) => {
+    await exportButton.click()
+    await exportMenu.waitFor()
+    await exportMenu.getByRole('button', { name: 'SVG' }).click()
+    await exportDialog.waitFor()
+    await exportDialog.getByLabel(scope).check()
+    await exportDialog.getByLabel('Engineering SVG').check()
+    await exportDialog.getByRole('button', { name: /Export .*SVG/i }).click()
+  }
+
   if (await page.locator('.tour-card').isVisible().catch(() => false)) {
     await page.getByRole('button', { name: 'Exit' }).click()
     await expectHidden(page.locator('.tour-card'))
@@ -121,7 +132,9 @@ try {
   assert.match(helpText, /Realistic shows mounted hardware silhouettes/i)
   assert.match(helpText, /Simple uses cleaner symbolic optics/i)
   assert.match(helpText, /large laser-body variants can also sit directly on the table/i)
-  assert.match(helpText, /SVG, and PPTX/i)
+  assert.match(helpText, /Engineering SVG/i)
+  assert.match(helpText, /DXF/i)
+  assert.match(helpText, /Tutorial/i)
   await page.keyboard.press('Escape')
   await expectHidden(helpDialog)
   step('help content reflects the shipped UX')
@@ -278,9 +291,13 @@ try {
 
   await exportButton.click()
   await exportMenu.waitFor()
-  await exportMenu.getByRole('button', { name: 'Breadboard SVG' }).click()
+  await exportMenu.getByRole('button', { name: 'SVG' }).click()
+  await exportDialog.waitFor()
+  await exportDialog.getByLabel('Breadboard Only').check()
+  await exportDialog.getByLabel('Engineering SVG').check()
+  await exportDialog.getByRole('button', { name: /Export .*SVG/i }).click()
   await page
-    .getByRole('heading', { name: /Review Warnings Before Breadboard SVG/i })
+    .getByRole('heading', { name: /Review Warnings Before Breadboard Engineering SVG/i })
     .waitFor()
   await page.getByRole('button', { name: 'Review warnings' }).click()
   await warningPopover.waitFor()
@@ -290,11 +307,7 @@ try {
 
   const [svgDownload] = await Promise.all([
     page.waitForEvent('download'),
-    (async () => {
-      await exportButton.click()
-      await exportMenu.waitFor()
-      await exportMenu.getByRole('button', { name: 'Breadboard SVG' }).click()
-    })(),
+    requestSvgExport('Breadboard Only'),
   ])
   const svgPath = await svgDownload.path()
   assert.ok(svgPath, 'Breadboard SVG should download')

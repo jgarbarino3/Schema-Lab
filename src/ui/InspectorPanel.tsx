@@ -50,6 +50,7 @@ import { useEditorStore } from '../state/editorStore'
 interface InspectorPanelProps {
   beamTrace: BeamTraceResult
   gaussianTrace: GaussianTraceResult
+  onCollapse: () => void
 }
 
 interface FieldProps {
@@ -559,7 +560,11 @@ function InteractionTable({ events }: { events: BeamInteractionEvent[] }) {
   )
 }
 
-export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps) {
+export function InspectorPanel({
+  beamTrace,
+  gaussianTrace,
+  onCollapse,
+}: InspectorPanelProps) {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
@@ -697,12 +702,24 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
       <aside className="panel inspector" data-tour="inspector">
         <div className="panel__header">
           <span className="panel__eyebrow">{inspectorMode}</span>
-          <h2>{pendingBreadboardPlacement ? 'Pending Breadboard' : 'Breadboard Inspector'}</h2>
-          <p>
-            {pendingBreadboardPlacement
-              ? 'Adjust the breadboard preset or dimensions before you place it on the optical table.'
-              : 'Board geometry, source-lane defaults, and deterministic beam-scene settings.'}
-          </p>
+          <div className="panel__header-top">
+            <div>
+              <h2>{pendingBreadboardPlacement ? 'Pending Breadboard' : 'Breadboard Inspector'}</h2>
+              <p>
+                {pendingBreadboardPlacement
+                  ? 'Adjust the breadboard preset or dimensions before you place it on the optical table.'
+                  : 'Board geometry, source-lane defaults, and deterministic beam-scene settings.'}
+              </p>
+            </div>
+            <button
+              className="panel__collapse-button"
+              data-tour="panel-inspector-toggle"
+              onClick={onCollapse}
+              type="button"
+            >
+              Collapse
+            </button>
+          </div>
         </div>
 
         <div className="inspector__content">
@@ -1140,12 +1157,24 @@ export function InspectorPanel({ beamTrace, gaussianTrace }: InspectorPanelProps
     <aside className="panel inspector" data-tour="inspector">
       <div className="panel__header">
         <span className="panel__eyebrow">{inspectorMode}</span>
-        <h2>{pendingPlacement ? 'Pending Placement' : 'Component Inspector'}</h2>
-        <p>
-          {pendingPlacement
-            ? 'Edit the draft before you place it on the board.'
-            : 'Family, variant, placement, and deterministic beam-domain controls for the selection.'}
-        </p>
+        <div className="panel__header-top">
+          <div>
+            <h2>{pendingPlacement ? 'Pending Placement' : 'Component Inspector'}</h2>
+            <p>
+              {pendingPlacement
+                ? 'Edit the draft before you place it on the board.'
+                : 'Family, variant, placement, and deterministic beam-domain controls for the selection.'}
+            </p>
+          </div>
+          <button
+            className="panel__collapse-button"
+            data-tour="panel-inspector-toggle"
+            onClick={onCollapse}
+            type="button"
+          >
+            Collapse
+          </button>
+        </div>
       </div>
 
       <div className="inspector__content">
