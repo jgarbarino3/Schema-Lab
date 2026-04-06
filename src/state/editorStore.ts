@@ -1368,6 +1368,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: getDefaultSelection(state.scene),
         interaction: {
           ...state.interaction,
+          activeTool: 'select' as const,
+          lineDrawStartMm: undefined,
           pendingPlacement: {
             draft,
             candidateAnchorMm: draft.anchorMm,
@@ -1397,6 +1399,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: { type: 'optical-table' as const },
         interaction: {
           ...state.interaction,
+          activeTool: 'select' as const,
+          lineDrawStartMm: undefined,
           activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
           pendingPlacement: undefined,
           pendingBreadboardPlacement,

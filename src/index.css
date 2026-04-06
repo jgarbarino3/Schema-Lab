@@ -199,6 +199,7 @@ textarea {
   width: 24px;
   height: 24px;
   padding: 0;
+  background: none;
   border: 2px solid rgba(255, 255, 255, 0.15);
   border-radius: 50%;
   cursor: pointer;
@@ -732,6 +733,8 @@ textarea {
   height: 28px;
   border-radius: 5px;
   border: 2px solid rgba(255, 255, 255, 0.15);
+  padding: 0;
+  background: none;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.1s;
 }
