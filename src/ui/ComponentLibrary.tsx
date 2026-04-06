@@ -6,6 +6,17 @@ import type { ComponentCategory, ComponentDefinition } from '../domain/types'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { useEditorStore } from '../state/editorStore'
 
+const LINE_COLOR_PRESETS = [
+  { color: '#ff3333', label: 'Red' },
+  { color: '#33cc33', label: 'Green' },
+  { color: '#3366ff', label: 'Blue' },
+  { color: '#ffcc00', label: 'Yellow' },
+  { color: '#ff33ff', label: 'Magenta' },
+  { color: '#33ccff', label: 'Cyan' },
+  { color: '#ff8833', label: 'Orange' },
+  { color: '#ffffff', label: 'White' },
+]
+
 interface ComponentLibraryProps {
   onCollapse: () => void
 }
@@ -47,6 +58,10 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const addComponent = useEditorStore((state) => state.addComponent)
   const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
   const workspaceKind = useEditorStore((state) => state.scene.workspace.kind)
+  const activeTool = useEditorStore((state) => state.interaction.activeTool)
+  const lineColor = useEditorStore((state) => state.interaction.lineColor)
+  const setActiveTool = useEditorStore((state) => state.setActiveTool)
+  const setLineColor = useEditorStore((state) => state.setLineColor)
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
   )
@@ -88,6 +103,12 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
       setExpandedGroups((prev) => new Set([...prev, '__breadboards']))
     }
   }, [pendingBreadboardPresetId])
+
+  useEffect(() => {
+    if (activeTool === 'line' && !expandedGroups.has('__beam-lines')) {
+      setExpandedGroups((prev) => new Set([...prev, '__beam-lines']))
+    }
+  }, [activeTool])
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => {
@@ -162,6 +183,57 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             ) : null}
           </section>
         ) : null}
+
+        <section className="component-library__group">
+          <button
+            className="component-library__group-header"
+            onClick={() => toggleGroup('__beam-lines')}
+            type="button"
+          >
+            <span className="component-library__chevron">
+              {expandedGroups.has('__beam-lines') ? '\u25BE' : '\u25B8'}
+            </span>
+            <h3>Beam Lines</h3>
+          </button>
+
+          {expandedGroups.has('__beam-lines') ? (
+            <div className="component-library__group-body">
+              <button
+                className={`component-library__item${activeTool === 'line' ? ' is-armed' : ''}`}
+                onClick={() => setActiveTool(activeTool === 'line' ? 'select' : 'line')}
+                type="button"
+              >
+                <span className="component-library__item-title">Line Tool</span>
+                <span className="component-library__item-meta">
+                  Click two points on the canvas to draw a straight beam line
+                </span>
+                {activeTool === 'line' ? (
+                  <span className="component-library__item-state">Active</span>
+                ) : null}
+              </button>
+
+              {activeTool === 'line' ? (
+                <div className="component-library__line-colors">
+                  <span className="component-library__color-label">Line color</span>
+                  <div className="component-library__color-grid">
+                    {LINE_COLOR_PRESETS.map(({ color, label }) => (
+                      <button
+                        aria-label={label}
+                        aria-pressed={lineColor === color}
+                        className={`component-library__color-swatch${lineColor === color ? ' is-active-swatch' : ''}`}
+                        key={color}
+                        onClick={() => setLineColor(color)}
+                        style={{ backgroundColor: color }}
+                        title={label}
+                        type="button"
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
         {DISPLAY_GROUPS.map((group) => {
           const definitions = groupedDefinitions.get(group.key)
