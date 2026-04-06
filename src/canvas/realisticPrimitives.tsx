@@ -1,4 +1,4 @@
-import { Circle, Ellipse, Line, Rect } from 'react-konva'
+import { Circle, Line, Rect } from 'react-konva'
 import type { BoundsMm } from '../domain/types'
 
 export interface RealisticPalette {
