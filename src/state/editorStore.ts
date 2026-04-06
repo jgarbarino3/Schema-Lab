@@ -42,6 +42,7 @@ import {
 } from '../domain/workspace'
 import type {
   ActiveTool,
+  AnnotationLine,
   BeamSplitterConfig,
   BboCrystalConfig,
   BreadboardModel,
@@ -128,6 +129,8 @@ interface InteractionState {
   activeHostSurfaceId?: string
   dismissedWarningIds: string[]
   notice?: string
+  lineDrawStartMm?: Vector2Mm
+  lineColor: string
 }
 
 interface WarningFilters {
@@ -253,6 +256,11 @@ interface EditorStore {
   dismissVisibleWarnings: (warningIds: string[]) => void
   restoreDismissedWarnings: () => void
   updateBeamSettings: (update: Partial<SceneBeamSettings>) => void
+  setLineColor: (color: string) => void
+  startLineDrawAt: (startMm: Vector2Mm) => void
+  commitLineDraw: (endMm: Vector2Mm) => void
+  cancelLineDraw: () => void
+  deleteAnnotationLine: (lineId: string) => void
   undo: () => void
   redo: () => void
   loadScene: (scene: SceneDocument, options?: LoadSceneOptions) => void
@@ -289,7 +297,7 @@ function writeLocalStorageValue(key: string, value: string) {
 function readRenderMode() {
   const value = readLocalStorageValue(RENDER_MODE_STORAGE_KEY)
 
-  return value === 'simple' ? 'simple' : 'realistic'
+  return value === 'realistic' ? 'realistic' : 'simple'
 }
 
 function readWarningFilters(): WarningFilters {
@@ -1060,6 +1068,7 @@ const initialInteraction: InteractionState = {
   isSpacePanning: false,
   isPointerPanning: false,
   isWarningsOpen: false,
+  lineColor: '#ff3333',
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
@@ -1137,6 +1146,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         activeTool: tool,
+        lineDrawStartMm: tool === 'line' ? state.interaction.lineDrawStartMm : undefined,
       },
     }))
   },
@@ -1599,6 +1609,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         isHelpOpen: false,
         isWarningsOpen: false,
         selectedWarningId: undefined,
+        lineDrawStartMm: undefined,
         notice: undefined,
       },
     }))
@@ -3308,6 +3319,85 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }, {
         mergeKey: 'beam-settings',
+      }),
+    )
+  },
+
+  setLineColor: (color) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        lineColor: color,
+      },
+    }))
+  },
+
+  startLineDrawAt: (startMm) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        lineDrawStartMm: startMm,
+      },
+    }))
+  },
+
+  commitLineDraw: (endMm) => {
+    set((state) => {
+      const startMm = state.interaction.lineDrawStartMm
+
+      if (!startMm) {
+        return state
+      }
+
+      const dx = endMm.x - startMm.x
+      const dy = endMm.y - startMm.y
+
+      if (Math.sqrt(dx * dx + dy * dy) < 0.5) {
+        return {
+          interaction: {
+            ...state.interaction,
+            lineDrawStartMm: undefined,
+          },
+        }
+      }
+
+      const newLine: AnnotationLine = {
+        id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        startMm,
+        endMm,
+        color: state.interaction.lineColor,
+        strokeWidthMm: 0.8,
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: [...state.scene.annotations, newLine],
+        },
+        interaction: {
+          ...state.interaction,
+          lineDrawStartMm: undefined,
+        },
+      })
+    })
+  },
+
+  cancelLineDraw: () => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        lineDrawStartMm: undefined,
+      },
+    }))
+  },
+
+  deleteAnnotationLine: (lineId) => {
+    set((state) =>
+      withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: state.scene.annotations.filter((a) => a.id !== lineId),
+        },
       }),
     )
   },

@@ -9,6 +9,7 @@ import {
   getComponentDefinition,
 } from './componentCatalog'
 import type {
+  AnnotationLine,
   BreadboardFinish,
   BreadboardModel,
   BreadboardInstance,
@@ -640,6 +641,38 @@ export function createEmptyScene(): SceneDocument {
     workspace: createFreshSingleBreadboardWorkspace(),
     beamSettings: cloneBeamSettings(),
     components: [],
+    annotations: [],
+  }
+}
+
+function parseAnnotationLine(value: unknown): AnnotationLine | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  try {
+    const startMm = value.startMm
+    const endMm = value.endMm
+
+    if (!isRecord(startMm) || !isRecord(endMm)) {
+      return undefined
+    }
+
+    return {
+      id: expectString(value, 'id'),
+      startMm: {
+        x: expectNumber(startMm, 'x'),
+        y: expectNumber(startMm, 'y'),
+      },
+      endMm: {
+        x: expectNumber(endMm, 'x'),
+        y: expectNumber(endMm, 'y'),
+      },
+      color: expectString(value, 'color'),
+      strokeWidthMm: expectNumber(value, 'strokeWidthMm'),
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -716,5 +749,8 @@ export function parseSceneDocument(rawText: string): SceneDocument {
 
       return nextComponent
     }),
+    annotations: Array.isArray(parsedValue.annotations)
+      ? (parsedValue.annotations.map(parseAnnotationLine).filter(Boolean) as AnnotationLine[])
+      : [],
   }
 }

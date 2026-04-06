@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import { Layer, Rect, Stage } from 'react-konva'
-import { screenToWorld } from '../domain/geometry'
+import { Layer, Line, Rect, Stage } from 'react-konva'
+import { screenToWorld, worldToScreen } from '../domain/geometry'
 import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type { BeamTraceResult, GaussianTraceResult, ScreenPointPx } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
@@ -97,6 +97,8 @@ export function SchemaStage({
   )
   const setCursorWorldMm = useEditorStore((state) => state.setCursorWorldMm)
   const setPointerPanning = useEditorStore((state) => state.setPointerPanning)
+  const startLineDrawAt = useEditorStore((state) => state.startLineDrawAt)
+  const commitLineDraw = useEditorStore((state) => state.commitLineDraw)
 
   const getStagePointerWorldMm = () => {
     const pointerPosition = stageRef.current?.getPointerPosition()
@@ -137,13 +139,18 @@ export function SchemaStage({
   }, [setViewportSize])
 
   const isPanMode = interaction.activeTool === 'pan' || interaction.isSpacePanning
+  const isLineTool = interaction.activeTool === 'line' && !interaction.isSpacePanning
   const stageCursor = useMemo(() => {
     if (interaction.isPointerPanning) {
       return 'grabbing'
     }
 
-    return isPanMode ? 'grab' : 'crosshair'
-  }, [interaction.isPointerPanning, isPanMode])
+    if (isPanMode) {
+      return 'grab'
+    }
+
+    return isLineTool ? 'crosshair' : 'crosshair'
+  }, [interaction.isPointerPanning, isPanMode, isLineTool])
 
   const preventNativeTouchDefault = (event: TouchEvent) => {
     if (event.cancelable) {
@@ -500,6 +507,20 @@ export function SchemaStage({
     stopPointerPan()
   }
 
+  const handleLineToolClick = () => {
+    const pointerMm = getStagePointerWorldMm()
+
+    if (!pointerMm) {
+      return
+    }
+
+    if (interaction.lineDrawStartMm) {
+      commitLineDraw(pointerMm)
+    } else {
+      startLineDrawAt(pointerMm)
+    }
+  }
+
   const handleBackgroundSelect = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
@@ -509,6 +530,11 @@ export function SchemaStage({
 
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
+      return
+    }
+
+    if (isLineTool) {
+      handleLineToolClick()
       return
     }
 
@@ -536,6 +562,11 @@ export function SchemaStage({
   const handleOpticalTableSelect = () => {
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
+      return
+    }
+
+    if (isLineTool) {
+      handleLineToolClick()
       return
     }
 
@@ -745,6 +776,47 @@ export function SchemaStage({
             snapMode={snapMode}
             viewport={viewport}
           />
+
+          {scene.annotations.length > 0 || interaction.lineDrawStartMm ? (
+            <Layer>
+              {scene.annotations.map((line) => {
+                const startPx = worldToScreen(line.startMm, viewport)
+                const endPx = worldToScreen(line.endMm, viewport)
+
+                return (
+                  <Line
+                    key={line.id}
+                    lineCap="round"
+                    listening={false}
+                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                    shadowBlur={4}
+                    shadowColor={line.color}
+                    shadowOpacity={0.3}
+                    stroke={line.color}
+                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
+                  />
+                )
+              })}
+              {interaction.lineDrawStartMm && interaction.cursorWorldMm ? (() => {
+                const startPx = worldToScreen(interaction.lineDrawStartMm, viewport)
+                const endPx = worldToScreen(interaction.cursorWorldMm, viewport)
+
+                return (
+                  <Line
+                    dash={[6, 4]}
+                    lineCap="round"
+                    listening={false}
+                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                    shadowBlur={4}
+                    shadowColor={interaction.lineColor}
+                    shadowOpacity={0.3}
+                    stroke={interaction.lineColor}
+                    strokeWidth={Math.max(1.5, 0.8 * viewport.zoomPxPerMm)}
+                  />
+                )
+              })() : null}
+            </Layer>
+          ) : null}
 
           <RulerLayer viewport={viewport} />
         </Stage>

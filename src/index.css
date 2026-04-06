@@ -185,6 +185,36 @@ textarea {
   color: var(--accent-strong);
 }
 
+.toolbar__color-swatches {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid rgba(145, 202, 222, 0.14);
+  border-radius: 8px;
+  background: rgba(8, 12, 16, 0.52);
+}
+
+.toolbar__swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.1s;
+}
+
+.toolbar__swatch:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.15);
+}
+
+.toolbar__swatch.is-active-swatch {
+  border-color: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+}
+
 .toolbar__field {
   display: flex;
   align-items: center;

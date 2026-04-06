@@ -99,6 +99,7 @@ export function Toolbar({
   )
   const interaction = useEditorStore((state) => state.interaction)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
+  const setLineColor = useEditorStore((state) => state.setLineColor)
   const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
@@ -607,10 +608,10 @@ export function Toolbar({
       <header className="toolbar">
         <div className="toolbar__row toolbar__row--primary">
           <div className="toolbar__identity">
-            <span className="toolbar__kicker">Ultrafast Optics Beam Layout</span>
+            <span className="toolbar__kicker">Optical Breadboard Layout Editor</span>
             <strong>Schema-Lab</strong>
             <span className="toolbar__subtitle">
-              FROG-oriented layout, power tracing, polarization bookkeeping, and SHG planning
+              Design optical breadboards, trace beams, and plan full table stacks in table mode
             </span>
           </div>
 
@@ -632,7 +633,34 @@ export function Toolbar({
               >
                 Hand
               </button>
+              <button
+                aria-pressed={interaction.activeTool === 'line'}
+                className={interaction.activeTool === 'line' ? 'is-active-tool' : undefined}
+                onClick={() => setActiveTool('line')}
+                type="button"
+              >
+                Line
+              </button>
             </div>
+
+            {interaction.activeTool === 'line' ? (
+              <div className="toolbar__color-swatches" data-tour="line-color">
+                {[
+                  '#ff3333', '#33cc33', '#3366ff', '#ffcc00',
+                  '#ff33ff', '#33ccff', '#ff8833', '#ffffff',
+                ].map((color) => (
+                  <button
+                    aria-label={`Line color ${color}`}
+                    aria-pressed={interaction.lineColor === color}
+                    className={`toolbar__swatch${interaction.lineColor === color ? ' is-active-swatch' : ''}`}
+                    key={color}
+                    onClick={() => setLineColor(color)}
+                    style={{ backgroundColor: color }}
+                    type="button"
+                  />
+                ))}
+              </div>
+            ) : null}
 
             <label className="toolbar__field">
               <span>Snap</span>

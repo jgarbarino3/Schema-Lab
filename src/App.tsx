@@ -1131,9 +1131,9 @@ function App() {
             <div>
               <h1>Schema-Lab</h1>
               <p>
-                Millimeter-first optical layout editor with deterministic 2D beam
-                tracing, workspace-scale planning, scalar power bookkeeping, and BBO
-                SHG planning for FROG-style experiments.
+                Millimeter-first optical breadboard layout editor with beam tracing,
+                power bookkeeping, and workspace-scale planning. Switch to table mode
+                to place multiple breadboards and design a full optical stack.
               </p>
             </div>
             <div className="canvas-panel__hint">

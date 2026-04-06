@@ -55,7 +55,15 @@ export type PlacementReason =
   | 'occupied'
   | 'snap-preview'
   | 'outside-source-lane'
-export type ActiveTool = 'select' | 'pan'
+export type ActiveTool = 'select' | 'pan' | 'line'
+
+export interface AnnotationLine {
+  id: string
+  startMm: Vector2Mm
+  endMm: Vector2Mm
+  color: string
+  strokeWidthMm: number
+}
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
@@ -678,6 +686,7 @@ export interface SceneDocument {
   workspace: WorkspaceModel
   beamSettings: SceneBeamSettings
   components: ComponentInstance[]
+  annotations: AnnotationLine[]
 }
 
 export interface ViewportState {

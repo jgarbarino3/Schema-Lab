@@ -1516,6 +1516,23 @@ export function createVectorExportSceneGraph({
     })
   }
 
+  for (const annotation of scene.annotations) {
+    pushLayerNode(layerMap, 'beams', {
+      kind: 'line',
+      id: `annotation-${annotation.id}`,
+      x1Mm: annotation.startMm.x,
+      y1Mm: annotation.startMm.y,
+      x2Mm: annotation.endMm.x,
+      y2Mm: annotation.endMm.y,
+      style: defaultStyle({
+        lineCap: 'round',
+        opacity: 1,
+        stroke: annotation.color,
+        strokeWidthMm: annotation.strokeWidthMm,
+      }),
+    })
+  }
+
   if (showGaussianEnvelope) {
     for (const node of createGaussianEnvelopeNodes(beamTrace, gaussianTrace)) {
       pushLayerNode(layerMap, 'gaussian', node)
