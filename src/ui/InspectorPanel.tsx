@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import {
   getBreadboardHoleCounts,
   getEffectiveHolePitchMm,
@@ -99,6 +99,31 @@ function NumberField({
         value={value}
       />
     </Field>
+  )
+}
+
+interface CollapsibleSectionProps {
+  children: ReactNode
+  defaultOpen?: boolean
+  title: string
+}
+
+function CollapsibleSection({ children, defaultOpen = false, title }: CollapsibleSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+  return (
+    <div className="inspector__subsection">
+      <button
+        className="inspector__section-toggle"
+        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+      >
+        <span className="inspector__section-chevron">
+          {isOpen ? '\u25BE' : '\u25B8'}
+        </span>
+        <h3>{title}</h3>
+      </button>
+      {isOpen ? <div className="inspector__section-body">{children}</div> : null}
+    </div>
   )
 }
 
@@ -958,9 +983,42 @@ export function InspectorPanel({
             ) : null}
           </div>
 
-          <div className="inspector__subsection">
-            <h3>Beam Scene</h3>
+          <div className="inspector__readout">
+            <div>
+              <span>Hole field</span>
+              <strong>
+                {holeCounts.xCount} × {holeCounts.yCount}
+              </strong>
+            </div>
+            <div>
+              <span>Total holes</span>
+              <strong>{holeCounts.totalCount}</strong>
+            </div>
+            <div>
+              <span>Effective pitch</span>
+              <strong>{effectivePitchMm.toFixed(1)} mm</strong>
+            </div>
+            <div>
+              <span>Snap mode</span>
+              <strong>
+                {snapMode === 'always'
+                  ? 'Always'
+                  : snapMode === 'onDrop'
+                    ? 'On drop'
+                    : 'None'}
+              </strong>
+            </div>
+            <div>
+              <span>Active sources</span>
+              <strong>{activeSourceCount}</strong>
+            </div>
+            <div>
+              <span>Beam paths</span>
+              <strong>{beamTrace.pathSummaries.length}</strong>
+            </div>
+          </div>
 
+          <CollapsibleSection title="Beam Scene">
             <div className="inspector__grid">
               <Field label="Fidelity">
                 <select
@@ -1002,46 +1060,9 @@ export function InspectorPanel({
                 value={scene.beamSettings.defaultDivergenceMrad}
               />
             </div>
-          </div>
+          </CollapsibleSection>
 
-          <div className="inspector__readout">
-            <div>
-              <span>Hole field</span>
-              <strong>
-                {holeCounts.xCount} × {holeCounts.yCount}
-              </strong>
-            </div>
-            <div>
-              <span>Total holes</span>
-              <strong>{holeCounts.totalCount}</strong>
-            </div>
-            <div>
-              <span>Effective pitch</span>
-              <strong>{effectivePitchMm.toFixed(1)} mm</strong>
-            </div>
-            <div>
-              <span>Snap mode</span>
-              <strong>
-                {snapMode === 'always'
-                  ? 'Always'
-                  : snapMode === 'onDrop'
-                    ? 'On drop'
-                    : 'None'}
-              </strong>
-            </div>
-            <div>
-              <span>Active sources</span>
-              <strong>{activeSourceCount}</strong>
-            </div>
-            <div>
-              <span>Beam paths</span>
-              <strong>{beamTrace.pathSummaries.length}</strong>
-            </div>
-          </div>
-
-          <div className="inspector__subsection">
-            <h3>Active Source Summaries</h3>
-
+          <CollapsibleSection title="Active Source Summaries">
             {beamTrace.summaries.length === 0 ? (
               <p className="inspector__empty">No active beams are being traced.</p>
             ) : (
@@ -1061,7 +1082,7 @@ export function InspectorPanel({
                 ))}
               </div>
             )}
-          </div>
+          </CollapsibleSection>
 
           {interactionNotice ? (
             <p className="inspector__notice">{interactionNotice}</p>
@@ -1223,6 +1244,16 @@ export function InspectorPanel({
           </div>
         </div>
 
+        <div className="inspector__context">
+          <p className="inspector__description">{spec.description}</p>
+          {spec.vendor || spec.sku ? (
+            <p className="inspector__meta">
+              {spec.vendor ?? 'Generic'}
+              {spec.sku ? ` • ${spec.sku}` : ''}
+            </p>
+          ) : null}
+        </div>
+
         <div className="inspector__subsection">
           <h3>Identity</h3>
 
@@ -1301,14 +1332,6 @@ export function InspectorPanel({
               </Field>
             )}
           </div>
-
-          <p className="inspector__description">{spec.description}</p>
-          {spec.vendor || spec.sku ? (
-            <p className="inspector__meta">
-              {spec.vendor ?? 'Generic'}
-              {spec.sku ? ` • ${spec.sku}` : ''}
-            </p>
-          ) : null}
           {spec.recommendedHardware ? (
             <div className="inspector__readout">
               <div>
@@ -1325,9 +1348,7 @@ export function InspectorPanel({
               </div>
             </div>
           ) : null}
-          <div className="inspector__subsection">
-            <h3>Geometry Overrides</h3>
-
+          <CollapsibleSection title="Geometry Overrides">
             <div className="inspector__grid">
               <NumberField
                 label="Footprint width (mm)"
@@ -1360,11 +1381,9 @@ export function InspectorPanel({
               Canvas resize handles and these numeric fields update the same
               per-instance geometry override.
             </p>
-          </div>
+          </CollapsibleSection>
           {supportsMountToggle(inspectedComponent.type) ? (
-            <div className="inspector__subsection">
-              <h3>Integrated Mount</h3>
-
+            <CollapsibleSection title="Integrated Mount">
               <div className="inspector__button-row">
                 <button
                   className={
@@ -1424,7 +1443,7 @@ export function InspectorPanel({
                 New {definition.familyLabel.toLowerCase()} placements currently default to{' '}
                 {mountVisibilityDefaults[inspectedComponent.type] === false ? 'hidden mounts' : 'included mounts'}.
               </p>
-            </div>
+            </CollapsibleSection>
           ) : null}
           {describePlacementReason(placement.reason) ? (
             <p className="inspector__hint">{describePlacementReason(placement.reason)}</p>
@@ -2491,9 +2510,7 @@ export function InspectorPanel({
         {inspectedComponent.type !== 'laser-source' &&
         inspectedComponent.type !== 'lens' &&
         strongestGaussianInteraction ? (
-          <div className="inspector__subsection">
-            <h3>Gaussian / Aperture</h3>
-
+          <CollapsibleSection title="Gaussian / Aperture">
             <div className="inspector__readout">
               <div>
                 <span>Spot radius at optic</span>
@@ -2534,13 +2551,11 @@ export function InspectorPanel({
                 Strongest paraxial warning: {formatGaussianStatus(gaussianComponentWarning.strongestStatus)}.
               </p>
             ) : null}
-          </div>
+          </CollapsibleSection>
         ) : null}
 
         {terminalCapture ? (
-          <div className="inspector__subsection">
-            <h3>Terminal Capture</h3>
-
+          <CollapsibleSection title="Terminal Capture">
             <div className="inspector__readout">
               <div>
                 <span>Total captured</span>
@@ -2576,12 +2591,10 @@ export function InspectorPanel({
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
         ) : null}
 
-        <div className="inspector__subsection">
-          <h3>World Ports</h3>
-
+        <CollapsibleSection title="World Ports">
           {worldPorts.length === 0 ? (
             <p className="inspector__empty">
               No optical ports are defined for this component family.
@@ -2604,12 +2617,11 @@ export function InspectorPanel({
               ))}
             </div>
           )}
-        </div>
+        </CollapsibleSection>
 
-        <div className="inspector__subsection">
-          <h3>Beam Interactions</h3>
+        <CollapsibleSection title="Beam Interactions">
           <InteractionTable events={beamEvents} />
-        </div>
+        </CollapsibleSection>
 
         {interactionNotice ? (
           <p className="inspector__notice">{interactionNotice}</p>

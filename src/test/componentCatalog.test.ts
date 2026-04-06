@@ -27,6 +27,51 @@ describe('component catalog variants', () => {
     expect(opa.physics.kind).toBe('opa-gain')
   })
 
+  it('resolves realistic visual presets for hero hardware and variant overrides', () => {
+    const mirror = getResolvedComponentSpec('mirror', 'bb1-e02')
+    const beamsplitter = getResolvedComponentSpec('beamsplitter', 'plate-1in')
+    const lens = getResolvedComponentSpec('lens', 'thin-lens-100mm')
+    const filter = getResolvedComponentSpec('filter', 'felh0400')
+    const iris = getResolvedComponentSpec('iris', 'id12-m')
+    const libra = getResolvedComponentSpec('laser-source', 'libra')
+    const detector = getResolvedComponentSpec('detector', 'detector-generic')
+
+    expect(mirror.realisticVisualPreset).toMatchObject({
+      family: 'mirror',
+      finish: 'cool-metal',
+      mountVisual: 'kinematic-round',
+    })
+    expect(beamsplitter.realisticVisualPreset).toMatchObject({
+      family: 'beamsplitter',
+      finish: 'cool-metal',
+      mountVisual: 'kinematic-round',
+    })
+    expect(lens.realisticVisualPreset).toMatchObject({
+      family: 'lens',
+      finish: 'warm-metal',
+      mountVisual: 'kinematic-round',
+    })
+    expect(filter.realisticVisualPreset).toMatchObject({
+      family: 'filter',
+      finish: 'warm-metal',
+      mountVisual: 'kinematic-round',
+    })
+    expect(iris.realisticVisualPreset).toMatchObject({
+      family: 'iris',
+      finish: 'graphite',
+      mountVisual: 'iris-body',
+    })
+    expect(libra.realisticVisualPreset).toMatchObject({
+      family: 'laser-source',
+      finish: 'silver-machined',
+      mountVisual: 'none',
+    })
+    expect(detector.realisticVisualPreset).toMatchObject({
+      family: 'detector',
+      mountVisual: 'sensor-disc',
+    })
+  })
+
   it('creates focused-optics defaults for the new configurable physics families', () => {
     expect(createDefaultComponentConfig('mirror', 'concave-1in').curvedMirror).toMatchObject({
       radiusOfCurvatureMm: 200,

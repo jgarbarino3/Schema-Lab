@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface OnboardingStep {
@@ -37,11 +37,12 @@ export function OnboardingTour({
   onPrevious,
   steps,
 }: OnboardingTourProps) {
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const [spotlightRect, setSpotlightRect] = useState<SpotlightRect>()
   const step = steps[currentStep]
 
-  useLayoutEffect(() => {
-    if (!isOpen || !step?.selector) {
+  const recalcSpotlight = useCallback(() => {
+    if (!step?.selector) {
       setSpotlightRect(undefined)
       return
     }
@@ -62,36 +63,30 @@ export function OnboardingTour({
       top: clamp(rect.top - padding, 12, window.innerHeight - 60),
       width: rect.width + padding * 2,
     })
-  }, [isOpen, step?.selector])
+  }, [step?.selector])
 
-  useEffect(() => {
-    if (!isOpen || typeof window === 'undefined') {
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setSpotlightRect(undefined)
       return
     }
 
-    const scrollX = window.scrollX
-    const scrollY = window.scrollY
-    const previousHtmlOverflow = document.documentElement.style.overflow
-    const previousBodyOverflow = document.body.style.overflow
-    const previousBodyPosition = document.body.style.position
-    const previousBodyTop = document.body.style.top
-    const previousBodyWidth = document.body.style.width
+    recalcSpotlight()
+  }, [isOpen, recalcSpotlight])
 
-    document.documentElement.style.overflow = 'hidden'
-    document.body.style.overflow = 'hidden'
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollY}px`
-    document.body.style.width = '100%'
+  useEffect(() => {
+    if (!isOpen || !step?.selector) {
+      return
+    }
+
+    window.addEventListener('scroll', recalcSpotlight, { capture: true, passive: true })
+    window.addEventListener('resize', recalcSpotlight)
 
     return () => {
-      document.documentElement.style.overflow = previousHtmlOverflow
-      document.body.style.overflow = previousBodyOverflow
-      document.body.style.position = previousBodyPosition
-      document.body.style.top = previousBodyTop
-      document.body.style.width = previousBodyWidth
-      window.scrollTo(scrollX, scrollY)
+      window.removeEventListener('scroll', recalcSpotlight, { capture: true } as EventListenerOptions)
+      window.removeEventListener('resize', recalcSpotlight)
     }
-  }, [isOpen])
+  }, [isOpen, step?.selector, recalcSpotlight])
 
   const cardStyle = useMemo(() => {
     if (!spotlightRect) {
@@ -131,8 +126,23 @@ export function OnboardingTour({
       }
     }
 
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        cardRef.current &&
+        event.target instanceof Node &&
+        !cardRef.current.contains(event.target)
+      ) {
+        onClose()
+      }
+    }
+
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener('pointerdown', handlePointerDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('pointerdown', handlePointerDown)
+    }
   }, [isOpen, onClose])
 
   if (!isOpen || !step) {
@@ -141,7 +151,6 @@ export function OnboardingTour({
 
   return createPortal(
     <div className="tour-overlay" role="dialog" aria-modal="true" aria-label="Schema-Lab onboarding">
-      <div className="tour-overlay__backdrop" onClick={onClose} />
       {spotlightRect ? (
         <div
           className="tour-overlay__spotlight"
@@ -154,7 +163,7 @@ export function OnboardingTour({
         />
       ) : null}
 
-      <div className="tour-card" style={cardStyle}>
+      <div className="tour-card" ref={cardRef} style={cardStyle}>
         <div className="tour-card__meta">
           <span>Getting Started</span>
           <strong>

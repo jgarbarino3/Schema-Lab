@@ -19,6 +19,7 @@ import type {
   PolarizerConfig,
   PortDefinition,
   PortKind,
+  RealisticVisualPreset,
   ResolvedComponentSpec,
   SourceLane,
   TelescopeConfig,
@@ -113,6 +114,20 @@ function renderHint(
   }
 }
 
+function realisticVisualPreset(
+  family: RealisticVisualPreset['family'],
+  finish: RealisticVisualPreset['finish'],
+  mountVisual: RealisticVisualPreset['mountVisual'],
+  options: Pick<RealisticVisualPreset, 'accentFill' | 'accentStroke' | 'glassTint'> = {},
+): RealisticVisualPreset {
+  return {
+    family,
+    finish,
+    mountVisual,
+    ...options,
+  }
+}
+
 function mergeRenderHint(
   base: ComponentRenderHint,
   next?: Partial<ComponentRenderHint>,
@@ -126,6 +141,39 @@ function mergeRenderHint(
     fill: next.fill ?? base.fill,
     stroke: next.stroke ?? base.stroke,
     glyph: next.glyph ?? base.glyph,
+  }
+}
+
+function mergeRealisticVisualPreset(
+  base?: RealisticVisualPreset,
+  next?: Partial<RealisticVisualPreset>,
+): RealisticVisualPreset | undefined {
+  if (!base) {
+    if (!next?.family || !next.finish || !next.mountVisual) {
+      return undefined
+    }
+
+    return {
+      family: next.family,
+      finish: next.finish,
+      mountVisual: next.mountVisual,
+      accentFill: next.accentFill,
+      accentStroke: next.accentStroke,
+      glassTint: next.glassTint,
+    }
+  }
+
+  if (!next) {
+    return base
+  }
+
+  return {
+    family: next.family ?? base.family,
+    finish: next.finish ?? base.finish,
+    mountVisual: next.mountVisual ?? base.mountVisual,
+    accentFill: next.accentFill ?? base.accentFill,
+    accentStroke: next.accentStroke ?? base.accentStroke,
+    glassTint: next.glassTint ?? base.glassTint,
   }
 }
 
@@ -569,6 +617,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     opticalCenterMm: { x: 8, y: 0 },
     ports: [port('output', 'Output', 'beam-output', 38, 0, 'east')],
     renderHint: renderHint('capsule', '#163949', '#8ad6ff', 'laser'),
+    realisticVisualPreset: realisticVisualPreset('laser-source', 'teal-anodized', 'none', {
+      accentFill: '#2b5b6d',
+      accentStroke: '#aee8ff',
+    }),
     physics: sourcePhysics(480, 1300),
     recommendedHardware: {
       mount: 'External source shelf or rail mount',
@@ -597,6 +649,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           stroke: '#dce3df',
           glyph: 'laser',
         },
+        realisticVisualPreset: {
+          finish: 'silver-machined',
+          accentFill: '#656d76',
+          accentStroke: '#f2f7fa',
+        },
       },
       {
         id: 'pharos-body',
@@ -616,6 +673,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           stroke: '#c7d7e2',
           glyph: 'laser',
         },
+        realisticVisualPreset: {
+          finish: 'silver-machined',
+          accentFill: '#5f7280',
+          accentStroke: '#e7f2fa',
+        },
       },
       {
         id: 'clark-ti-sapphire',
@@ -634,6 +696,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           fill: '#6d7d88',
           stroke: '#c8d7df',
           glyph: 'laser',
+        },
+        realisticVisualPreset: {
+          finish: 'silver-machined',
+          accentFill: '#61727d',
+          accentStroke: '#e9f1f7',
         },
       },
     ],
@@ -845,6 +912,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#4b545d', '#e0e7ec', 'mirror'),
     mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#93a4af', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('mirror', 'cool-metal', 'kinematic-round', {
+      glassTint: '#dbeaf4',
+      accentFill: '#4d5760',
+      accentStroke: '#f2f7fb',
+    }),
     physics: mirrorPhysics(400, 750, 98.5, 1),
     recommendedHardware: {
       mount: 'Thorlabs KM100',
@@ -926,6 +998,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('diamond', '#1f4b5d', '#9dd2d8', 'beamsplitter'),
     mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#8ea3af', 'mount'),
+    realisticVisualPreset: realisticVisualPreset(
+      'beamsplitter',
+      'cool-metal',
+      'kinematic-round',
+      {
+        glassTint: '#88d0db',
+        accentFill: '#2f5f6f',
+        accentStroke: '#d7f4fb',
+      },
+    ),
     physics: beamsplitterPhysics(),
     recommendedHardware: {
       mount: 'Thorlabs KM100 or equivalent 1 in optic mount',
@@ -957,6 +1039,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#5a4730', '#ffcf79', 'lens'),
     mountRenderHint: renderHint('circle', 'rgba(69, 57, 35, 0.84)', '#d8b57e', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('lens', 'warm-metal', 'kinematic-round', {
+      glassTint: '#8fd5ff',
+      accentFill: '#886643',
+      accentStroke: '#f9e2b8',
+    }),
     physics: lensPhysics(100, 22),
     recommendedHardware: {
       mount: 'Thorlabs LMR1/M',
@@ -1019,6 +1106,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('rect', '#45413b', '#e8d7b6', 'filter'),
     mountRenderHint: renderHint('circle', 'rgba(62, 58, 50, 0.84)', '#c4b8a2', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('filter', 'warm-metal', 'kinematic-round', {
+      glassTint: '#8ddbd3',
+      accentFill: '#6b6150',
+      accentStroke: '#e8ddd0',
+    }),
     physics: filterPhysics('longpass', {
       cutoffNm: 400,
     }),
@@ -1266,6 +1358,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('circle', '#38422b', '#c6d67f', 'iris'),
     mountRenderHint: renderHint('circle', 'rgba(50, 58, 36, 0.86)', '#9ba66b', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('iris', 'graphite', 'iris-body', {
+      accentFill: '#44503a',
+      accentStroke: '#dde7cf',
+      glassTint: '#59684a',
+    }),
     physics: irisPhysics(12, 12),
     recommendedHardware: {
       mount: 'Integrated post-mounted iris body',
@@ -1515,18 +1612,21 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       {
         id: 'white-light-generator',
         label: 'White-Light Generator',
-        description: 'Broadband seed generation block for OPA layouts.',
+        description:
+          'Generates a broadband seed continuum that lets the OPA be aligned and tuned across a wide wavelength range.',
       },
       {
         id: 'pump-seed-combiner',
         label: 'Pump / Seed Combiner',
-        description: 'Combines or aligns pump and seed channels before gain.',
+        description:
+          'Represents the section where pump and seed beams are timed, steered, and overlapped before they enter the gain crystal.',
         physics: opaCombinerPhysics(),
       },
       {
         id: 'opa-gain-stage',
         label: 'OPA Gain Stage',
-        description: 'Block-level OPA gain stage with signal/idler generation.',
+        description:
+          'Represents the nonlinear gain stage where pump energy amplifies the seed and produces the signal and idler outputs.',
         physics: opaGainPhysics({
           signalWavelengthNm: 650,
           idlerWavelengthNm: 1350,
@@ -1616,6 +1716,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ports: [port('input', 'Input', 'beam-input', -18, 0, 'west')],
     renderHint: renderHint('rect', '#47373f', '#f0c9dd', 'detector'),
     mountRenderHint: renderHint('circle', 'rgba(63, 52, 57, 0.84)', '#d4b7c5', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('detector', 'rose-metal', 'sensor-disc', {
+      accentFill: '#6c4f5d',
+      accentStroke: '#f6ddeb',
+    }),
     physics: terminalPhysics('detector', 10, 92),
     recommendedHardware: {
       mount: 'Detector head mount with pedestal base',
@@ -1720,6 +1824,10 @@ export function getResolvedComponentSpec(
             : variant.mountRenderHint
               ? mergeRenderHint(definition.renderHint, variant.mountRenderHint)
               : defaultMountVisual.renderHint,
+    realisticVisualPreset: mergeRealisticVisualPreset(
+      definition.realisticVisualPreset,
+      variant.realisticVisualPreset,
+    ),
     physics: mergePhysics(definition.physics, variant.physics),
     recommendedHardware:
       variant.recommendedHardware ?? definition.recommendedHardware,

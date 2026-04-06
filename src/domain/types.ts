@@ -260,6 +260,38 @@ export interface ComponentRenderHint {
   glyph: ComponentGlyph
 }
 
+export type RealisticVisualFamily =
+  | 'mirror'
+  | 'beamsplitter'
+  | 'lens'
+  | 'filter'
+  | 'iris'
+  | 'detector'
+  | 'laser-source'
+
+export type RealisticVisualFinish =
+  | 'graphite'
+  | 'cool-metal'
+  | 'warm-metal'
+  | 'rose-metal'
+  | 'teal-anodized'
+  | 'silver-machined'
+
+export type RealisticMountVisual =
+  | 'kinematic-round'
+  | 'iris-body'
+  | 'sensor-disc'
+  | 'none'
+
+export interface RealisticVisualPreset {
+  family: RealisticVisualFamily
+  finish: RealisticVisualFinish
+  mountVisual: RealisticMountVisual
+  glassTint?: string
+  accentFill?: string
+  accentStroke?: string
+}
+
 export interface ComponentRecommendedHardware {
   mount?: string
   post?: string
@@ -466,6 +498,7 @@ export interface ComponentVariant {
   ports?: PortDefinition[]
   renderHint?: Partial<ComponentRenderHint>
   mountRenderHint?: Partial<ComponentRenderHint>
+  realisticVisualPreset?: Partial<RealisticVisualPreset>
   physics?: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
 }
@@ -485,6 +518,7 @@ export interface ComponentDefinition {
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
   mountRenderHint?: ComponentRenderHint
+  realisticVisualPreset?: RealisticVisualPreset
   physics: ComponentBeamPhysics
   variants: ComponentVariant[]
   recommendedHardware?: ComponentRecommendedHardware
@@ -671,6 +705,7 @@ export interface ResolvedComponentSpec {
   ports: PortDefinition[]
   renderHint: ComponentRenderHint
   mountRenderHint?: ComponentRenderHint
+  realisticVisualPreset?: RealisticVisualPreset
   physics: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
 }

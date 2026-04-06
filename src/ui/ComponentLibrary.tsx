@@ -1,14 +1,30 @@
+import { useState, useEffect, useMemo } from 'react'
 import {
-  COMPONENT_CATEGORY_LABELS,
-  COMPONENT_CATEGORY_ORDER,
   COMPONENT_DEFINITIONS,
 } from '../domain/componentCatalog'
+import type { ComponentCategory, ComponentDefinition } from '../domain/types'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { useEditorStore } from '../state/editorStore'
 
 interface ComponentLibraryProps {
   onCollapse: () => void
 }
+
+interface DisplayGroup {
+  key: string
+  label: string
+  categories: ComponentCategory[]
+}
+
+const DISPLAY_GROUPS: DisplayGroup[] = [
+  { key: 'sources', label: 'Sources', categories: ['source'] },
+  { key: 'beam-steering', label: 'Beam Steering', categories: ['steering', 'splitting'] },
+  { key: 'beam-control', label: 'Beam Control', categories: ['attenuation', 'conditioning', 'aperture'] },
+  { key: 'focusing-shaping', label: 'Focusing & Shaping', categories: ['focusing', 'nonlinear', 'coupling'] },
+  { key: 'sample-delay', label: 'Sample & Delay', categories: ['sample'] },
+  { key: 'measurement', label: 'Measurement', categories: ['measurement', 'termination'] },
+  { key: 'mounting', label: 'Mounting', categories: ['mounting'] },
+]
 
 function describeMountMode(mode: string) {
   switch (mode) {
@@ -23,6 +39,10 @@ function describeMountMode(mode: string) {
   }
 }
 
+function getDisplayGroupForCategory(category: ComponentCategory): string | undefined {
+  return DISPLAY_GROUPS.find((g) => g.categories.includes(category))?.key
+}
+
 export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const addComponent = useEditorStore((state) => state.addComponent)
   const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
@@ -34,17 +54,58 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     (state) => state.interaction.pendingBreadboardPlacement?.presetId,
   )
 
+  const groupedDefinitions = useMemo(() => {
+    const map = new Map<string, ComponentDefinition[]>()
+    for (const group of DISPLAY_GROUPS) {
+      const defs = COMPONENT_DEFINITIONS.filter((d) =>
+        group.categories.includes(d.category),
+      )
+      if (defs.length > 0) {
+        map.set(group.key, defs)
+      }
+    }
+    return map
+  }, [])
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set<string>(),
+  )
+
+  const armedGroupKey = pendingPlacementType
+    ? getDisplayGroupForCategory(
+        COMPONENT_DEFINITIONS.find((d) => d.type === pendingPlacementType)?.category!,
+      )
+    : undefined
+
+  useEffect(() => {
+    if (armedGroupKey && !expandedGroups.has(armedGroupKey)) {
+      setExpandedGroups((prev) => new Set([...prev, armedGroupKey]))
+    }
+  }, [armedGroupKey])
+
+  useEffect(() => {
+    if (pendingBreadboardPresetId && !expandedGroups.has('__breadboards')) {
+      setExpandedGroups((prev) => new Set([...prev, '__breadboards']))
+    }
+  }, [pendingBreadboardPresetId])
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
   return (
     <aside className="panel component-library" data-tour="component-library">
       <div className="panel__header">
         <div className="panel__header-top">
-          <div>
-            <h2>Component Families</h2>
-            <p>
-              Choose a family to arm placement, then edit variants and tunable
-              properties in the inspector before you place it on the board.
-            </p>
-          </div>
+          <h2>Component Families</h2>
           <button
             className="panel__collapse-button"
             data-tour="panel-library-toggle"
@@ -54,69 +115,105 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             Collapse
           </button>
         </div>
+        <p>
+          Choose a family to arm placement, then edit variants and tunable
+          properties in the inspector before you place it on the board.
+        </p>
       </div>
 
       <div className="component-library__groups">
         {workspaceKind === 'optical-table' ? (
           <section className="component-library__group">
-            <h3>Breadboards</h3>
+            <button
+              className="component-library__group-header"
+              onClick={() => toggleGroup('__breadboards')}
+              type="button"
+            >
+              <span className="component-library__chevron">
+                {expandedGroups.has('__breadboards') ? '\u25BE' : '\u25B8'}
+              </span>
+              <h3>Breadboards</h3>
+              <span className="component-library__badge">
+                {BREADBOARD_PRESETS.length}
+              </span>
+            </button>
 
-            {BREADBOARD_PRESETS.map((preset) => (
-              <button
-                className={`component-library__item${pendingBreadboardPresetId === preset.id ? ' is-armed' : ''}`}
-                key={preset.id}
-                onClick={() => addBreadboardInstance(preset.id)}
-                type="button"
-              >
-                <span className="component-library__item-title">{preset.label}</span>
-                <span className="component-library__item-meta">
-                  Arm breadboard placement on the optical table
-                </span>
-                {pendingBreadboardPresetId === preset.id ? (
-                  <span className="component-library__item-state">
-                    Pending placement
-                  </span>
-                ) : null}
-              </button>
-            ))}
+            {expandedGroups.has('__breadboards') ? (
+              <div className="component-library__group-body">
+                {BREADBOARD_PRESETS.map((preset) => (
+                  <button
+                    className={`component-library__item${pendingBreadboardPresetId === preset.id ? ' is-armed' : ''}`}
+                    key={preset.id}
+                    onClick={() => addBreadboardInstance(preset.id)}
+                    type="button"
+                  >
+                    <span className="component-library__item-title">{preset.label}</span>
+                    <span className="component-library__item-meta">
+                      Arm breadboard placement on the optical table
+                    </span>
+                    {pendingBreadboardPresetId === preset.id ? (
+                      <span className="component-library__item-state">
+                        Pending placement
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
-        {COMPONENT_CATEGORY_ORDER.map((category) => {
-          const definitions = COMPONENT_DEFINITIONS.filter(
-            (definition) => definition.category === category,
-          )
+        {DISPLAY_GROUPS.map((group) => {
+          const definitions = groupedDefinitions.get(group.key)
 
-          if (definitions.length === 0) {
+          if (!definitions) {
             return null
           }
 
-          return (
-            <section className="component-library__group" key={category}>
-              <h3>{COMPONENT_CATEGORY_LABELS[category]}</h3>
+          const isExpanded = expandedGroups.has(group.key)
 
-              {definitions.map((definition) => (
-                <button
-                  className={`component-library__item${pendingPlacementType === definition.type ? ' is-armed' : ''}`}
-                  key={definition.type}
-                  onClick={() => addComponent(definition.type)}
-                  type="button"
-                >
-                  <span className="component-library__item-title">
-                    {definition.familyLabel}
-                  </span>
-                  <span className="component-library__item-meta">
-                    {definition.variants.length} variant
-                    {definition.variants.length === 1 ? '' : 's'} •{' '}
-                    {describeMountMode(definition.mount.mode)}
-                  </span>
-                  {pendingPlacementType === definition.type ? (
-                    <span className="component-library__item-state">
-                      Pending placement
-                    </span>
-                  ) : null}
-                </button>
-              ))}
+          return (
+            <section className="component-library__group" key={group.key}>
+              <button
+                className="component-library__group-header"
+                onClick={() => toggleGroup(group.key)}
+                type="button"
+              >
+                <span className="component-library__chevron">
+                  {isExpanded ? '\u25BE' : '\u25B8'}
+                </span>
+                <h3>{group.label}</h3>
+                <span className="component-library__badge">
+                  {definitions.length}
+                </span>
+              </button>
+
+              {isExpanded ? (
+                <div className="component-library__group-body">
+                  {definitions.map((definition) => (
+                    <button
+                      className={`component-library__item${pendingPlacementType === definition.type ? ' is-armed' : ''}`}
+                      key={definition.type}
+                      onClick={() => addComponent(definition.type)}
+                      type="button"
+                    >
+                      <span className="component-library__item-title">
+                        {definition.familyLabel}
+                      </span>
+                      <span className="component-library__item-meta">
+                        {definition.variants.length} variant
+                        {definition.variants.length === 1 ? '' : 's'} •{' '}
+                        {describeMountMode(definition.mount.mode)}
+                      </span>
+                      {pendingPlacementType === definition.type ? (
+                        <span className="component-library__item-state">
+                          Pending placement
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </section>
           )
         })}

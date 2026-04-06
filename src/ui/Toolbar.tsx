@@ -17,6 +17,8 @@ interface ToolbarProps {
   beamTrace: BeamTraceResult
   dismissedWarningCount: number
   isWarningPulse: boolean
+  onClearBreadboard: () => void
+  onClearTable: () => void
   onExportAction: (action: ExportAction) => void
   onImportSceneJson: () => void
   onOpenOnboarding: () => void
@@ -53,6 +55,8 @@ export function Toolbar({
   beamTrace,
   dismissedWarningCount,
   isWarningPulse,
+  onClearBreadboard,
+  onClearTable,
   onExportAction,
   onImportSceneJson,
   onOpenOnboarding,
@@ -102,6 +106,10 @@ export function Toolbar({
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
   const setWarningsOpen = useEditorStore((state) => state.setWarningsOpen)
   const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
+  const canUndo = useEditorStore((state) => state.canUndo)
+  const canRedo = useEditorStore((state) => state.canRedo)
+  const undo = useEditorStore((state) => state.undo)
+  const redo = useEditorStore((state) => state.redo)
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
   )
@@ -760,6 +768,23 @@ export function Toolbar({
 
         <div className="toolbar__row toolbar__row--secondary">
           <div className="toolbar__controls toolbar__controls--secondary">
+            <div className="toolbar__tool-group">
+              <button
+                disabled={!canUndo}
+                onClick={undo}
+                type="button"
+              >
+                Undo
+              </button>
+              <button
+                disabled={!canRedo}
+                onClick={redo}
+                type="button"
+              >
+                Redo
+              </button>
+            </div>
+
             <button
               disabled={selection.type !== 'component' && !pendingPlacement}
               onClick={() => rotateSelectedComponent(1)}
@@ -787,6 +812,16 @@ export function Toolbar({
             <button onClick={resetViewport} type="button">
               Reset View
             </button>
+
+            <button onClick={onClearBreadboard} type="button">
+              Clear Board
+            </button>
+
+            {workspaceKind === 'optical-table' ? (
+              <button onClick={onClearTable} type="button">
+                Clear Table
+              </button>
+            ) : null}
 
             <button
               aria-expanded={openToolbarMenu === 'import'}

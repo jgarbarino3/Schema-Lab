@@ -33,6 +33,7 @@ import {
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
+import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { ExportOptionsModal } from './ui/ExportOptionsModal'
 import { InspectorPanel } from './ui/InspectorPanel'
@@ -146,6 +147,8 @@ function App() {
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const loadScene = useEditorStore((state) => state.loadScene)
+  const canUndo = useEditorStore((state) => state.canUndo)
+  const canRedo = useEditorStore((state) => state.canRedo)
   const convertWorkspaceToOpticalTable = useEditorStore(
     (state) => state.convertWorkspaceToOpticalTable,
   )
@@ -166,10 +169,18 @@ function App() {
   const duplicateSelectedComponent = useEditorStore(
     (state) => state.duplicateSelectedComponent,
   )
+  const clearBreadboardComponents = useEditorStore(
+    (state) => state.clearBreadboardComponents,
+  )
+  const clearOpticalTableComponents = useEditorStore(
+    (state) => state.clearOpticalTableComponents,
+  )
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
   )
+  const undo = useEditorStore((state) => state.undo)
+  const redo = useEditorStore((state) => state.redo)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
@@ -194,6 +205,7 @@ function App() {
   )
   const [workspaceModalState, setWorkspaceModalState] =
     useState<WorkspaceModalState>()
+  const [clearModalState, setClearModalState] = useState<ClearModalState>()
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
@@ -251,6 +263,7 @@ function App() {
   const pendingBreadboardPlacement = interaction.pendingBreadboardPlacement
   const isWarningReviewOpen = pendingExportRequest !== undefined
   const isWorkspaceModalOpen = workspaceModalState !== undefined
+  const isClearModalOpen = clearModalState !== undefined
   const exportBreadboardSurfaceId =
     scene.workspace.kind === 'single-breadboard'
       ? SINGLE_BREADBOARD_SURFACE_ID
@@ -727,7 +740,7 @@ function App() {
     const restoredScene = parseSceneDocument(snapshot)
 
     startTransition(() => {
-      loadScene(restoredScene)
+      loadScene(restoredScene, { history: 'record' })
     })
 
     setWorkspaceModalState(undefined)
@@ -749,6 +762,35 @@ function App() {
       createFresh: args.createFresh,
     })
     setWorkspaceModalState(undefined)
+  }
+
+  const handleRequestClearBreadboard = () => {
+    if (scene.workspace.kind === 'optical-table') {
+      setClearModalState({
+        mode: 'select-breadboard',
+        breadboards: breadboardInstances.map((breadboard) => ({
+          id: breadboard.id,
+          label: breadboard.label,
+          dimensionsLabel: `${breadboard.model.widthMm.toFixed(0)} × ${breadboard.model.heightMm.toFixed(0)} mm`,
+        })),
+      })
+    } else {
+      setClearModalState({ mode: 'confirm-clear-breadboard' })
+    }
+  }
+
+  const handleRequestClearTable = () => {
+    setClearModalState({ mode: 'confirm-clear-table' })
+  }
+
+  const handleConfirmClearBreadboard = (breadboardId?: string) => {
+    clearBreadboardComponents(breadboardId)
+    setClearModalState(undefined)
+  }
+
+  const handleConfirmClearTable = () => {
+    clearOpticalTableComponents()
+    setClearModalState(undefined)
   }
 
   const handleToggleLibrary = () => {
@@ -775,7 +817,7 @@ function App() {
   const handleLoadTutorial = () => {
     const tutorialScene = createTutorialScene()
 
-    loadScene(tutorialScene)
+    loadScene(tutorialScene, { history: 'record' })
     selectComponent(TUTORIAL_FOCUS_COMPONENT_ID)
     setShowGaussianEnvelope(true)
     setTourMode('tutorial')
@@ -897,12 +939,41 @@ function App() {
           return
         }
 
+        if (isClearModalOpen) {
+          event.preventDefault()
+          setClearModalState(undefined)
+          return
+        }
+
         event.preventDefault()
         cancelActiveInteraction()
         return
       }
 
       if (isJsonModalOpen) {
+        return
+      }
+
+      const key = event.key.toLowerCase()
+      const isModifierPressed = event.metaKey || event.ctrlKey
+
+      if (isModifierPressed && key === 'z' && !event.shiftKey) {
+        if (!canUndo) {
+          return
+        }
+
+        event.preventDefault()
+        undo()
+        return
+      }
+
+      if (isModifierPressed && (key === 'y' || (key === 'z' && event.shiftKey))) {
+        if (!canRedo) {
+          return
+        }
+
+        event.preventDefault()
+        redo()
         return
       }
 
@@ -916,13 +987,13 @@ function App() {
         return
       }
 
-      if (event.key.toLowerCase() === 'd' && selectedComponent) {
+      if (key === 'd' && selectedComponent) {
         event.preventDefault()
         duplicateSelectedComponent()
         return
       }
 
-      if (event.key.toLowerCase() === 'r') {
+      if (key === 'r') {
         event.preventDefault()
         rotateSelectedComponent(1)
       }
@@ -949,10 +1020,13 @@ function App() {
       window.removeEventListener('blur', handleWindowBlur)
     }
   }, [
+    canRedo,
+    canUndo,
     cancelActiveInteraction,
     deleteSelectedComponent,
     duplicateSelectedComponent,
     exportOptionsFormat,
+    isClearModalOpen,
     interaction.isHelpOpen,
     isOnboardingOpen,
     isJsonModalOpen,
@@ -961,6 +1035,7 @@ function App() {
     isWarningReviewOpen,
     openToolbarMenu,
     pendingPlacement,
+    redo,
     rotateSelectedComponent,
     selectedComponent,
     setHelpOpen,
@@ -968,6 +1043,7 @@ function App() {
     setPendingExportRequest,
     setSpacePanning,
     setWorkspaceModalState,
+    undo,
   ])
 
   const openJsonModal = (rawText = sceneJson, error?: string) => {
@@ -989,7 +1065,7 @@ function App() {
       const nextScene = parseSceneDocument(rawText)
 
       startTransition(() => {
-        loadScene(nextScene)
+        loadScene(nextScene, { history: 'record' })
       })
 
       setJsonError(undefined)
@@ -1008,7 +1084,7 @@ function App() {
     const nextScene = parseSceneDocument(rawText)
 
     startTransition(() => {
-      loadScene(nextScene)
+      loadScene(nextScene, { history: 'record' })
     })
 
     setJsonError(undefined)
@@ -1021,6 +1097,8 @@ function App() {
         beamTrace={beamTrace}
         dismissedWarningCount={dismissedWarningIds.length}
         isWarningPulse={isWarningReviewOpen}
+        onClearBreadboard={handleRequestClearBreadboard}
+        onClearTable={handleRequestClearTable}
         onExportAction={handleExportAction}
         onImportSceneJson={() => fileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
@@ -1252,6 +1330,14 @@ function App() {
               }
             : workspaceModalState
         }
+      />
+
+      <ClearConfirmModal
+        isOpen={isClearModalOpen}
+        onCancel={() => setClearModalState(undefined)}
+        onClearBreadboard={handleConfirmClearBreadboard}
+        onClearTable={handleConfirmClearTable}
+        state={clearModalState}
       />
 
       {rasterExportRequest && exportViewport ? (

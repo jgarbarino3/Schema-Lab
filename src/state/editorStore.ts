@@ -72,7 +72,7 @@ import type {
   ViewportState,
   WaveplateConfig,
 } from '../domain/types'
-import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
+import { OPTICAL_TABLE_SURFACE_ID, SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 
 export type SelectionState =
   | { type: 'breadboard'; surfaceId: string }
@@ -137,6 +137,27 @@ interface WarningFilters {
 
 type MountVisibilityDefaults = Partial<Record<ComponentType, boolean>>
 
+interface SceneHistorySnapshot {
+  scene: SceneDocument
+  selection: SelectionState
+  activeHostSurfaceId?: string
+}
+
+interface SceneHistoryState {
+  past: SceneHistorySnapshot[]
+  future: SceneHistorySnapshot[]
+  lastCommittedAtMs?: number
+  lastMergeKey?: string
+}
+
+interface LoadSceneOptions {
+  history?: 'record' | 'reset'
+}
+
+interface CommitSceneHistoryOptions {
+  mergeKey?: string
+}
+
 interface EditorStore {
   scene: SceneDocument
   selection: SelectionState
@@ -147,6 +168,9 @@ interface EditorStore {
   openToolbarMenu?: ToolbarMenu
   mountVisibilityDefaults: MountVisibilityDefaults
   interaction: InteractionState
+  history: SceneHistoryState
+  canUndo: boolean
+  canRedo: boolean
   selectBreadboard: (surfaceId?: string) => void
   selectOpticalTable: () => void
   selectComponent: (componentId: string) => void
@@ -190,6 +214,8 @@ interface EditorStore {
   cancelActiveInteraction: () => void
   deleteSelectedComponent: () => void
   duplicateSelectedComponent: () => void
+  clearBreadboardComponents: (breadboardId?: string) => void
+  clearOpticalTableComponents: () => void
   updateSelectedComponent: (update: ComponentUpdate) => void
   updateSelectedVariant: (variantId: string) => void
   updateSelectedSource: (update: Partial<SourceConfig>) => void
@@ -227,11 +253,15 @@ interface EditorStore {
   dismissVisibleWarnings: (warningIds: string[]) => void
   restoreDismissedWarnings: () => void
   updateBeamSettings: (update: Partial<SceneBeamSettings>) => void
-  loadScene: (scene: SceneDocument) => void
+  undo: () => void
+  redo: () => void
+  loadScene: (scene: SceneDocument, options?: LoadSceneOptions) => void
 }
 
 const DEFAULT_CANVAS_SIZE = { width: 1280, height: 820 }
 const initialScene = createEmptyScene()
+const MAX_SCENE_HISTORY_ENTRIES = 100
+const HISTORY_COALESCE_WINDOW_MS = 750
 const RENDER_MODE_STORAGE_KEY = 'schema-lab.render-mode'
 const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
 const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
@@ -380,6 +410,63 @@ function getDefaultSelection(scene: SceneDocument): SelectionState {
     type: 'breadboard',
     surfaceId: getDefaultSurfaceId(scene),
   }
+}
+
+function resolveSelectionForScene(
+  scene: SceneDocument,
+  selection: SelectionState,
+): SelectionState {
+  if (selection.type === 'component') {
+    return scene.components.some((component) => component.id === selection.componentId)
+      ? selection
+      : getDefaultSelection(scene)
+  }
+
+  if (selection.type === 'optical-table') {
+    return scene.workspace.kind === 'optical-table'
+      ? selection
+      : getDefaultSelection(scene)
+  }
+
+  if (scene.workspace.kind === 'single-breadboard') {
+    return getDefaultSelection(scene)
+  }
+
+  return scene.workspace.breadboards.some(
+    (breadboard) => breadboard.id === selection.surfaceId,
+  )
+    ? selection
+    : getDefaultSelection(scene)
+}
+
+function resolveActiveHostSurfaceId(
+  scene: SceneDocument,
+  selection: SelectionState,
+  activeHostSurfaceId?: string,
+) {
+  if (scene.workspace.kind === 'single-breadboard') {
+    return getDefaultSurfaceId(scene)
+  }
+
+  if (activeHostSurfaceId === OPTICAL_TABLE_SURFACE_ID) {
+    return OPTICAL_TABLE_SURFACE_ID
+  }
+
+  if (
+    activeHostSurfaceId &&
+    scene.workspace.breadboards.some((breadboard) => breadboard.id === activeHostSurfaceId)
+  ) {
+    return activeHostSurfaceId
+  }
+
+  if (
+    selection.type === 'breadboard' &&
+    scene.workspace.breadboards.some((breadboard) => breadboard.id === selection.surfaceId)
+  ) {
+    return selection.surfaceId
+  }
+
+  return getDefaultSurfaceId(scene)
 }
 
 function getOpticalTargetComponents(scene: SceneDocument) {
@@ -835,6 +922,137 @@ function applySourceLane(
   }
 }
 
+function createSceneHistoryState(): SceneHistoryState {
+  return {
+    past: [],
+    future: [],
+  }
+}
+
+function getSceneHistoryFlags(history: SceneHistoryState) {
+  return {
+    canRedo: history.future.length > 0,
+    canUndo: history.past.length > 0,
+  }
+}
+
+function createSceneHistorySnapshot(
+  state: Pick<EditorStore, 'scene' | 'selection' | 'interaction'>,
+): SceneHistorySnapshot {
+  return {
+    scene: state.scene,
+    selection: state.selection,
+    activeHostSurfaceId: state.interaction.activeHostSurfaceId,
+  }
+}
+
+function pushSceneHistory(
+  history: SceneHistoryState,
+  snapshot: SceneHistorySnapshot,
+  options: CommitSceneHistoryOptions = {},
+): SceneHistoryState {
+  const now = Date.now()
+  const shouldCoalesce =
+    history.future.length === 0 &&
+    options.mergeKey !== undefined &&
+    history.lastMergeKey === options.mergeKey &&
+    history.lastCommittedAtMs !== undefined &&
+    now - history.lastCommittedAtMs <= HISTORY_COALESCE_WINDOW_MS
+
+  if (shouldCoalesce) {
+    return {
+      past: history.past,
+      future: [],
+      lastCommittedAtMs: now,
+      lastMergeKey: options.mergeKey,
+    }
+  }
+
+  const nextPast = [...history.past, snapshot]
+
+  if (nextPast.length > MAX_SCENE_HISTORY_ENTRIES) {
+    nextPast.shift()
+  }
+
+  return {
+    past: nextPast,
+    future: [],
+    lastCommittedAtMs: now,
+    lastMergeKey: options.mergeKey,
+  }
+}
+
+function withCommittedScene<StatePatch extends {
+  scene: SceneDocument
+  selection?: SelectionState
+  interaction?: InteractionState
+  viewport?: ViewportState
+}>(
+  state: EditorStore,
+  patch: StatePatch,
+  options?: CommitSceneHistoryOptions,
+) {
+  const history = pushSceneHistory(
+    state.history,
+    createSceneHistorySnapshot(state),
+    options,
+  )
+
+  return {
+    ...patch,
+    history,
+    ...getSceneHistoryFlags(history),
+  }
+}
+
+function withResetHistory<StatePatch extends {
+  scene: SceneDocument
+  selection?: SelectionState
+  interaction?: InteractionState
+  viewport?: ViewportState
+}>(patch: StatePatch) {
+  const history = createSceneHistoryState()
+
+  return {
+    ...patch,
+    history,
+    ...getSceneHistoryFlags(history),
+  }
+}
+
+function restoreSceneHistorySnapshot(
+  state: EditorStore,
+  snapshot: SceneHistorySnapshot,
+  history: SceneHistoryState,
+) {
+  const selection = resolveSelectionForScene(snapshot.scene, snapshot.selection)
+
+  return {
+    scene: snapshot.scene,
+    selection,
+    interaction: {
+      ...state.interaction,
+      activeDragComponentId: undefined,
+      activeHostSurfaceId: resolveActiveHostSurfaceId(
+        snapshot.scene,
+        selection,
+        snapshot.activeHostSurfaceId,
+      ),
+      dragPreview: undefined,
+      hoveredBeamSegmentId: undefined,
+      hoveredComponentId: undefined,
+      notice: undefined,
+      pendingBreadboardPlacement: undefined,
+      pendingPlacement: undefined,
+      selectedBeamInteractionId: undefined,
+      selectedBeamPathId: undefined,
+      selectedBeamSegmentId: undefined,
+    },
+    history,
+    ...getSceneHistoryFlags(history),
+  }
+}
+
 const initialInteraction: InteractionState = {
   activeTool: 'select',
   dismissedWarningIds: [],
@@ -862,6 +1080,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
     ...initialInteraction,
     activeHostSurfaceId: getDefaultSurfaceId(initialScene),
   },
+  history: createSceneHistoryState(),
+  canUndo: false,
+  canRedo: false,
 
   selectBreadboard: (surfaceId) => {
     set((state) => ({
@@ -1224,7 +1445,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         anchorMm: placement.resolvedAnchorMm,
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: [...state.scene.components, nextComponent],
@@ -1236,7 +1457,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingBreadboardPlacement: undefined,
           notice: describePlacementReason(placement.reason),
         },
-      }
+      })
     })
   },
 
@@ -1263,7 +1484,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: nextScene,
         selection: { type: 'breadboard' as const, surfaceId: nextInstance.id },
         interaction: {
@@ -1272,7 +1493,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingBreadboardPlacement: undefined,
           notice: `Placed ${nextInstance.label} on the optical table.`,
         },
-      }
+      })
     })
   },
 
@@ -1342,7 +1563,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         snapMode: state.snapMode,
       })
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((item) =>
@@ -1360,7 +1581,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           dragPreview: undefined,
           notice: describePlacementReason(placement.reason),
         },
-      }
+      })
     })
   },
 
@@ -1391,7 +1612,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       const selectedComponentId = state.selection.componentId
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.filter(
@@ -1406,7 +1627,71 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingBreadboardPlacement: undefined,
           notice: undefined,
         },
+      })
+    })
+  },
+
+  clearBreadboardComponents: (breadboardId) => {
+    set((state) => {
+      const surfaceId =
+        state.scene.workspace.kind === 'single-breadboard'
+          ? SINGLE_BREADBOARD_SURFACE_ID
+          : breadboardId
+
+      if (!surfaceId) {
+        return state
       }
+
+      const remaining = state.scene.components.filter((c) => {
+        const cSurface =
+          c.hostSurfaceId ??
+          (state.scene.workspace.kind === 'single-breadboard'
+            ? SINGLE_BREADBOARD_SURFACE_ID
+            : undefined)
+        return cSurface !== surfaceId
+      })
+
+      if (remaining.length === state.scene.components.length) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: { ...state.scene, components: remaining },
+        selection: getDefaultSelection({ ...state.scene, components: remaining }),
+        interaction: {
+          ...state.interaction,
+          activeDragComponentId: undefined,
+          dragPreview: undefined,
+          notice: undefined,
+        },
+      })
+    })
+  },
+
+  clearOpticalTableComponents: () => {
+    set((state) => {
+      if (state.scene.workspace.kind !== 'optical-table') {
+        return state
+      }
+
+      const remaining = state.scene.components.filter(
+        (c) => c.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID,
+      )
+
+      if (remaining.length === state.scene.components.length) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: { ...state.scene, components: remaining },
+        selection: getDefaultSelection({ ...state.scene, components: remaining }),
+        interaction: {
+          ...state.interaction,
+          activeDragComponentId: undefined,
+          dragPreview: undefined,
+          notice: undefined,
+        },
+      })
     })
   },
 
@@ -1468,7 +1753,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: [...state.scene.components, duplicate],
@@ -1478,7 +1763,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           notice: describePlacementReason(placement.reason),
         },
-      }
+      })
     })
   },
 
@@ -1537,26 +1822,34 @@ export const useEditorStore = create<EditorStore>((set) => ({
         scene: state.scene,
         snapMode: state.snapMode,
       })
+      const mergeKey =
+        update.rotationQuarterTurns === undefined
+          ? `component:${selectedComponent.id}`
+          : undefined
 
-      return {
-        scene: {
-          ...state.scene,
-          components: state.scene.components.map((component) =>
-            component.id === selectedComponent.id
-              ? {
-                  ...component,
-                  label: update.label ?? component.label,
-                  anchorMm: placement.resolvedAnchorMm,
-                  rotationQuarterTurns: nextRotationQuarterTurns,
-                }
-              : component,
-          ),
+      return withCommittedScene(
+        state,
+        {
+          scene: {
+            ...state.scene,
+            components: state.scene.components.map((component) =>
+              component.id === selectedComponent.id
+                ? {
+                    ...component,
+                    label: update.label ?? component.label,
+                    anchorMm: placement.resolvedAnchorMm,
+                    rotationQuarterTurns: nextRotationQuarterTurns,
+                  }
+                : component,
+            ),
+          },
+          interaction: {
+            ...state.interaction,
+            notice: describePlacementReason(placement.reason),
+          },
         },
-        interaction: {
-          ...state.interaction,
-          notice: describePlacementReason(placement.reason),
-        },
-      }
+        mergeKey ? { mergeKey } : undefined,
+      )
     })
   },
 
@@ -1643,14 +1936,14 @@ export const useEditorStore = create<EditorStore>((set) => ({
         }
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
             component.id === nextComponent.id ? nextComponent : component,
           ),
         },
-      }
+      })
     })
   },
 
@@ -1730,14 +2023,16 @@ export const useEditorStore = create<EditorStore>((set) => ({
         }
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
             component.id === resolvedComponent.id ? resolvedComponent : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `source:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -1796,14 +2091,14 @@ export const useEditorStore = create<EditorStore>((set) => ({
         }),
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
             component.id === nextComponent.id ? nextComponent : component,
           ),
         },
-      }
+      })
     })
   },
 
@@ -1847,7 +2142,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selectedComponent.config.source.firstTargetComponentId,
       )
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -1860,7 +2155,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      })
     })
   },
 
@@ -1894,7 +2189,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -1911,7 +2206,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `beam-splitter:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -1945,7 +2242,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -1962,7 +2259,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `lens:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -1996,7 +2295,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2013,7 +2312,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `curved-mirror:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2047,7 +2348,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2064,7 +2365,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `attenuator:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2098,7 +2401,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2115,7 +2418,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `polarizer:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2149,7 +2454,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2166,7 +2471,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `waveplate:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2216,7 +2523,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         spec.physics.kind === 'iris' ? spec.physics.maxApertureMm : 25,
       )
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2232,7 +2539,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `iris:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2266,7 +2575,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2283,7 +2592,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `bbo-crystal:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2325,7 +2636,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2342,7 +2653,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `delay-line:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2376,7 +2689,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2393,7 +2706,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `telescope:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2427,7 +2742,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2444,7 +2759,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `opa:${selectedComponent.id}`,
+      })
     })
   },
 
@@ -2477,7 +2794,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2493,7 +2810,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      })
     })
   },
 
@@ -2505,7 +2822,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2517,49 +2834,53 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : component,
           ),
         },
-      }
+      }, {
+        mergeKey: `geometry:${selectedComponent.id}`,
+      })
     })
   },
 
   applySupportToType: (type, includeMount) => {
-    set((state) => ({
-      scene: {
-        ...state.scene,
-        components: state.scene.components.map((component) =>
-          component.type === type && supportsMountToggle(component.type)
-            ? {
-                ...component,
-                config: mergeComponentConfig(component.config, {
-                  support: {
-                    includeMount,
-                  },
-                }),
-              }
-            : component,
-        ),
-      },
-      interaction:
-        state.interaction.pendingPlacement?.draft.type === type &&
-        supportsMountToggle(type)
-          ? {
-              ...state.interaction,
-              pendingPlacement: {
-                ...state.interaction.pendingPlacement,
-                draft: {
-                  ...state.interaction.pendingPlacement.draft,
-                  config: mergeComponentConfig(
-                    state.interaction.pendingPlacement.draft.config,
-                    {
-                      support: {
-                        includeMount,
-                      },
+    set((state) =>
+      withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.type === type && supportsMountToggle(component.type)
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    support: {
+                      includeMount,
                     },
-                  ),
+                  }),
+                }
+              : component,
+          ),
+        },
+        interaction:
+          state.interaction.pendingPlacement?.draft.type === type &&
+          supportsMountToggle(type)
+            ? {
+                ...state.interaction,
+                pendingPlacement: {
+                  ...state.interaction.pendingPlacement,
+                  draft: {
+                    ...state.interaction.pendingPlacement.draft,
+                    config: mergeComponentConfig(
+                      state.interaction.pendingPlacement.draft.config,
+                      {
+                        support: {
+                          includeMount,
+                        },
+                      },
+                    ),
+                  },
                 },
-              },
-            }
-          : state.interaction,
-    }))
+              }
+            : state.interaction,
+      }),
+    )
   },
 
   setMountDefaultForType: (type, includeMount) => {
@@ -2681,7 +3002,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         snapMode: state.snapMode,
       })
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.map((component) =>
@@ -2698,7 +3019,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           notice: describePlacementReason(placement.reason),
         },
-      }
+      })
     })
   },
 
@@ -2736,7 +3057,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           },
         }
 
-        return {
+        return withCommittedScene(state, {
           scene: {
             ...nextScene,
             components: reconcileComponentsToScene(state.scene.components, nextScene),
@@ -2748,7 +3069,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
             pendingPlacement: undefined,
             pendingBreadboardPlacement: undefined,
           },
-        }
+        }, {
+          mergeKey: 'breadboard',
+        })
       }
 
       const activeBreadboardId =
@@ -2774,7 +3097,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...nextScene,
           components: reconcileComponentsToScene(state.scene.components, nextScene),
@@ -2786,7 +3109,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
         },
-      }
+      }, {
+        mergeKey: 'breadboard',
+      })
     })
   },
 
@@ -2815,7 +3140,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           },
         }
 
-        return {
+        return withCommittedScene(state, {
           scene: {
             ...nextScene,
             components: reconcileComponentsToScene(state.scene.components, nextScene),
@@ -2827,7 +3152,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
             pendingPlacement: undefined,
             pendingBreadboardPlacement: undefined,
           },
-        }
+        })
       }
 
       const activeBreadboardId =
@@ -2848,7 +3173,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: {
           ...nextScene,
           components: reconcileComponentsToScene(state.scene.components, nextScene),
@@ -2860,7 +3185,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
         },
-      }
+      })
     })
   },
 
@@ -2881,9 +3206,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
 
-      return {
+      return withCommittedScene(state, {
         scene: nextScene,
-      }
+      }, {
+        mergeKey: 'optical-table',
+      })
     })
   },
 
@@ -2891,7 +3218,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
     set((state) => {
       const nextScene = convertSceneToOpticalTable(state.scene)
 
-      return {
+      return withCommittedScene(state, {
         scene: nextScene,
         selection: getDefaultSelection(nextScene),
         viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
@@ -2902,7 +3229,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingBreadboardPlacement: undefined,
           notice: undefined,
         },
-      }
+      })
     })
   },
 
@@ -2914,7 +3241,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         createFresh,
       })
 
-      return {
+      return withCommittedScene(state, {
         scene: nextScene,
         selection: getDefaultSelection(nextScene),
         viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
@@ -2925,7 +3252,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingBreadboardPlacement: undefined,
           notice: undefined,
         },
-      }
+      })
     })
   },
 
@@ -2970,34 +3297,85 @@ export const useEditorStore = create<EditorStore>((set) => ({
   },
 
   updateBeamSettings: (update) => {
-    set((state) => ({
-      scene: {
-        ...state.scene,
-        beamSettings: {
-          ...state.scene.beamSettings,
-          ...update,
+    set((state) =>
+      withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          beamSettings: {
+            ...state.scene.beamSettings,
+            ...update,
+          },
         },
-      },
-    }))
+      }, {
+        mergeKey: 'beam-settings',
+      }),
+    )
   },
 
-  loadScene: (scene) => {
+  undo: () => {
+    set((state) => {
+      const previousSnapshot = state.history.past[state.history.past.length - 1]
+
+      if (!previousSnapshot) {
+        return state
+      }
+
+      const currentSnapshot = createSceneHistorySnapshot(state)
+      const history: SceneHistoryState = {
+        past: state.history.past.slice(0, -1),
+        future: [currentSnapshot, ...state.history.future],
+      }
+
+      return restoreSceneHistorySnapshot(state, previousSnapshot, history)
+    })
+  },
+
+  redo: () => {
+    set((state) => {
+      const nextSnapshot = state.history.future[0]
+
+      if (!nextSnapshot) {
+        return state
+      }
+
+      const currentSnapshot = createSceneHistorySnapshot(state)
+      const nextPast = [...state.history.past, currentSnapshot]
+
+      if (nextPast.length > MAX_SCENE_HISTORY_ENTRIES) {
+        nextPast.shift()
+      }
+
+      const history: SceneHistoryState = {
+        past: nextPast,
+        future: state.history.future.slice(1),
+      }
+
+      return restoreSceneHistorySnapshot(state, nextSnapshot, history)
+    })
+  },
+
+  loadScene: (scene, options) => {
     set((state) => {
       const nextScene: SceneDocument = {
         ...scene,
         beamSettings: scene.beamSettings ?? getDefaultBeamSettings(),
         components: reconcileComponentsToScene(scene.components, scene),
       }
-
-      return {
-        scene: nextScene,
-        selection: getDefaultSelection(nextScene),
-        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
-        interaction: {
-          ...initialInteraction,
-          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
-        },
+      const nextSelection = getDefaultSelection(nextScene)
+      const nextInteraction: InteractionState = {
+        ...initialInteraction,
+        activeHostSurfaceId: getDefaultSurfaceId(nextScene),
       }
+      const patch = {
+        scene: nextScene,
+        selection: nextSelection,
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
+        interaction: nextInteraction,
+      }
+
+      return options?.history === 'reset'
+        ? withResetHistory(patch)
+        : withCommittedScene(state, patch)
     })
   },
 }))
