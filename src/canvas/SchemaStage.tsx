@@ -624,76 +624,80 @@ export function SchemaStage({
               x={0}
               y={0}
             />
+
+            {opticalTableBoard ? (
+              <BreadboardLayer
+                anchorMm={{ x: 0, y: 0 }}
+                breadboard={opticalTableBoard}
+                isSelected={selection.type === 'optical-table'}
+                onSelect={handleOpticalTableSelect}
+                palette={{
+                  boardFill: '#a8b0b6',
+                  boardStroke: '#d4dae0',
+                  holeFill: '#6f777f',
+                  labelColor: '#16202a',
+                }}
+                renderInLayer={false}
+                showSourceLanes={false}
+                viewport={viewport}
+              />
+            ) : (
+              <BreadboardLayer
+                anchorMm={{ x: 0, y: 0 }}
+                breadboard={primaryBreadboard}
+                isSelected={
+                  selection.type === 'breadboard' &&
+                  selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
+                }
+                onSelect={(event) => {
+                  handleBackgroundSelect(event)
+                }}
+                renderInLayer={false}
+                viewport={viewport}
+              />
+            )}
+
+            {breadboardInstances.map((breadboard) => (
+              <BreadboardLayer
+                anchorMm={breadboard.anchorMm}
+                breadboard={{
+                  ...breadboard.model,
+                  label: breadboard.label,
+                }}
+                isSelected={
+                  selection.type === 'breadboard' &&
+                  selection.surfaceId === breadboard.id
+                }
+                key={breadboard.id}
+                onSelect={() => handleBreadboardSelect(breadboard.id)}
+                renderInLayer={false}
+                rotationQuarterTurns={breadboard.rotationQuarterTurns}
+                viewport={viewport}
+              />
+            ))}
+
+            {interaction.pendingBreadboardPlacement ? (
+              <BreadboardLayer
+                anchorMm={interaction.pendingBreadboardPlacement.candidateAnchorMm}
+                breadboard={interaction.pendingBreadboardPlacement.model}
+                isSelected
+                onSelect={() => undefined}
+                opacity={0.72}
+                palette={{
+                  boardFill: '#25313a',
+                  boardStroke: '#8fd4ef',
+                  holeFill: '#111820',
+                  labelColor: '#d7edf6',
+                }}
+                renderInLayer={false}
+                rotationQuarterTurns={
+                  interaction.pendingBreadboardPlacement.rotationQuarterTurns
+                }
+                showSourceLanes={false}
+                viewport={viewport}
+              />
+            ) : null}
           </Layer>
-
-          {opticalTableBoard ? (
-            <BreadboardLayer
-              anchorMm={{ x: 0, y: 0 }}
-              breadboard={opticalTableBoard}
-              isSelected={selection.type === 'optical-table'}
-              onSelect={handleOpticalTableSelect}
-              palette={{
-                boardFill: '#a8b0b6',
-                boardStroke: '#d4dae0',
-                holeFill: '#6f777f',
-                labelColor: '#16202a',
-              }}
-              showSourceLanes={false}
-              viewport={viewport}
-            />
-          ) : (
-            <BreadboardLayer
-              anchorMm={{ x: 0, y: 0 }}
-              breadboard={primaryBreadboard}
-              isSelected={
-                selection.type === 'breadboard' &&
-                selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
-              }
-              onSelect={(event) => {
-                handleBackgroundSelect(event)
-              }}
-              viewport={viewport}
-            />
-          )}
-
-          {breadboardInstances.map((breadboard) => (
-            <BreadboardLayer
-              anchorMm={breadboard.anchorMm}
-              breadboard={{
-                ...breadboard.model,
-                label: breadboard.label,
-              }}
-              isSelected={
-                selection.type === 'breadboard' &&
-                selection.surfaceId === breadboard.id
-              }
-              key={breadboard.id}
-              onSelect={() => handleBreadboardSelect(breadboard.id)}
-              rotationQuarterTurns={breadboard.rotationQuarterTurns}
-              viewport={viewport}
-            />
-          ))}
-
-          {interaction.pendingBreadboardPlacement ? (
-            <BreadboardLayer
-              anchorMm={interaction.pendingBreadboardPlacement.candidateAnchorMm}
-              breadboard={interaction.pendingBreadboardPlacement.model}
-              isSelected
-              onSelect={() => undefined}
-              opacity={0.72}
-              palette={{
-                boardFill: '#25313a',
-                boardStroke: '#8fd4ef',
-                holeFill: '#111820',
-                labelColor: '#d7edf6',
-              }}
-              rotationQuarterTurns={
-                interaction.pendingBreadboardPlacement.rotationQuarterTurns
-              }
-              showSourceLanes={false}
-              viewport={viewport}
-            />
-          ) : null}
 
           {interaction.showGaussianEnvelope ? (
             <GaussianEnvelopeLayer

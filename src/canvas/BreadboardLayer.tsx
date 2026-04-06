@@ -28,6 +28,7 @@ interface BreadboardLayerProps {
     holeFill: string
     labelColor: string
   }
+  renderInLayer?: boolean
   rotationQuarterTurns?: QuarterTurn
   showSourceLanes?: boolean
   viewport: ViewportState
@@ -40,6 +41,7 @@ export function BreadboardLayer({
   onSelect,
   opacity = 1,
   palette,
+  renderInLayer = true,
   rotationQuarterTurns = 0,
   showSourceLanes = true,
   viewport,
@@ -73,120 +75,124 @@ export function BreadboardLayer({
     showSourceLanes ? `  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm` : ''
   }`
 
-  return (
-    <Layer>
-      <Group
+  const content = (
+    <Group
+      name="breadboard-hit"
+      listening
+      onClick={(event) => {
+        event.cancelBubble = true
+        onSelect(event)
+      }}
+      onTap={(event) => {
+        event.cancelBubble = true
+        onSelect(event)
+      }}
+      opacity={opacity}
+      scaleX={viewport.zoomPxPerMm}
+      scaleY={viewport.zoomPxPerMm}
+      rotation={quarterTurnsToDegrees(rotationQuarterTurns)}
+      x={boardOriginPx.x}
+      y={boardOriginPx.y}
+    >
+      <Rect
+        cornerRadius={4}
+        fill={boardFill}
+        height={breadboard.heightMm}
         name="breadboard-hit"
-        listening
-        onClick={(event) => {
-          event.cancelBubble = true
-          onSelect(event)
-        }}
-        onTap={(event) => {
-          event.cancelBubble = true
-          onSelect(event)
-        }}
-        opacity={opacity}
-        scaleX={viewport.zoomPxPerMm}
-        scaleY={viewport.zoomPxPerMm}
-        rotation={quarterTurnsToDegrees(rotationQuarterTurns)}
-        x={boardOriginPx.x}
-        y={boardOriginPx.y}
-      >
-        <Rect
-          cornerRadius={4}
-          fill={boardFill}
-          height={breadboard.heightMm}
-          name="breadboard-hit"
-          shadowBlur={6}
-          shadowColor="#000000"
-          shadowOpacity={0.22}
-          stroke={isSelected ? '#7ccce6' : boardStroke}
-          strokeWidth={isSelected ? 1.25 : 0.8}
-          width={breadboard.widthMm}
-        />
+        shadowBlur={6}
+        shadowColor="#000000"
+        shadowOpacity={0.22}
+        stroke={isSelected ? '#7ccce6' : boardStroke}
+        strokeWidth={isSelected ? 1.25 : 0.8}
+        width={breadboard.widthMm}
+      />
 
-        {sourceLanes.map((lane) => (
-          <Group key={lane.key} listening={false}>
-            <Rect
-              cornerRadius={6}
-              dash={[5, 4]}
-              fill="rgba(56, 83, 97, 0.1)"
-              height={lane.height}
-              stroke="rgba(122, 193, 220, 0.28)"
-              strokeWidth={0.8}
-              width={lane.width}
-              x={lane.x}
-              y={lane.y}
+      {sourceLanes.map((lane) => (
+        <Group key={lane.key} listening={false}>
+          <Rect
+            cornerRadius={6}
+            dash={[5, 4]}
+            fill="rgba(56, 83, 97, 0.1)"
+            height={lane.height}
+            stroke="rgba(122, 193, 220, 0.28)"
+            strokeWidth={0.8}
+            width={lane.width}
+            x={lane.x}
+            y={lane.y}
+          />
+          {lane.key === 'left' || lane.key === 'right' ? (
+            <Text
+              fill="rgba(165, 199, 214, 0.7)"
+              fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+              fontSize={6.5}
+              rotation={-90}
+              text={lane.label}
+              x={lane.x + lane.width / 2 - 2}
+              y={lane.y + lane.height / 2 + 18}
             />
-            {lane.key === 'left' || lane.key === 'right' ? (
-              <Text
-                fill="rgba(165, 199, 214, 0.7)"
-                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                fontSize={6.5}
-                rotation={-90}
-                text={lane.label}
-                x={lane.x + lane.width / 2 - 2}
-                y={lane.y + lane.height / 2 + 18}
-              />
-            ) : (
-              <Text
-                fill="rgba(165, 199, 214, 0.7)"
-                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                fontSize={6.5}
-                text={lane.label}
-                x={lane.x + 6}
-                y={lane.y + lane.height / 2 - 4}
-              />
-            )}
-          </Group>
-        ))}
+          ) : (
+            <Text
+              fill="rgba(165, 199, 214, 0.7)"
+              fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+              fontSize={6.5}
+              text={lane.label}
+              x={lane.x + 6}
+              y={lane.y + lane.height / 2 - 4}
+            />
+          )}
+        </Group>
+      ))}
 
-        {counterboreCentersMm.map((counterbore, index) => (
-          <Group
-            key={`${counterbore.x}-${counterbore.y}-${index}`}
-            listening={false}
-          >
-            <Circle
-              fill="#2c343b"
-              radius={6.2}
-              stroke="#56616b"
-              strokeWidth={0.6}
-              x={counterbore.x}
-              y={counterbore.y}
-            />
-            <Circle
-              fill={holeFill}
-              radius={2.1}
-              x={counterbore.x}
-              y={counterbore.y}
-            />
-          </Group>
-        ))}
-
-        {holeAxes.xPositionsMm.map((xPositionMm) =>
-          holeAxes.yPositionsMm.map((yPositionMm) => (
-            <Circle
-              fill={holeFill}
-              key={`${xPositionMm}-${yPositionMm}`}
-              listening={false}
-              radius={1.5}
-              x={xPositionMm}
-              y={yPositionMm}
-            />
-          )),
-        )}
-
-        <Text
-          fill={labelColor}
-          fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-          fontSize={6.4}
+      {counterboreCentersMm.map((counterbore, index) => (
+        <Group
+          key={`${counterbore.x}-${counterbore.y}-${index}`}
           listening={false}
-          text={boardLabelText}
-          x={2}
-          y={-10}
-        />
-      </Group>
-    </Layer>
+        >
+          <Circle
+            fill="#2c343b"
+            radius={6.2}
+            stroke="#56616b"
+            strokeWidth={0.6}
+            x={counterbore.x}
+            y={counterbore.y}
+          />
+          <Circle
+            fill={holeFill}
+            radius={2.1}
+            x={counterbore.x}
+            y={counterbore.y}
+          />
+        </Group>
+      ))}
+
+      {holeAxes.xPositionsMm.map((xPositionMm) =>
+        holeAxes.yPositionsMm.map((yPositionMm) => (
+          <Circle
+            fill={holeFill}
+            key={`${xPositionMm}-${yPositionMm}`}
+            listening={false}
+            radius={1.5}
+            x={xPositionMm}
+            y={yPositionMm}
+          />
+        )),
+      )}
+
+      <Text
+        fill={labelColor}
+        fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
+        fontSize={6.4}
+        listening={false}
+        text={boardLabelText}
+        x={2}
+        y={-10}
+      />
+    </Group>
   )
+
+  if (!renderInLayer) {
+    return content
+  }
+
+  return <Layer>{content}</Layer>
 }

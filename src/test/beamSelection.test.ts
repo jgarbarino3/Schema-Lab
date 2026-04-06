@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { createBreadboardFromPreset } from '../domain/breadboardPresets'
-import { getBeamSelectionSnapshot } from '../domain/beamSelection'
+import {
+  getBeamSelectionSnapshot,
+  getNearestBeamSegmentHit,
+} from '../domain/beamSelection'
 import { traceSceneBeams } from '../domain/beamTracing'
 import {
   createDefaultComponentConfig,
   getComponentDefinition,
 } from '../domain/componentCatalog'
+import { worldToScreen } from '../domain/geometry'
 import { createEmptyScene } from '../domain/serialization'
 import type { ComponentInstance, ComponentType, SceneDocument } from '../domain/types'
 
@@ -128,5 +132,45 @@ describe('beam selection snapshot', () => {
       path: undefined,
       segment: undefined,
     })
+  })
+
+  it('chooses the nearest beam segment from a screen-space hit point', () => {
+    const source = makeEnabledSource()
+    const beamsplitter = makeComponent('beamsplitter', {
+      id: 'bs-1',
+      anchorMm: { x: 100, y: 137.5 },
+      config: {
+        ...createDefaultComponentConfig('beamsplitter'),
+        beamSplitter: {
+          reflectPercent: 50,
+          lossPercent: 2,
+        },
+      },
+    })
+    const trace = traceSceneBeams(makeScene([source, beamsplitter]))
+    const reflectedSegment = trace.segments.find(
+      (segment) => segment.branchKind === 'reflected',
+    )
+
+    expect(reflectedSegment).toBeDefined()
+
+    const viewport = {
+      zoomPxPerMm: 2.4,
+      cameraCenterMm: { x: 90, y: 137.5 },
+      canvasSizePx: { width: 1200, height: 900 },
+    }
+    const startPx = worldToScreen(reflectedSegment!.startMm, viewport)
+    const endPx = worldToScreen(reflectedSegment!.endMm, viewport)
+    const hit = getNearestBeamSegmentHit(
+      trace,
+      viewport,
+      {
+        x: (startPx.x + endPx.x) / 2 + 3,
+        y: (startPx.y + endPx.y) / 2 + 2,
+      },
+      18,
+    )
+
+    expect(hit?.segment.id).toBe(reflectedSegment?.id)
   })
 })

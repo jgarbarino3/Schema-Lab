@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { Circle, Layer, Line, Text } from 'react-konva'
 import { getBeamColor } from '../domain/beamTracing'
+import { getNearestBeamSegmentHit } from '../domain/beamSelection'
 import { worldToScreen } from '../domain/geometry'
 import { getGaussianInteractionAnalysis } from '../domain/gaussian'
 import type {
@@ -86,6 +87,19 @@ export function BeamLayer({
   const hoveredPathId = beamTrace.segments.find(
     (segment) => segment.id === hoveredSegmentId,
   )?.pathId
+  const selectNearestSegmentAtPoint = (pointPx: { x: number; y: number }) => {
+    const hit = getNearestBeamSegmentHit(beamTrace, viewport, pointPx)
+
+    if (!hit) {
+      return
+    }
+
+    onSelectSegment(
+      hit.segment.id,
+      hit.segment.pathId,
+      hit.segment.parentInteractionId,
+    )
+  }
 
   return (
     <Layer>
@@ -131,6 +145,28 @@ export function BeamLayer({
               hitStrokeWidth={24}
               onClick={(event) => {
                 event.cancelBubble = true
+                const pointer = event.target.getStage()?.getPointerPosition()
+
+                if (pointer) {
+                  selectNearestSegmentAtPoint(pointer)
+                  return
+                }
+
+                onSelectSegment(
+                  segment.id,
+                  segment.pathId,
+                  segment.parentInteractionId,
+                )
+              }}
+              onTap={(event) => {
+                event.cancelBubble = true
+                const pointer = event.target.getStage()?.getPointerPosition()
+
+                if (pointer) {
+                  selectNearestSegmentAtPoint(pointer)
+                  return
+                }
+
                 onSelectSegment(
                   segment.id,
                   segment.pathId,
@@ -185,6 +221,10 @@ export function BeamLayer({
             <Circle
               fill="rgba(255,255,255,0.02)"
               onClick={(konvaEvent) => {
+                konvaEvent.cancelBubble = true
+                onSelectSegment(event.inputSegmentId, event.pathId, event.id)
+              }}
+              onTap={(konvaEvent) => {
                 konvaEvent.cancelBubble = true
                 onSelectSegment(event.inputSegmentId, event.pathId, event.id)
               }}

@@ -301,7 +301,7 @@ export function Toolbar({
             <section>
               <h3>Render Modes</h3>
               <p>
-                Realistic shows mounted hardware silhouettes with the footprint revealed only on hover or selection. Simple uses cleaner symbolic optics while keeping the same mechanical support logic underneath.
+                Realistic shows mounted hardware silhouettes with integrated default mounts, while the footprint appears only on hover or selection. Simple uses cleaner symbolic optics while keeping the same mechanical support logic underneath.
               </p>
             </section>
             <section>
@@ -313,7 +313,7 @@ export function Toolbar({
             <section>
               <h3>Sources</h3>
               <p>
-                Laser sources stay in off-board source lanes. Pick a first target in the inspector, then align the source toward that optic.
+                Standard laser sources stay in off-board source lanes. In optical-table mode, large laser-body variants can also sit directly on the table. Pick a first target in the inspector, then align the source when that model supports beam launch.
               </p>
             </section>
             <section>

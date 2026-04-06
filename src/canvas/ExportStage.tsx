@@ -110,47 +110,50 @@ export function ExportStage({
             x={0}
             y={0}
           />
+
+          {opticalTableBoard && showTableSurface ? (
+            <BreadboardLayer
+              anchorMm={{ x: 0, y: 0 }}
+              breadboard={opticalTableBoard}
+              isSelected={false}
+              onSelect={() => undefined}
+              palette={{
+                boardFill: '#a8b0b6',
+                boardStroke: '#d4dae0',
+                holeFill: '#6f777f',
+                labelColor: '#16202a',
+              }}
+              renderInLayer={false}
+              showSourceLanes={false}
+              viewport={viewport}
+            />
+          ) : (
+            <BreadboardLayer
+              anchorMm={{ x: 0, y: 0 }}
+              breadboard={primaryBreadboard}
+              isSelected={false}
+              onSelect={() => undefined}
+              renderInLayer={false}
+              viewport={viewport}
+            />
+          )}
+
+          {breadboardsToRender.map((breadboard) => (
+            <BreadboardLayer
+              anchorMm={breadboard.anchorMm}
+              breadboard={{
+                ...breadboard.model,
+                label: breadboard.label,
+              }}
+              isSelected={false}
+              key={breadboard.id}
+              onSelect={() => undefined}
+              renderInLayer={false}
+              rotationQuarterTurns={breadboard.rotationQuarterTurns}
+              viewport={viewport}
+            />
+          ))}
         </Layer>
-
-        {opticalTableBoard && showTableSurface ? (
-          <BreadboardLayer
-            anchorMm={{ x: 0, y: 0 }}
-            breadboard={opticalTableBoard}
-            isSelected={false}
-            onSelect={() => undefined}
-            palette={{
-              boardFill: '#a8b0b6',
-              boardStroke: '#d4dae0',
-              holeFill: '#6f777f',
-              labelColor: '#16202a',
-            }}
-            showSourceLanes={false}
-            viewport={viewport}
-          />
-        ) : (
-          <BreadboardLayer
-            anchorMm={{ x: 0, y: 0 }}
-            breadboard={primaryBreadboard}
-            isSelected={false}
-            onSelect={() => undefined}
-            viewport={viewport}
-          />
-        )}
-
-        {breadboardsToRender.map((breadboard) => (
-          <BreadboardLayer
-            anchorMm={breadboard.anchorMm}
-            breadboard={{
-              ...breadboard.model,
-              label: breadboard.label,
-            }}
-            isSelected={false}
-            key={breadboard.id}
-            onSelect={() => undefined}
-            rotationQuarterTurns={breadboard.rotationQuarterTurns}
-            viewport={viewport}
-          />
-        ))}
 
         {showGaussianEnvelope ? (
           <GaussianEnvelopeLayer

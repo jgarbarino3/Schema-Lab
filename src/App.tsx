@@ -15,11 +15,8 @@ import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
 import { createExportViewport, type ExportScope } from './domain/exportLayout'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
-import { createSingleImagePdfBlob } from './domain/pdfExport'
-import { createSingleImagePptxBlob } from './domain/pptxExport'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
-import { createSceneSvg } from './domain/svgExport'
 import {
   getBreadboardInstances,
   getWorkspacePrimaryBreadboard,
@@ -346,8 +343,10 @@ function App() {
         body: (
           <>
             <p>
-              Laser sources stay in the off-board source lanes. In the inspector, choose a
-              first target and use Align to Target to aim the source.
+              Standard laser sources stay in the off-board source lanes. In optical-table
+              mode, large laser-body variants can also sit directly on the table. Use the
+              inspector to choose a first target and Align to Target when that source model
+              supports beam launch.
             </p>
             <p>
               Once enabled, the Stage 2 beam path and Stage 3 Gaussian readouts update from
@@ -560,6 +559,7 @@ function App() {
       await nextAnimationFrame()
 
       if (request.action.endsWith('svg')) {
+        const { createSceneSvg } = await import('./domain/svgExport')
         const svgMarkup = createSceneSvg({
           beamTrace,
           breadboardSurfaceId: exportBreadboardSurfaceId,
@@ -601,6 +601,7 @@ function App() {
             : 'schema-lab-full-scheme.png',
         )
       } else if (request.action.endsWith('pdf')) {
+        const { createSingleImagePdfBlob } = await import('./domain/pdfExport')
         const pdfBlob = createSingleImagePdfBlob({
           jpegDataUrl: dataUrl,
           widthPx: EXPORT_CANVAS_WIDTH_PX,
@@ -614,6 +615,7 @@ function App() {
             : 'schema-lab-full-scheme.pdf',
         )
       } else {
+        const { createSingleImagePptxBlob } = await import('./domain/pptxExport')
         const pptxBlob = await createSingleImagePptxBlob(dataUrl)
 
         downloadBlob(
