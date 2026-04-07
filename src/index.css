@@ -1106,6 +1106,7 @@ textarea {
   display: grid;
   place-items: center;
   padding: 1rem;
+  overflow: auto;
 }
 
 .modal-shell__backdrop {
@@ -1119,6 +1120,8 @@ textarea {
   position: relative;
   z-index: 1;
   width: min(560px, 100%);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   display: grid;
   gap: 1rem;
   padding: 1rem;
@@ -1126,6 +1129,8 @@ textarea {
   border-radius: 18px;
   background: rgba(14, 19, 24, 0.98);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-shell__card--warning {
@@ -1218,6 +1223,80 @@ textarea {
 
 .modal-shell__primary {
   border-color: rgba(245, 210, 140, 0.34);
+}
+
+.svg-import-options {
+  max-width: 580px;
+}
+
+.svg-import-field {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.svg-import-field input,
+.svg-import-field select {
+  width: 100%;
+  padding: 0.42rem 0.52rem;
+  border: 1px solid rgba(132, 158, 174, 0.35);
+  border-radius: 8px;
+  background: rgba(8, 12, 16, 0.78);
+  color: var(--text);
+}
+
+.svg-import-preview {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid rgba(130, 166, 192, 0.3);
+  border-radius: 12px;
+  background: rgba(5, 8, 12, 0.9);
+  cursor: crosshair;
+}
+
+.svg-calibration-modal {
+  width: min(860px, 100%);
+}
+
+.svg-calibration-modal__layout,
+.svg-ambiguity-modal__layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+  gap: 1rem;
+}
+
+.svg-calibration-modal__controls,
+.svg-ambiguity-modal__controls {
+  display: grid;
+  gap: 0.75rem;
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.2rem;
+}
+
+.svg-calibration-modal__pair-actions,
+.svg-ambiguity-modal__suggestions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.svg-calibration-modal__sample-list {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--muted);
+  display: grid;
+  gap: 0.22rem;
+}
+
+.svg-ambiguity-modal {
+  width: min(860px, 100%);
+}
+
+.svg-ambiguity-modal__suggestions button {
+  font-size: 0.78rem;
 }
 
 .tour-overlay {
@@ -1361,6 +1440,15 @@ textarea {
 @media (max-width: 960px) {
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .svg-calibration-modal__layout,
+  .svg-ambiguity-modal__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .svg-import-preview {
+    min-height: 220px;
   }
 
   .toolbar__row,

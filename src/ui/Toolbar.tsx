@@ -21,6 +21,7 @@ interface ToolbarProps {
   onClearTable: () => void
   onExportAction: (action: ExportAction) => void
   onImportSceneJson: () => void
+  onImportSvg: () => void
   onOpenOnboarding: () => void
   onOpenJson: () => void
   onOpenTutorial: () => void
@@ -59,6 +60,7 @@ export function Toolbar({
   onClearTable,
   onExportAction,
   onImportSceneJson,
+  onImportSvg,
   onOpenOnboarding,
   onOpenJson,
   onOpenTutorial,
@@ -344,7 +346,7 @@ export function Toolbar({
             <section>
               <h3>Files</h3>
               <p>
-                Import loads scene JSON. Export now chooses a format family first, then scope and SVG preset in a compact dialog. Engineering SVG is the Inkscape-first mm-native vector output, DXF is the clean layout/CAD export, and Raw JSON opens the editable scene document directly.
+                Import supports scene JSON plus guided SVG interpretation for Inkscape-style optics diagrams. Export now chooses a format family first, then scope and SVG preset in a compact dialog. Engineering SVG is the Inkscape-first mm-native vector output, DXF is the clean layout/CAD export, and Raw JSON opens the editable scene document directly.
               </p>
             </section>
             <section>
@@ -533,6 +535,15 @@ export function Toolbar({
                   type="button"
                 >
                   Scene JSON
+                </button>
+                <button
+                  onClick={() => {
+                    setOpenToolbarMenu(undefined)
+                    onImportSvg()
+                  }}
+                  type="button"
+                >
+                  Interpreted SVG
                 </button>
               </>
             ) : null}

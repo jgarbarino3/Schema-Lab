@@ -1,0 +1,16 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+  width="120mm"
+  height="80mm"
+  viewBox="0 0 120 80"
+>
+  <g inkscape:label="laser source">
+    <rect id="laser-source" x="8" y="30" width="14" height="10" />
+  </g>
+  <g inkscape:label="mirror m1">
+    <line id="mirror-m1" x1="40" y1="20" x2="50" y2="30" />
+  </g>
+  <line id="beam-line" x1="22" y1="35" x2="80" y2="35" stroke="#00ff00" stroke-width="0.8" />
+  <circle id="lens-l1" inkscape:label="lens l1" cx="88" cy="35" r="5" />
+</svg>

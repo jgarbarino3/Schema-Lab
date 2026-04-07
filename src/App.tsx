@@ -22,6 +22,18 @@ import {
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
+import {
+  analyzeSvgImportDocument,
+  applySvgImportToScene,
+  parseSvgImportDocument,
+  resolveSvgImportScaleMmPerUnit,
+  type SvgCalibrationRequest,
+  type SvgImportAnalysis,
+  type SvgImportDocument,
+  type SvgImportManualResolution,
+  type SvgImportMode,
+  type SvgImportProfile,
+} from './domain/svgImport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
   getBreadboardInstances,
@@ -39,6 +51,9 @@ import { ExportOptionsModal } from './ui/ExportOptionsModal'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
+import { SvgAmbiguityModal } from './ui/SvgAmbiguityModal'
+import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
+import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { TutorialModal } from './ui/TutorialModal'
 import { WarningReviewModal } from './ui/WarningReviewModal'
@@ -57,6 +72,23 @@ interface ExportRequestState {
   format: ExportFormat
   scope: ExportScope
   svgPreset?: SvgExportPreset
+}
+
+interface SvgImportPendingOptionsState {
+  document: SvgImportDocument
+  fileName: string
+}
+
+interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {
+  mode: SvgImportMode
+  profile: SvgImportProfile
+}
+
+interface SvgImportPendingAmbiguityState {
+  analysis: SvgImportAnalysis
+  document: SvgImportDocument
+  millimetersPerUnit: number
+  mode: SvgImportMode
 }
 
 type WorkspaceModalState =
@@ -184,7 +216,8 @@ function App() {
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const jsonFileInputRef = useRef<HTMLInputElement | null>(null)
+  const svgFileInputRef = useRef<HTMLInputElement | null>(null)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
@@ -206,6 +239,13 @@ function App() {
   const [workspaceModalState, setWorkspaceModalState] =
     useState<WorkspaceModalState>()
   const [clearModalState, setClearModalState] = useState<ClearModalState>()
+  const [svgImportOptionsState, setSvgImportOptionsState] =
+    useState<SvgImportPendingOptionsState>()
+  const [svgCalibrationState, setSvgCalibrationState] =
+    useState<SvgImportPendingCalibrationState>()
+  const [svgAmbiguityState, setSvgAmbiguityState] =
+    useState<SvgImportPendingAmbiguityState>()
+  const [svgImportNotice, setSvgImportNotice] = useState<string | undefined>()
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
@@ -264,6 +304,9 @@ function App() {
   const isWarningReviewOpen = pendingExportRequest !== undefined
   const isWorkspaceModalOpen = workspaceModalState !== undefined
   const isClearModalOpen = clearModalState !== undefined
+  const isSvgImportOptionsOpen = svgImportOptionsState !== undefined
+  const isSvgCalibrationOpen = svgCalibrationState !== undefined
+  const isSvgAmbiguityOpen = svgAmbiguityState !== undefined
   const exportBreadboardSurfaceId =
     scene.workspace.kind === 'single-breadboard'
       ? SINGLE_BREADBOARD_SURFACE_ID
@@ -879,7 +922,14 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === ' ' && !isJsonModalOpen && !isTypingTarget(event.target)) {
+      if (
+        event.key === ' ' &&
+        !isJsonModalOpen &&
+        !isSvgImportOptionsOpen &&
+        !isSvgCalibrationOpen &&
+        !isSvgAmbiguityOpen &&
+        !isTypingTarget(event.target)
+      ) {
         event.preventDefault()
         setSpacePanning(true)
         return
@@ -894,6 +944,24 @@ function App() {
           event.preventDefault()
           setJsonError(undefined)
           setIsJsonModalOpen(false)
+          return
+        }
+
+        if (isSvgAmbiguityOpen) {
+          event.preventDefault()
+          setSvgAmbiguityState(undefined)
+          return
+        }
+
+        if (isSvgCalibrationOpen) {
+          event.preventDefault()
+          setSvgCalibrationState(undefined)
+          return
+        }
+
+        if (isSvgImportOptionsOpen) {
+          event.preventDefault()
+          setSvgImportOptionsState(undefined)
           return
         }
 
@@ -950,7 +1018,12 @@ function App() {
         return
       }
 
-      if (isJsonModalOpen) {
+      if (
+        isJsonModalOpen ||
+        isSvgImportOptionsOpen ||
+        isSvgCalibrationOpen ||
+        isSvgAmbiguityOpen
+      ) {
         return
       }
 
@@ -1029,6 +1102,9 @@ function App() {
     isClearModalOpen,
     interaction.isHelpOpen,
     isOnboardingOpen,
+    isSvgAmbiguityOpen,
+    isSvgCalibrationOpen,
+    isSvgImportOptionsOpen,
     isJsonModalOpen,
     isTutorialModalOpen,
     isWorkspaceModalOpen,
@@ -1042,6 +1118,9 @@ function App() {
     setOpenToolbarMenu,
     setPendingExportRequest,
     setSpacePanning,
+    setSvgAmbiguityState,
+    setSvgCalibrationState,
+    setSvgImportOptionsState,
     setWorkspaceModalState,
     undo,
   ])
@@ -1052,7 +1131,71 @@ function App() {
     setIsJsonModalOpen(true)
   }
 
-  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+  const finalizeSvgImport = useCallback(
+    (args: {
+      analysis: SvgImportAnalysis
+      document: SvgImportDocument
+      manualResolutions?: SvgImportManualResolution[]
+      millimetersPerUnit: number
+      mode: SvgImportMode
+    }) => {
+      const result = applySvgImportToScene({
+        analysis: args.analysis,
+        document: args.document,
+        hostSurfaceId: interaction.activeHostSurfaceId,
+        manualResolutions: args.manualResolutions,
+        millimetersPerUnit: args.millimetersPerUnit,
+        mode: args.mode,
+        scene,
+      })
+
+      startTransition(() => {
+        loadScene(result.scene, { history: 'record' })
+      })
+
+      const summary = `Imported ${result.importedComponents} components and ${result.importedAnnotations} annotation lines from SVG.`
+      setSvgImportNotice(result.warnings[0] ?? summary)
+      setSvgAmbiguityState(undefined)
+      setSvgCalibrationState(undefined)
+      setSvgImportOptionsState(undefined)
+    },
+    [interaction.activeHostSurfaceId, loadScene, scene],
+  )
+
+  const runSvgImportAnalysis = useCallback(
+    (args: {
+      document: SvgImportDocument
+      millimetersPerUnit: number
+      mode: SvgImportMode
+      profile: SvgImportProfile
+    }) => {
+      const analysis = analyzeSvgImportDocument({
+        document: args.document,
+        millimetersPerUnit: args.millimetersPerUnit,
+        profile: args.profile,
+      })
+
+      if (analysis.ambiguous.length > 0) {
+        setSvgAmbiguityState({
+          analysis,
+          document: args.document,
+          millimetersPerUnit: args.millimetersPerUnit,
+          mode: args.mode,
+        })
+        return
+      }
+
+      finalizeSvgImport({
+        analysis,
+        document: args.document,
+        millimetersPerUnit: args.millimetersPerUnit,
+        mode: args.mode,
+      })
+    },
+    [finalizeSvgImport],
+  )
+
+  const handleImportSceneJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0]
 
     if (!nextFile) {
@@ -1080,6 +1223,105 @@ function App() {
     }
   }
 
+  const handleImportSvgFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0]
+
+    if (!nextFile) {
+      return
+    }
+
+    const rawText = await nextFile.text()
+
+    try {
+      const document = parseSvgImportDocument(rawText)
+
+      setSvgImportNotice(undefined)
+      setSvgImportOptionsState({
+        document,
+        fileName: nextFile.name,
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'SVG could not be parsed and interpreted.'
+
+      setSvgImportNotice(message)
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  const handleConfirmSvgImportOptions = (payload: {
+    mode: SvgImportMode
+    profile: SvgImportProfile
+    requireCalibration: boolean
+  }) => {
+    if (!svgImportOptionsState) {
+      return
+    }
+
+    setSvgImportOptionsState(undefined)
+
+    if (payload.requireCalibration) {
+      setSvgCalibrationState({
+        document: svgImportOptionsState.document,
+        fileName: svgImportOptionsState.fileName,
+        mode: payload.mode,
+        profile: payload.profile,
+      })
+      return
+    }
+
+    runSvgImportAnalysis({
+      document: svgImportOptionsState.document,
+      millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+        document: svgImportOptionsState.document,
+      }),
+      mode: payload.mode,
+      profile: payload.profile,
+    })
+  }
+
+  const handleConfirmSvgCalibration = (
+    calibration: SvgCalibrationRequest,
+    millimetersPerUnit: number,
+  ) => {
+    if (!svgCalibrationState) {
+      return
+    }
+
+    setSvgCalibrationState(undefined)
+
+    runSvgImportAnalysis({
+      document: svgCalibrationState.document,
+      millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+        calibration,
+        document: svgCalibrationState.document,
+      }),
+      mode: svgCalibrationState.mode,
+      profile: svgCalibrationState.profile,
+    })
+
+    if (!Number.isFinite(millimetersPerUnit) || millimetersPerUnit <= 0) {
+      setSvgImportNotice('Calibration failed. Falling back to inferred SVG scale.')
+    }
+  }
+
+  const handleConfirmSvgAmbiguity = (manualResolutions: SvgImportManualResolution[]) => {
+    if (!svgAmbiguityState) {
+      return
+    }
+
+    finalizeSvgImport({
+      analysis: svgAmbiguityState.analysis,
+      document: svgAmbiguityState.document,
+      manualResolutions,
+      millimetersPerUnit: svgAmbiguityState.millimetersPerUnit,
+      mode: svgAmbiguityState.mode,
+    })
+  }
+
   const handleLoadFromJson = (rawText: string) => {
     const nextScene = parseSceneDocument(rawText)
 
@@ -1100,7 +1342,8 @@ function App() {
         onClearBreadboard={handleRequestClearBreadboard}
         onClearTable={handleRequestClearTable}
         onExportAction={handleExportAction}
-        onImportSceneJson={() => fileInputRef.current?.click()}
+        onImportSceneJson={() => jsonFileInputRef.current?.click()}
+        onImportSvg={() => svgFileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
         onOpenTutorial={handleOpenTutorial}
@@ -1215,6 +1458,9 @@ function App() {
             {interaction.notice ? (
               <span className="canvas-status__warning">{interaction.notice}</span>
             ) : null}
+            {svgImportNotice ? (
+              <span className="canvas-status__warning">{svgImportNotice}</span>
+            ) : null}
           </div>
         </section>
 
@@ -1238,12 +1484,58 @@ function App() {
       </div>
 
       <input
-        ref={fileInputRef}
+        ref={jsonFileInputRef}
         accept=".json,application/json"
         className="visually-hidden"
-        onChange={handleImportFile}
+        onChange={handleImportSceneJsonFile}
         type="file"
       />
+
+      <input
+        ref={svgFileInputRef}
+        accept=".svg,image/svg+xml"
+        className="visually-hidden"
+        onChange={handleImportSvgFile}
+        type="file"
+      />
+
+      {svgImportOptionsState ? (
+        <SvgImportOptionsModal
+          fileName={svgImportOptionsState.fileName}
+          isOpen={isSvgImportOptionsOpen}
+          onCancel={() => setSvgImportOptionsState(undefined)}
+          onConfirm={handleConfirmSvgImportOptions}
+          scaleIsReliable={svgImportOptionsState.document.scale.isReliable}
+          scaleReason={svgImportOptionsState.document.scale.reason}
+        />
+      ) : null}
+
+      {svgCalibrationState ? (
+        <SvgCalibrationModal
+          baseMmPerUnit={svgCalibrationState.document.scale.baseMmPerUnit}
+          document={svgCalibrationState.document}
+          isOpen={isSvgCalibrationOpen}
+          onBack={() => {
+            setSvgImportOptionsState({
+              document: svgCalibrationState.document,
+              fileName: svgCalibrationState.fileName,
+            })
+            setSvgCalibrationState(undefined)
+          }}
+          onCancel={() => setSvgCalibrationState(undefined)}
+          onConfirm={handleConfirmSvgCalibration}
+        />
+      ) : null}
+
+      {svgAmbiguityState ? (
+        <SvgAmbiguityModal
+          ambiguous={svgAmbiguityState.analysis.ambiguous}
+          document={svgAmbiguityState.document}
+          isOpen={isSvgAmbiguityOpen}
+          onCancel={() => setSvgAmbiguityState(undefined)}
+          onConfirm={handleConfirmSvgAmbiguity}
+        />
+      ) : null}
 
       <ExportOptionsModal
         defaultScope={

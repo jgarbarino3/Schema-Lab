@@ -1,0 +1,10 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="480"
+  height="300"
+  viewBox="0 0 480 300"
+>
+  <polyline id="unknown-shape-a" points="90,120 120,90 150,120" fill="none" stroke="#b3c8d9" />
+  <rect id="unknown-shape-b" x="200" y="90" width="40" height="40" fill="none" stroke="#b3c8d9" />
+  <line id="beam-line" x1="30" y1="150" x2="430" y2="150" stroke="#00ff00" stroke-width="1.2" />
+</svg>
