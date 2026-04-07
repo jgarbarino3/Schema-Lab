@@ -13,6 +13,7 @@ import { SchemaStage } from './canvas/SchemaStage'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
+import { inspectSceneComponentPlacement } from './domain/placement'
 import {
   createExportViewport,
   type ExportFormat,
@@ -37,6 +38,8 @@ import {
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
   getBreadboardInstances,
+  getBreadboardWorldBoundsMm,
+  getOpticalTableWorldBoundsMm,
   getWorkspacePrimaryBreadboard,
 } from './domain/workspace'
 import type { WorkspaceKind } from './domain/types'
@@ -168,6 +171,13 @@ function writeStoredSnapshot(key: string, value?: string) {
   window.localStorage.setItem(key, value)
 }
 
+function getBoundsCenterMm(bounds: { x: number; y: number; width: number; height: number }) {
+  return {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  }
+}
+
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
@@ -213,6 +223,7 @@ function App() {
   )
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
+  const resetViewport = useEditorStore((state) => state.resetViewport)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
@@ -246,6 +257,8 @@ function App() {
   const [svgAmbiguityState, setSvgAmbiguityState] =
     useState<SvgImportPendingAmbiguityState>()
   const [svgImportNotice, setSvgImportNotice] = useState<string | undefined>()
+  const [showComponentLabels, setShowComponentLabels] = useState(true)
+  const [showPostHolders, setShowPostHolders] = useState(false)
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
@@ -852,6 +865,60 @@ function App() {
     })
   }
 
+  const handleCenterSelection = () => {
+    const viewport = useEditorStore.getState().viewport
+
+    const focusPointMm = (() => {
+      if (selection.type === 'component') {
+        const component = scene.components.find(
+          (candidate) => candidate.id === selection.componentId,
+        )
+
+        if (!component) {
+          return undefined
+        }
+
+        const placement = inspectSceneComponentPlacement(scene, component)
+        return getBoundsCenterMm(placement.supportBoundsMm)
+      }
+
+      if (selection.type === 'breadboard') {
+        if (scene.workspace.kind === 'single-breadboard') {
+          return getBoundsCenterMm(getBreadboardWorldBoundsMm(primaryBreadboard))
+        }
+
+        const breadboard = breadboardInstances.find(
+          (candidate) => candidate.id === selection.surfaceId,
+        )
+
+        return breadboard
+          ? getBoundsCenterMm(
+              getBreadboardWorldBoundsMm(
+                breadboard.model,
+                breadboard.anchorMm,
+                breadboard.rotationQuarterTurns,
+              ),
+            )
+          : undefined
+      }
+
+      if (scene.workspace.kind === 'optical-table') {
+        return getBoundsCenterMm(getOpticalTableWorldBoundsMm(scene.workspace.table))
+      }
+
+      return getBoundsCenterMm(getBreadboardWorldBoundsMm(primaryBreadboard))
+    })()
+
+    if (!focusPointMm) {
+      return
+    }
+
+    useEditorStore.getState().setViewport({
+      ...viewport,
+      cameraCenterMm: focusPointMm,
+    })
+  }
+
   const handleOpenTutorial = () => {
     markOnboardingSeen()
     setIsTutorialModalOpen(true)
@@ -918,6 +985,17 @@ function App() {
       setRasterExportRequest(undefined)
     },
     [],
+  )
+
+  const handleExportStageReady = useCallback(
+    (stage: Konva.Stage | null) => {
+      if (!stage || !rasterExportRequest) {
+        return
+      }
+
+      void finalizeRasterExport(stage, rasterExportRequest)
+    },
+    [finalizeRasterExport, rasterExportRequest],
   )
 
   useEffect(() => {
@@ -1402,13 +1480,40 @@ function App() {
             </div>
           ) : null}
 
-          <SchemaStage
-            beamTrace={beamTrace}
-            gaussianTrace={gaussianTrace}
-            highlightedComponentIds={highlightedComponentIds}
-            highlightedInteractionIds={highlightedInteractionIds}
-            highlightedPathIds={highlightedPathIds}
-          />
+          <div className="canvas-panel__stage-shell">
+            <SchemaStage
+              beamTrace={beamTrace}
+              gaussianTrace={gaussianTrace}
+              highlightedComponentIds={highlightedComponentIds}
+              highlightedInteractionIds={highlightedInteractionIds}
+              highlightedPathIds={highlightedPathIds}
+              showLabels={showComponentLabels}
+              showPostHolders={showPostHolders}
+            />
+
+            <div className="canvas-toolbar" aria-label="Canvas controls">
+              <button
+                className={showComponentLabels ? undefined : 'is-active-tool'}
+                onClick={() => setShowComponentLabels((current) => !current)}
+                type="button"
+              >
+                {showComponentLabels ? 'Hide Labels' : 'Show Labels'}
+              </button>
+              <button onClick={handleCenterSelection} type="button">
+                Center Selection
+              </button>
+              <button onClick={resetViewport} type="button">
+                Reset View
+              </button>
+              <button
+                className={showPostHolders ? 'is-active-tool' : undefined}
+                onClick={() => setShowPostHolders((current) => !current)}
+                type="button"
+              >
+                {showPostHolders ? 'Hide Post Holders' : 'Show Post Holders'}
+              </button>
+            </div>
+          </div>
 
           <div className="canvas-status">
             <span>
@@ -1637,15 +1742,12 @@ function App() {
           beamTrace={beamTrace}
           breadboardSurfaceId={exportBreadboardSurfaceId}
           gaussianTrace={gaussianTrace}
-          onReady={(stage) => {
-            if (stage && rasterExportRequest) {
-              void finalizeRasterExport(stage, rasterExportRequest)
-            }
-          }}
+          onReady={handleExportStageReady}
           renderMode={renderMode}
           scene={scene}
           scope={rasterExportRequest.scope}
           showGaussianEnvelope={interaction.showGaussianEnvelope}
+          showLabels={showComponentLabels}
           viewport={exportViewport}
         />
       ) : null}

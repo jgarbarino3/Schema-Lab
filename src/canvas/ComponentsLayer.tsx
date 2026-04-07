@@ -26,6 +26,8 @@ interface ComponentsLayerProps {
   hoveredComponentId?: string
   highlightedComponentIds?: string[]
   isPanMode: boolean
+  showLabels?: boolean
+  showPostHolders?: boolean
   onBeginComponentDrag: (componentId: string) => void
   onCommitComponentDrag: (
     componentId: string,
@@ -67,6 +69,8 @@ export function ComponentsLayer({
   hoveredComponentId,
   highlightedComponentIds,
   isPanMode,
+  showLabels = true,
+  showPostHolders = false,
   onBeginComponentDrag,
   onCommitComponentDrag,
   onHoverComponent,
@@ -135,6 +139,8 @@ export function ComponentsLayer({
           isDragEnabled={!isPanMode}
           isHovered={component.id === hoveredComponentId}
           isSelected={component.id === selectedComponentId}
+          showLabels={showLabels}
+          showPostHolders={showPostHolders}
           key={component.id}
           onDragEnd={(componentId, screenPointPx) => {
             onCommitComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
@@ -183,6 +189,7 @@ export function ComponentsLayer({
             isSelected={false}
             placementStatus={pendingPlacementResult.status}
             renderMode={renderMode}
+            showLabels={showLabels}
             viewport={viewport}
           />
 
@@ -235,6 +242,7 @@ export function ComponentsLayer({
             isSelected={false}
             placementStatus={previewPlacement.status}
             renderMode={renderMode}
+            showLabels={showLabels}
             viewport={viewport}
           />
 

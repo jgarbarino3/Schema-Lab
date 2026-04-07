@@ -29,6 +29,7 @@ interface ExportStageProps {
   renderMode: RenderMode
   scene: SceneDocument
   scope: ExportScope
+  showLabels?: boolean
   showGaussianEnvelope: boolean
   viewport: ViewportState
 }
@@ -41,6 +42,7 @@ export function ExportStage({
   renderMode,
   scene,
   scope,
+  showLabels = true,
   showGaussianEnvelope,
   viewport,
 }: ExportStageProps) {
@@ -124,6 +126,7 @@ export function ExportStage({
                 labelColor: '#16202a',
               }}
               renderInLayer={false}
+              showLabels={showLabels}
               showSourceLanes={false}
               viewport={viewport}
             />
@@ -134,6 +137,7 @@ export function ExportStage({
               isSelected={false}
               onSelect={() => undefined}
               renderInLayer={false}
+              showLabels={showLabels}
               viewport={viewport}
             />
           )}
@@ -150,6 +154,7 @@ export function ExportStage({
               onSelect={() => undefined}
               renderInLayer={false}
               rotationQuarterTurns={breadboard.rotationQuarterTurns}
+              showLabels={showLabels}
               viewport={viewport}
             />
           ))}
@@ -184,6 +189,7 @@ export function ExportStage({
           onUpdateComponentDrag={() => undefined}
           renderMode={renderMode}
           scene={scene}
+          showLabels={showLabels}
           snapMode="none"
           viewport={viewport}
         />

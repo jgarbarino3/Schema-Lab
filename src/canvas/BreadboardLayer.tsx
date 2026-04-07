@@ -36,6 +36,7 @@ interface BreadboardLayerProps {
   renderInLayer?: boolean
   rotationQuarterTurns?: QuarterTurn
   showSourceLanes?: boolean
+  showLabels?: boolean
   viewport: ViewportState
 }
 
@@ -53,6 +54,7 @@ export function BreadboardLayer({
   renderInLayer = true,
   rotationQuarterTurns = 0,
   showSourceLanes = true,
+  showLabels = true,
   viewport,
 }: BreadboardLayerProps) {
   const boardOriginPx = worldToScreen(anchorMm, viewport)
@@ -160,26 +162,28 @@ export function BreadboardLayer({
             x={lane.x}
             y={lane.y}
           />
-          {lane.key === 'left' || lane.key === 'right' ? (
-            <Text
-              fill="rgba(165, 199, 214, 0.7)"
-              fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-              fontSize={6.5}
-              rotation={-90}
-              text={lane.label}
-              x={lane.x + lane.width / 2 - 2}
-              y={lane.y + lane.height / 2 + 18}
-            />
-          ) : (
-            <Text
-              fill="rgba(165, 199, 214, 0.7)"
-              fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-              fontSize={6.5}
-              text={lane.label}
-              x={lane.x + 6}
-              y={lane.y + lane.height / 2 - 4}
-            />
-          )}
+          {showLabels ? (
+            lane.key === 'left' || lane.key === 'right' ? (
+              <Text
+                fill="rgba(165, 199, 214, 0.7)"
+                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+                fontSize={6.5}
+                rotation={-90}
+                text={lane.label}
+                x={lane.x + lane.width / 2 - 2}
+                y={lane.y + lane.height / 2 + 18}
+              />
+            ) : (
+              <Text
+                fill="rgba(165, 199, 214, 0.7)"
+                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+                fontSize={6.5}
+                text={lane.label}
+                x={lane.x + 6}
+                y={lane.y + lane.height / 2 - 4}
+              />
+            )
+          ) : null}
         </Group>
       ))}
 
@@ -218,15 +222,17 @@ export function BreadboardLayer({
         )),
       )}
 
-      <Text
-        fill={labelColor}
-        fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-        fontSize={6.4}
-        listening={false}
-        text={boardLabelText}
-        x={2}
-        y={-10}
-      />
+      {showLabels ? (
+        <Text
+          fill={labelColor}
+          fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
+          fontSize={6.4}
+          listening={false}
+          text={boardLabelText}
+          x={2}
+          y={-10}
+        />
+      ) : null}
     </Group>
   )
 

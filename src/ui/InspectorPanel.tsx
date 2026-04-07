@@ -20,6 +20,8 @@ import {
   getComponentVariants,
   getResolvedComponentSpecForInstance,
   isOpticalTarget,
+  isPostMountedType,
+  DEFAULT_POST_HOLDER_DIAMETER_MM,
   supportsMountToggle,
 } from '../domain/componentCatalog'
 import { inspectSceneComponentPlacement } from '../domain/placement'
@@ -660,6 +662,12 @@ export function InspectorPanel({
   )
   const updateSelectedGeometryOverride = useEditorStore(
     (state) => state.updateSelectedGeometryOverride,
+  )
+  const clearSelectedGeometryOverride = useEditorStore(
+    (state) => state.clearSelectedGeometryOverride,
+  )
+  const updateSelectedPostHolderDiameter = useEditorStore(
+    (state) => state.updateSelectedPostHolderDiameter,
   )
   const applySupportToType = useEditorStore((state) => state.applySupportToType)
   const setMountDefaultForType = useEditorStore(
@@ -1405,11 +1413,43 @@ export function InspectorPanel({
                 value={spec.footprintBoundsMm.height}
               />
             </div>
+            {inspectedComponent.geometryOverride ? (
+              <div className="inspector__action-row">
+                <button
+                  className="inspector__action-button"
+                  onClick={() => clearSelectedGeometryOverride()}
+                  type="button"
+                >
+                  Revert to Default Sizing
+                </button>
+              </div>
+            ) : null}
             <p className="inspector__hint">
-              Canvas resize handles and these numeric fields update the same
+              Canvas resize +/- buttons and these numeric fields update the same
               per-instance geometry override.
             </p>
           </CollapsibleSection>
+
+          {isPostMountedType(inspectedComponent.type) ? (
+            <CollapsibleSection title="Post Holder Override">
+              <div className="inspector__grid">
+                <NumberField
+                  label="Liquid glass post holder diameter (mm)"
+                  onChange={(diameterMm) =>
+                    updateSelectedPostHolderDiameter(diameterMm)
+                  }
+                  step={0.5}
+                  value={
+                    inspectedComponent.config.postHolderDiameterMm ??
+                    DEFAULT_POST_HOLDER_DIAMETER_MM
+                  }
+                />
+              </div>
+              <p className="inspector__hint">
+                Visible in canvas when simple mode is active and "Show Post Holders" is enabled from the bottom toolbar.
+              </p>
+            </CollapsibleSection>
+          ) : null}
           {supportsMountToggle(inspectedComponent.type) ? (
             <CollapsibleSection title="Integrated Mount">
               <div className="inspector__button-row">

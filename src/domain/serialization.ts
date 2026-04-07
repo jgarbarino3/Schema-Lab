@@ -557,6 +557,10 @@ function parseComponentConfig(
             includeMount: value.support.includeMount,
           }
         : defaults.support,
+    postHolderDiameterMm:
+      typeof value.postHolderDiameterMm === 'number'
+        ? expectNumber(value, 'postHolderDiameterMm')
+        : undefined,
   }
 }
 

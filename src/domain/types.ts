@@ -662,6 +662,7 @@ export interface ComponentConfig {
   telescope?: TelescopeConfig
   opa?: OpaConfig
   support?: ComponentSupportConfig
+  postHolderDiameterMm?: number
 }
 
 export interface ComponentInstance {
