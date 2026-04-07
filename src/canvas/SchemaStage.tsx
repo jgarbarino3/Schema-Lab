@@ -23,6 +23,8 @@ interface SchemaStageProps {
   highlightedComponentIds?: string[]
   highlightedInteractionIds?: string[]
   highlightedPathIds?: string[]
+  showLabels?: boolean
+  showPostHolders?: boolean
   onStageReady?: (stage: Konva.Stage | null) => void
 }
 
@@ -32,6 +34,8 @@ export function SchemaStage({
   highlightedComponentIds = [],
   highlightedInteractionIds = [],
   highlightedPathIds = [],
+  showLabels = true,
+  showPostHolders = false,
   onStageReady,
 }: SchemaStageProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -664,7 +668,7 @@ export function SchemaStage({
                 anchorMm={{ x: 0, y: 0 }}
                 breadboard={opticalTableBoard}
                 isSelected={selection.type === 'optical-table'}
-                onSelect={handleOpticalTableSelect}
+                onSelect={() => handleOpticalTableSelect()}
                 palette={{
                   boardFill: '#a8b0b6',
                   boardStroke: '#d4dae0',
@@ -672,6 +676,7 @@ export function SchemaStage({
                   labelColor: '#16202a',
                 }}
                 renderInLayer={false}
+                showLabels={showLabels}
                 showSourceLanes={false}
                 viewport={viewport}
               />
@@ -687,17 +692,14 @@ export function SchemaStage({
                   handleBackgroundSelect(event)
                 }}
                 renderInLayer={false}
+                showLabels={showLabels}
                 viewport={viewport}
               />
             )}
 
             {breadboardInstances.map((breadboard) => (
               <BreadboardLayer
-                anchorMm={
-                  interaction.breadboardDragPreview?.breadboardId === breadboard.id
-                    ? interaction.breadboardDragPreview.candidateAnchorMm
-                    : breadboard.anchorMm
-                }
+                anchorMm={breadboard.anchorMm}
                 breadboard={{
                   ...breadboard.model,
                   label: breadboard.label,
@@ -718,6 +720,7 @@ export function SchemaStage({
                 onSelect={() => handleBreadboardSelect(breadboard.id)}
                 renderInLayer={false}
                 rotationQuarterTurns={breadboard.rotationQuarterTurns}
+                showLabels={showLabels}
                 viewport={viewport}
               />
             ))}
@@ -739,6 +742,7 @@ export function SchemaStage({
                 rotationQuarterTurns={
                   interaction.pendingBreadboardPlacement.rotationQuarterTurns
                 }
+                showLabels={showLabels}
                 showSourceLanes={false}
                 viewport={viewport}
               />
@@ -785,6 +789,8 @@ export function SchemaStage({
             pendingPlacement={interaction.pendingPlacement}
             renderMode={renderMode}
             scene={scene}
+            showLabels={showLabels}
+            showPostHolders={showPostHolders}
             selectedComponentId={
               selection.type === 'component' ? selection.componentId : undefined
             }

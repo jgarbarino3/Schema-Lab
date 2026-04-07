@@ -9,6 +9,7 @@ import {
   getComponentDefinition,
   getResolvedComponentSpec,
   isOpticalTarget,
+  isPostMountedType,
   shouldIncludeDefaultMount,
   supportsMountToggle,
 } from '../domain/componentCatalog'
@@ -250,6 +251,8 @@ interface EditorStore {
     widthMm?: number
     heightMm?: number
   }) => void
+  clearSelectedGeometryOverride: () => void
+  updateSelectedPostHolderDiameter: (diameterMm: number) => void
   applySupportToType: (type: ComponentType, includeMount: boolean) => void
   setMountDefaultForType: (type: ComponentType, includeMount: boolean) => void
   rotateSelectedComponent: (direction: -1 | 1) => void
@@ -2976,6 +2979,61 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }, {
         mergeKey: `geometry:${selectedComponent.id}`,
+      })
+    })
+  },
+
+  clearSelectedGeometryOverride: () => {
+    set((state) => {
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || !selectedComponent.geometryOverride) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  geometryOverride: undefined,
+                }
+              : component,
+          ),
+        },
+      }, {
+        mergeKey: `geometry:${selectedComponent.id}`,
+      })
+    })
+  },
+
+  updateSelectedPostHolderDiameter: (diameterMm: number) => {
+    set((state) => {
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent || !isPostMountedType(selectedComponent.type)) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: {
+                    ...component.config,
+                    postHolderDiameterMm: diameterMm,
+                  },
+                }
+              : component,
+          ),
+        },
+      }, {
+        mergeKey: `post-holder-diameter:${selectedComponent.id}`,
       })
     })
   },

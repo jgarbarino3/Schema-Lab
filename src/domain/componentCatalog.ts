@@ -191,6 +191,24 @@ const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
   'detector',
 ]
 
+export const DEFAULT_POST_HOLDER_DIAMETER_MM = 20
+
+const POST_MOUNTED_TYPES: ComponentType[] = [
+  'mirror',
+  'curved-mirror',
+  'beamsplitter',
+  'lens',
+  'filter',
+  'polarizer',
+  'waveplate',
+  'iris',
+  'detector',
+]
+
+export function isPostMountedType(type: ComponentType) {
+  return POST_MOUNTED_TYPES.includes(type)
+}
+
 function includesDefaultMount(type: ComponentType) {
   return MOUNTED_COMPONENT_TYPES.includes(type)
 }

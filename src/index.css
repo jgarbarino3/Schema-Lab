@@ -754,6 +754,46 @@ textarea {
   overflow: hidden;
 }
 
+.canvas-panel__stage-shell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.canvas-toolbar {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  align-items: center;
+  max-width: calc(100% - 2rem);
+  padding: 0.42rem;
+  border: 1px solid rgba(145, 202, 222, 0.2);
+  border-radius: 999px;
+  background: rgba(9, 13, 17, 0.68);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.canvas-toolbar button {
+  padding: 0.42rem 0.72rem;
+  border-color: rgba(145, 202, 222, 0.14);
+  background: linear-gradient(180deg, rgba(24, 33, 40, 0.94), rgba(16, 22, 28, 0.94));
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.canvas-toolbar button.is-active-tool {
+  border-color: rgba(145, 202, 222, 0.72);
+  background: linear-gradient(180deg, rgba(31, 56, 66, 0.96), rgba(19, 34, 40, 0.96));
+  color: var(--accent-strong);
+}
+
 .canvas-panel__header {
   display: flex;
   justify-content: space-between;
