@@ -122,8 +122,18 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     })
   }
 
+  const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`)
+    e.currentTarget.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`)
+  }
+
   return (
-    <aside className="panel component-library" data-tour="component-library">
+    <aside 
+      className="panel component-library" 
+      data-tour="component-library"
+      onMouseMove={handleMouseMove}
+    >
       <div className="panel__header">
         <div className="panel__header-top">
           <h2>Component Families</h2>

@@ -653,7 +653,11 @@ export function SchemaStage({
         >
           <Layer>
             <Rect
-              fill="#0b1014"
+              fillRadialGradientStartPoint={{ x: viewport.canvasSizePx.width / 2, y: viewport.canvasSizePx.height / 2 }}
+              fillRadialGradientStartRadius={0}
+              fillRadialGradientEndPoint={{ x: viewport.canvasSizePx.width / 2, y: viewport.canvasSizePx.height / 2 }}
+              fillRadialGradientEndRadius={Math.max(viewport.canvasSizePx.width, viewport.canvasSizePx.height)}
+              fillRadialGradientColorStops={[0, '#111920', 1, '#0b1014']}
               height={viewport.canvasSizePx.height}
               name="stage-background-hit"
               onClick={(event) => handleBackgroundSelect(event)}
@@ -839,7 +843,14 @@ export function SchemaStage({
             </Layer>
           ) : null}
 
-          <RulerLayer viewport={viewport} />
+          <RulerLayer 
+            cursorScreenPx={
+              interaction.cursorWorldMm
+                ? worldToScreen(interaction.cursorWorldMm, viewport)
+                : undefined
+            }
+            viewport={viewport} 
+          />
         </Stage>
       ) : null}
     </div>

@@ -28,10 +28,11 @@ function getVisibleStepRange(
 }
 
 interface RulerLayerProps {
+  cursorScreenPx?: { x: number; y: number }
   viewport: ViewportState
 }
 
-export function RulerLayer({ viewport }: RulerLayerProps) {
+export function RulerLayer({ cursorScreenPx, viewport }: RulerLayerProps) {
   const stepMm = pickRulerStepMm(viewport.zoomPxPerMm)
   const visibleLeftMm = screenToWorld({ x: LEFT_RULER_WIDTH_PX, y: 0 }, viewport).x
   const visibleRightMm = screenToWorld(
@@ -158,6 +159,22 @@ export function RulerLayer({ viewport }: RulerLayerProps) {
           />
         )
       })}
+
+      {cursorScreenPx && cursorScreenPx.x >= LEFT_RULER_WIDTH_PX && cursorScreenPx.x <= viewport.canvasSizePx.width ? (
+        <Line 
+          points={[cursorScreenPx.x, 0, cursorScreenPx.x, TOP_RULER_HEIGHT_PX]}
+          stroke="rgba(141, 201, 220, 0.45)"
+          strokeWidth={1}
+        />
+      ) : null}
+
+      {cursorScreenPx && cursorScreenPx.y >= TOP_RULER_HEIGHT_PX && cursorScreenPx.y <= viewport.canvasSizePx.height ? (
+        <Line 
+          points={[0, cursorScreenPx.y, LEFT_RULER_WIDTH_PX, cursorScreenPx.y]}
+          stroke="rgba(141, 201, 220, 0.45)"
+          strokeWidth={1}
+        />
+      ) : null}
     </Layer>
   )
 }

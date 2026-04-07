@@ -73,6 +73,7 @@ interface NumberFieldProps {
   label: string
   onChange: (value: number) => void
   step?: number
+  suffix?: string
   value: number
 }
 
@@ -80,26 +81,38 @@ function NumberField({
   label,
   onChange,
   step = 0.1,
+  suffix,
   value,
 }: NumberFieldProps) {
+  const input = (
+    <input
+      onChange={(event) => {
+        if (event.target.value === '') {
+          return
+        }
+
+        const nextValue = Number(event.target.value)
+
+        if (Number.isFinite(nextValue)) {
+          onChange(nextValue)
+        }
+      }}
+      step={step}
+      type="number"
+      value={value}
+    />
+  )
+
   return (
     <Field label={label}>
-      <input
-        onChange={(event) => {
-          if (event.target.value === '') {
-            return
-          }
-
-          const nextValue = Number(event.target.value)
-
-          if (Number.isFinite(nextValue)) {
-            onChange(nextValue)
-          }
-        }}
-        step={step}
-        type="number"
-        value={value}
-      />
+      {suffix ? (
+        <div className="inspector__input-with-suffix">
+          {input}
+          <span className="inspector__input-suffix">{suffix}</span>
+        </div>
+      ) : (
+        input
+      )}
     </Field>
   )
 }
@@ -725,6 +738,12 @@ export function InspectorPanel({
     activeBreadboardInstance?.label ??
     activeBreadboard.label
 
+  const handleMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`)
+    e.currentTarget.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`)
+  }
+
   if (!inspectedComponent) {
     const holeCounts = getBreadboardHoleCounts(activeBreadboard)
     const effectivePitchMm = getEffectiveHolePitchMm(activeBreadboard)
@@ -733,7 +752,7 @@ export function InspectorPanel({
     ).length
 
     return (
-      <aside className="panel inspector" data-tour="inspector">
+      <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
         <div className="panel__header">
           <span className="panel__eyebrow">{inspectorMode}</span>
           <div className="panel__header-top">
@@ -782,25 +801,29 @@ export function InspectorPanel({
               <>
                 <div className="inspector__grid">
                   <NumberField
-                    label="Table width (mm)"
+                    label="Table width"
+                    suffix="mm"
                     onChange={(widthMm) => updateOpticalTable({ widthMm })}
                     step={10}
                     value={opticalTable.widthMm}
                   />
                   <NumberField
-                    label="Table height (mm)"
+                    label="Table height"
+                    suffix="mm"
                     onChange={(heightMm) => updateOpticalTable({ heightMm })}
                     step={10}
                     value={opticalTable.heightMm}
                   />
                   <NumberField
-                    label="Hole spacing (mm)"
+                    label="Hole spacing"
+                    suffix="mm"
                     onChange={(holeSpacingMm) => updateOpticalTable({ holeSpacingMm })}
                     step={0.5}
                     value={opticalTable.holeSpacingMm}
                   />
                   <NumberField
-                    label="Edge margin (mm)"
+                    label="Edge margin"
+                    suffix="mm"
                     onChange={(edgeMarginMm) => updateOpticalTable({ edgeMarginMm })}
                     step={0.5}
                     value={opticalTable.edgeMarginMm}
@@ -809,7 +832,8 @@ export function InspectorPanel({
 
                 <div className="inspector__grid">
                   <NumberField
-                    label="Thickness (mm)"
+                    label="Thickness"
+                    suffix="mm"
                     onChange={(thicknessMm) => updateOpticalTable({ thicknessMm })}
                     step={0.5}
                     value={opticalTable.thicknessMm}
@@ -865,7 +889,8 @@ export function InspectorPanel({
             {activeBreadboardInstance && opticalTable ? (
               <div className="inspector__grid">
                 <NumberField
-                  label="X position (mm)"
+                  label="X position"
+                    suffix="mm"
                   onChange={(x) =>
                     updateBreadboardPosition(activeBreadboardInstance.id, {
                       x,
@@ -876,7 +901,8 @@ export function InspectorPanel({
                   value={activeBreadboardInstance.anchorMm.x}
                 />
                 <NumberField
-                  label="Y position (mm)"
+                  label="Y position"
+                    suffix="mm"
                   onChange={(y) =>
                     updateBreadboardPosition(activeBreadboardInstance.id, {
                       x: activeBreadboardInstance.anchorMm.x,
@@ -891,31 +917,36 @@ export function InspectorPanel({
 
             <div className="inspector__grid">
               <NumberField
-                label="Width (mm)"
+                label="Width"
+                    suffix="mm"
                 onChange={(widthMm) => updateBreadboard({ widthMm })}
                 step={1}
                 value={activeBreadboard.widthMm}
               />
               <NumberField
-                label="Height (mm)"
+                label="Height"
+                    suffix="mm"
                 onChange={(heightMm) => updateBreadboard({ heightMm })}
                 step={1}
                 value={activeBreadboard.heightMm}
               />
               <NumberField
-                label="Hole spacing (mm)"
+                label="Hole spacing"
+                    suffix="mm"
                 onChange={(holeSpacingMm) => updateBreadboard({ holeSpacingMm })}
                 step={0.5}
                 value={activeBreadboard.holeSpacingMm}
               />
               <NumberField
-                label="Edge margin (mm)"
+                label="Edge margin"
+                    suffix="mm"
                 onChange={(edgeMarginMm) => updateBreadboard({ edgeMarginMm })}
                 step={0.5}
                 value={activeBreadboard.edgeMarginMm}
               />
               <NumberField
-                label="Thickness (mm)"
+                label="Thickness"
+                    suffix="mm"
                 onChange={(thicknessMm) => updateBreadboard({ thicknessMm })}
                 step={0.1}
                 value={activeBreadboard.thicknessMm}
@@ -1072,7 +1103,8 @@ export function InspectorPanel({
               </Field>
 
               <NumberField
-                label="Shared beam height (mm)"
+                label="Shared beam height"
+                    suffix="mm"
                 onChange={(sharedBeamHeightMm) =>
                   updateBeamSettings({ sharedBeamHeightMm })
                 }
@@ -1080,7 +1112,8 @@ export function InspectorPanel({
                 value={scene.beamSettings.sharedBeamHeightMm}
               />
               <NumberField
-                label="Default diameter (mm)"
+                label="Default diameter"
+                    suffix="mm"
                 onChange={(defaultBeamDiameterMm) =>
                   updateBeamSettings({ defaultBeamDiameterMm })
                 }
@@ -1211,7 +1244,7 @@ export function InspectorPanel({
       component.id !== inspectedComponent.id && isOpticalTarget(component.type),
   )
   return (
-    <aside className="panel inspector" data-tour="inspector">
+    <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
       <div className="panel__header">
         <span className="panel__eyebrow">{inspectorMode}</span>
         <div className="panel__header-top">
@@ -1322,7 +1355,8 @@ export function InspectorPanel({
 
           <div className="inspector__grid">
             <NumberField
-              label="Anchor X (mm)"
+              label="Anchor X"
+                    suffix="mm"
               onChange={(x) =>
                 updateSelectedComponent({
                   anchorMm: { x, y: inspectedComponent.anchorMm.y },
@@ -1332,7 +1366,8 @@ export function InspectorPanel({
               value={inspectedComponent.anchorMm.x}
             />
             <NumberField
-              label="Anchor Y (mm)"
+              label="Anchor Y"
+                    suffix="mm"
               onChange={(y) =>
                 updateSelectedComponent({
                   anchorMm: { x: inspectedComponent.anchorMm.x, y },
@@ -1387,7 +1422,8 @@ export function InspectorPanel({
           <CollapsibleSection title="Geometry Overrides">
             <div className="inspector__grid">
               <NumberField
-                label="Footprint width (mm)"
+                label="Footprint width"
+                    suffix="mm"
                 onChange={(widthMm) =>
                   updateSelectedGeometryOverride({
                     widthMm,
@@ -1400,7 +1436,8 @@ export function InspectorPanel({
                 value={spec.footprintBoundsMm.width}
               />
               <NumberField
-                label="Footprint height (mm)"
+                label="Footprint height"
+                    suffix="mm"
                 onChange={(heightMm) =>
                   updateSelectedGeometryOverride({
                     widthMm:
@@ -1434,7 +1471,8 @@ export function InspectorPanel({
             <CollapsibleSection title="Post Holder Override">
               <div className="inspector__grid">
                 <NumberField
-                  label="Liquid glass post holder diameter (mm)"
+                  label="Liquid glass post holder diameter"
+                    suffix="mm"
                   onChange={(diameterMm) =>
                     updateSelectedPostHolderDiameter(diameterMm)
                   }
@@ -1598,19 +1636,22 @@ export function InspectorPanel({
 
             <div className="inspector__grid">
               <NumberField
-                label="Wavelength (nm)"
+                label="Wavelength"
+                    suffix="nm"
                 onChange={(wavelengthNm) => updateSelectedSource({ wavelengthNm })}
                 step={1}
                 value={inspectedComponent.config.source.wavelengthNm}
               />
               <NumberField
-                label="Bandwidth (nm)"
+                label="Bandwidth"
+                    suffix="nm"
                 onChange={(bandwidthNm) => updateSelectedSource({ bandwidthNm })}
                 step={0.1}
                 value={inspectedComponent.config.source.bandwidthNm}
               />
               <NumberField
-                label="Absolute power (mW)"
+                label="Absolute power"
+                    suffix="mW"
                 onChange={(powerMw) => updateSelectedSource({ powerMw })}
                 step={1}
                 value={inspectedComponent.config.source.powerMw}
@@ -1624,7 +1665,8 @@ export function InspectorPanel({
                 value={inspectedComponent.config.source.normalizedPowerPercent}
               />
               <NumberField
-                label="Beam diameter (mm)"
+                label="Beam diameter"
+                    suffix="mm"
                 onChange={(beamDiameterMm) => updateSelectedSource({ beamDiameterMm })}
                 step={0.1}
                 value={inspectedComponent.config.source.beamDiameterMm}
@@ -1659,7 +1701,8 @@ export function InspectorPanel({
                 {inspectedComponent.config.source.gaussianInputMode === 'explicit-waist' ? (
                   <>
                     <NumberField
-                      label="Waist radius (mm)"
+                      label="Waist radius"
+                    suffix="mm"
                       onChange={(waistRadiusMm) =>
                         updateSelectedSource({ waistRadiusMm })
                       }
@@ -1670,7 +1713,8 @@ export function InspectorPanel({
                       }
                     />
                     <NumberField
-                      label="Waist offset (mm)"
+                      label="Waist offset"
+                    suffix="mm"
                       onChange={(waistOffsetMm) =>
                         updateSelectedSource({ waistOffsetMm })
                       }
@@ -1763,7 +1807,8 @@ export function InspectorPanel({
                   value={sourcePolarization.outOfPlaneAmplitude}
                 />
                 <NumberField
-                  label="Relative phase (deg)"
+                  label="Relative phase"
+                    suffix="deg"
                   onChange={(relativePhaseDeg) =>
                     updateSelectedSource({
                       polarization: {
@@ -1823,13 +1868,15 @@ export function InspectorPanel({
 
             <div className="inspector__grid">
               <NumberField
-                label="Focal length (mm)"
+                label="Focal length"
+                    suffix="mm"
                 onChange={(focalLengthMm) => updateSelectedLens({ focalLengthMm })}
                 step={1}
                 value={inspectedComponent.config.lens.focalLengthMm}
               />
               <NumberField
-                label="Clear aperture (mm)"
+                label="Clear aperture"
+                    suffix="mm"
                 onChange={(clearApertureMm) =>
                   updateSelectedLens({ clearApertureMm })
                 }
@@ -1887,7 +1934,8 @@ export function InspectorPanel({
 
             <div className="inspector__grid">
               <NumberField
-                label="ROC (mm)"
+                label="ROC"
+                    suffix="mm"
                 onChange={(radiusOfCurvatureMm) =>
                   updateSelectedCurvedMirror({ radiusOfCurvatureMm })
                 }
@@ -1982,7 +2030,8 @@ export function InspectorPanel({
             <h3>Iris</h3>
 
             <NumberField
-              label="Aperture (mm)"
+              label="Aperture"
+                    suffix="mm"
               onChange={(apertureMm) => updateSelectedIris({ apertureMm })}
               step={0.1}
               value={inspectedComponent.config.iris.apertureMm}
@@ -2044,7 +2093,8 @@ export function InspectorPanel({
 
             <div className="inspector__grid">
               <NumberField
-                label="Axis (deg)"
+                label="Axis"
+                    suffix="deg"
                 onChange={(axisLocalDeg) => updateSelectedPolarizer({ axisLocalDeg })}
                 step={0.5}
                 value={inspectedComponent.config.polarizer.axisLocalDeg}
@@ -2102,13 +2152,15 @@ export function InspectorPanel({
                 </select>
               </Field>
               <NumberField
-                label="Axis (deg)"
+                label="Axis"
+                    suffix="deg"
                 onChange={(axisLocalDeg) => updateSelectedWaveplate({ axisLocalDeg })}
                 step={0.5}
                 value={inspectedComponent.config.waveplate.axisLocalDeg}
               />
               <NumberField
-                label="Retardance (deg)"
+                label="Retardance"
+                    suffix="deg"
                 onChange={(retardanceDeg) => updateSelectedWaveplate({ retardanceDeg })}
                 step={0.5}
                 value={inspectedComponent.config.waveplate.retardanceDeg}
@@ -2194,7 +2246,8 @@ export function InspectorPanel({
                 value={inspectedComponent.config.bboCrystal.thicknessUm}
               />
               <NumberField
-                label="Phase-matching angle (deg)"
+                label="Phase-matching angle"
+                    suffix="deg"
                 onChange={(phaseMatchingAngleDeg) =>
                   updateSelectedBboCrystal({ phaseMatchingAngleDeg })
                 }
@@ -2202,7 +2255,8 @@ export function InspectorPanel({
                 value={inspectedComponent.config.bboCrystal.phaseMatchingAngleDeg}
               />
               <NumberField
-                label="Polarization axis (deg)"
+                label="Polarization axis"
+                    suffix="deg"
                 onChange={(polarizationAxisLocalDeg) =>
                   updateSelectedBboCrystal({ polarizationAxisLocalDeg })
                 }
@@ -2280,19 +2334,22 @@ export function InspectorPanel({
                 />
               </Field>
               <NumberField
-                label="Position (mm)"
+                label="Position"
+                    suffix="mm"
                 onChange={(positionMm) => updateSelectedDelayLine({ positionMm })}
                 step={0.1}
                 value={inspectedComponent.config.delayLine.positionMm}
               />
               <NumberField
-                label="Travel (mm)"
+                label="Travel"
+                    suffix="mm"
                 onChange={(travelMm) => updateSelectedDelayLine({ travelMm })}
                 step={0.1}
                 value={inspectedComponent.config.delayLine.travelMm}
               />
               <NumberField
-                label="Zero offset (fs)"
+                label="Zero offset"
+                    suffix="fs"
                 onChange={(zeroDelayOffsetFs) =>
                   updateSelectedDelayLine({ zeroDelayOffsetFs })
                 }
@@ -2388,7 +2445,8 @@ export function InspectorPanel({
                 value={inspectedComponent.config.telescope.element2Mm}
               />
               <NumberField
-                label="Separation (mm)"
+                label="Separation"
+                    suffix="mm"
                 onChange={(separationMm) => updateSelectedTelescope({ separationMm })}
                 step={1}
                 value={inspectedComponent.config.telescope.separationMm}
@@ -2438,7 +2496,8 @@ export function InspectorPanel({
                 </select>
               </Field>
               <NumberField
-                label="Target λ (nm)"
+                label="Target λ"
+                    suffix="nm"
                 onChange={(targetWavelengthNm) =>
                   updateSelectedOpa({ targetWavelengthNm })
                 }
@@ -2446,7 +2505,8 @@ export function InspectorPanel({
                 value={inspectedComponent.config.opa.targetWavelengthNm ?? 650}
               />
               <NumberField
-                label="Bandwidth (nm)"
+                label="Bandwidth"
+                    suffix="nm"
                 onChange={(outputBandwidthNm) =>
                   updateSelectedOpa({ outputBandwidthNm })
                 }

@@ -136,18 +136,35 @@ export function BreadboardLayer({
       x={boardOriginPx.x}
       y={boardOriginPx.y}
     >
-      <Rect
-        cornerRadius={4}
-        fill={boardFill}
-        height={breadboard.heightMm}
-        name="breadboard-hit"
-        shadowBlur={6}
-        shadowColor="#000000"
-        shadowOpacity={0.22}
-        stroke={isSelected ? '#7ccce6' : boardStroke}
-        strokeWidth={isSelected ? 1.25 : 0.8}
-        width={breadboard.widthMm}
-      />
+      {palette?.boardFill || breadboard.finish === 'black-anodized' ? (
+        <Rect
+          cornerRadius={4}
+          fill={boardFill}
+          height={breadboard.heightMm}
+          name="breadboard-hit"
+          shadowBlur={6}
+          shadowColor="#000000"
+          shadowOpacity={0.22}
+          stroke={isSelected ? '#7ccce6' : boardStroke}
+          strokeWidth={isSelected ? 1.25 : 0.8}
+          width={breadboard.widthMm}
+        />
+      ) : (
+        <Rect
+          cornerRadius={4}
+          fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+          fillLinearGradientEndPoint={{ x: breadboard.widthMm, y: 0 }}
+          fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
+          height={breadboard.heightMm}
+          name="breadboard-hit"
+          shadowBlur={6}
+          shadowColor="#000000"
+          shadowOpacity={0.22}
+          stroke={isSelected ? '#7ccce6' : boardStroke}
+          strokeWidth={isSelected ? 1.25 : 0.8}
+          width={breadboard.widthMm}
+        />
+      )}
 
       {sourceLanes.map((lane) => (
         <Group key={lane.key} listening={false}>
@@ -195,6 +212,8 @@ export function BreadboardLayer({
           <Circle
             fill="#2c343b"
             radius={6.2}
+            shadowBlur={2}
+            shadowColor="rgba(255,255,255,0.08)"
             stroke="#56616b"
             strokeWidth={0.6}
             x={counterbore.x}

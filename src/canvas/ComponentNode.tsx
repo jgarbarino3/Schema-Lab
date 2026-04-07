@@ -16,6 +16,7 @@ import type {
   ViewportState,
 } from '../domain/types'
 import { ComponentGlyph } from './ComponentGlyph'
+import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
 
 interface ComponentNodeProps {
@@ -112,6 +113,10 @@ export function ComponentNode({
     showPostHolders &&
     renderMode === 'simple' &&
     isPostMountedType(instance.type)
+  const isEnabledSource = instance.config.source?.isEnabled && spec.renderHint.glyph === 'laser'
+  const sourceGlowColor = isEnabledSource
+    ? wavelengthToHex(instance.config.source?.wavelengthNm ?? 0)
+    : 'transparent'
 
   const handleSelect = () => {
     onSelect?.(instance.id)
@@ -260,6 +265,19 @@ export function ComponentNode({
           width={supportBoundsMm.width}
           x={supportBoundsMm.x}
           y={supportBoundsMm.y}
+        />
+      ) : null}
+
+      {isEnabledSource ? (
+        <Circle
+          fill="transparent"
+          listening={false}
+          radius={bodyBoundsMm.height * 1.6}
+          shadowBlur={18}
+          shadowColor={sourceGlowColor}
+          shadowOpacity={0.35}
+          x={bodyBoundsMm.x + bodyBoundsMm.width / 2}
+          y={bodyBoundsMm.y + bodyBoundsMm.height / 2}
         />
       ) : null}
 
