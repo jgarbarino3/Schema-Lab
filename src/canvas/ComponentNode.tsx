@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Circle, Group, Line, Rect, Text } from 'react-konva'
 import {
   getEffectiveSupportBoundsMm,
@@ -182,6 +183,50 @@ export function ComponentNode({
       heightMm: nextHeightMm,
     })
   }
+
+  const currentBoundsRef = useRef(footprintBoundsMm)
+  useEffect(() => {
+    currentBoundsRef.current = footprintBoundsMm
+  }, [footprintBoundsMm])
+
+  const resizeTimerRef = useRef<number | null>(null)
+
+  const doUniformResize = (incrementMm: number) => {
+    if (!onResize) return
+    onResize(instance.id, {
+      widthMm: Math.max(1, currentBoundsRef.current.width + incrementMm),
+      heightMm: Math.max(1, currentBoundsRef.current.height + incrementMm),
+    })
+  }
+
+  const startUniformResize = (incrementMm: number) => {
+    doUniformResize(incrementMm)
+
+    if (resizeTimerRef.current !== null) {
+      window.clearTimeout(resizeTimerRef.current)
+      window.clearInterval(resizeTimerRef.current)
+    }
+
+    const timeout = window.setTimeout(() => {
+      resizeTimerRef.current = window.setInterval(() => {
+        doUniformResize(incrementMm)
+      }, 70)
+    }, 400)
+    
+    resizeTimerRef.current = timeout
+  }
+
+  const stopUniformResize = () => {
+    if (resizeTimerRef.current !== null) {
+      window.clearTimeout(resizeTimerRef.current)
+      window.clearInterval(resizeTimerRef.current)
+      resizeTimerRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => stopUniformResize()
+  }, [])
 
   return (
     <Group
@@ -429,6 +474,39 @@ export function ComponentNode({
               />
             )
           })}
+          
+          <Group 
+             x={supportBoundsMm.x + supportBoundsMm.width + 4.8} 
+             y={supportBoundsMm.y + 3.2}
+             onMouseDown={(e) => { e.cancelBubble = true; startUniformResize(1) }}
+             onTouchStart={(e) => { e.cancelBubble = true; startUniformResize(1) }}
+             onMouseUp={(e) => { e.cancelBubble = true; stopUniformResize() }}
+             onTouchEnd={(e) => { e.cancelBubble = true; stopUniformResize() }}
+             onMouseEnter={(e) => { e.target.getStage()?.container().style.setProperty('cursor', 'pointer') }}
+             onMouseLeave={(e) => { 
+                e.target.getStage()?.container().style.setProperty('cursor', 'default')
+                stopUniformResize() 
+             }}
+           >
+             <Rect cornerRadius={1.6} fill="#4ba3bd" width={6.4} height={6.4} offsetX={3.2} offsetY={3.2} stroke="#10222a" strokeWidth={0.5} />
+             <Text text="+" fontSize={6.2} fill="#f1fbff" offsetX={1.9} offsetY={2.8} />
+          </Group>
+          <Group 
+             x={supportBoundsMm.x + supportBoundsMm.width + 4.8} 
+             y={supportBoundsMm.y + 11.2}
+             onMouseDown={(e) => { e.cancelBubble = true; startUniformResize(-1) }}
+             onTouchStart={(e) => { e.cancelBubble = true; startUniformResize(-1) }}
+             onMouseUp={(e) => { e.cancelBubble = true; stopUniformResize() }}
+             onTouchEnd={(e) => { e.cancelBubble = true; stopUniformResize() }}
+             onMouseEnter={(e) => { e.target.getStage()?.container().style.setProperty('cursor', 'pointer') }}
+             onMouseLeave={(e) => { 
+                e.target.getStage()?.container().style.setProperty('cursor', 'default')
+                stopUniformResize() 
+             }}
+           >
+             <Rect cornerRadius={1.6} fill="#4ba3bd" width={6.4} height={6.4} offsetX={3.2} offsetY={3.2} stroke="#10222a" strokeWidth={0.5} />
+             <Text text="-" fontSize={6.8} fill="#f1fbff" offsetX={1.5} offsetY={3} />
+          </Group>
         </>
       ) : null}
 
