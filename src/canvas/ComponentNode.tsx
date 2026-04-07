@@ -365,14 +365,14 @@ export function ComponentNode({
                   align="center"
                   fill={fill}
                   fontFamily="IBM Plex Sans, sans-serif"
-                  fontSize={4.4}
+                  fontSize={5.0}
                   fontStyle="bold"
                   listening={false}
                   opacity={0.9}
                   text={label}
                   width={10}
                   x={port.positionMm.x + labelOffsetX - 5}
-                  y={port.positionMm.y + labelOffsetY - 2.5}
+                  y={port.positionMm.y + labelOffsetY - 2.8}
                 />
               </Group>
             )
