@@ -132,6 +132,7 @@ export function ComponentNode({
     })
   }
 
+
   const startUniformResize = (incrementMm: number) => {
     doUniformResize(incrementMm)
 
@@ -364,14 +365,14 @@ export function ComponentNode({
                   align="center"
                   fill={fill}
                   fontFamily="IBM Plex Sans, sans-serif"
-                  fontSize={4.4}
+                  fontSize={5.0}
                   fontStyle="bold"
                   listening={false}
                   opacity={0.9}
                   text={label}
                   width={10}
                   x={port.positionMm.x + labelOffsetX - 5}
-                  y={port.positionMm.y + labelOffsetY - 2.5}
+                  y={port.positionMm.y + labelOffsetY - 2.8}
                 />
               </Group>
             )
@@ -410,6 +411,7 @@ export function ComponentNode({
 
       {isSelected && !isPreview && onResize ? (
         <>
+
           <Group 
              x={supportBoundsMm.x + supportBoundsMm.width + 4.8} 
              y={supportBoundsMm.y + 3.2}
