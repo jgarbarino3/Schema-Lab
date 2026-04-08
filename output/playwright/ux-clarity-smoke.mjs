@@ -53,6 +53,13 @@ try {
   })
   const componentFamilyButton = (name) =>
     page.locator('.component-library__item').filter({ hasText: name }).first()
+  const ensureLibraryGroupExpanded = async (headingName) => {
+    const groupButton = page.getByRole('button', { name: new RegExp(headingName, 'i') }).first()
+    const text = await groupButton.textContent()
+    if (text?.includes('▸')) {
+      await groupButton.click()
+    }
+  }
   const tourCard = page.locator('.tour-card')
   const exportMenu = page.locator('.toolbar__menu-popover')
   const exportDialog = page.getByRole('dialog', { name: 'Export options' })
@@ -223,6 +230,7 @@ try {
     process.exit(0)
   }
 
+  await ensureLibraryGroupExpanded('Beam Steering')
   await componentFamilyButton('Mirror').click()
   await page.getByRole('heading', { name: 'Pending Placement' }).waitFor()
   step('mirror placement armed')
@@ -247,6 +255,7 @@ try {
     .filter({ hasText: 'Snap' })
     .locator('select')
     .selectOption('none')
+  await ensureLibraryGroupExpanded('Beam Steering')
   await componentFamilyButton('Mirror').click()
   await clickStageRelative(0.53, 0.47)
   step('warning-producing placement committed')
