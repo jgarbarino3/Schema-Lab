@@ -77,6 +77,9 @@ describe('component catalog variants', () => {
       radiusOfCurvatureMm: 200,
       isConvex: false,
     })
+    expect(createDefaultComponentConfig('mirror', 'flip-mirror').flipMirror).toMatchObject({
+      isFlippedDown: true,
+    })
     expect(createDefaultComponentConfig('polarizer').polarizer?.extinctionRatio).toBeGreaterThan(100)
     expect(createDefaultComponentConfig('waveplate', 'quarter-wave').waveplate).toMatchObject({
       kind: 'quarter',

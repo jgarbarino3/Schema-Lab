@@ -85,6 +85,20 @@ describe('scene serialization', () => {
         },
       },
     })
+    scene.components.push({
+      id: 'flip-mirror-1',
+      type: 'mirror',
+      label: 'Main Flip',
+      variantId: 'flip-mirror',
+      anchorMm: { x: 90, y: 137.5 },
+      rotationQuarterTurns: 0,
+      config: {
+        ...createDefaultComponentConfig('mirror', 'flip-mirror'),
+        flipMirror: {
+          isFlippedDown: false,
+        },
+      },
+    })
 
     expect(parseSceneDocument(serializeSceneDocument(scene))).toEqual(scene)
   })

@@ -427,6 +427,17 @@ function parseComponentConfig(
                 : false,
           }
         : defaults.curvedMirror,
+    flipMirror:
+      isRecord(value.flipMirror) &&
+      type === 'mirror' &&
+      variantId === 'flip-mirror'
+        ? {
+            isFlippedDown:
+              typeof value.flipMirror.isFlippedDown === 'boolean'
+                ? value.flipMirror.isFlippedDown
+                : defaults.flipMirror?.isFlippedDown ?? true,
+          }
+        : defaults.flipMirror,
     polarizer:
       isRecord(value.polarizer) && type === 'polarizer'
         ? {

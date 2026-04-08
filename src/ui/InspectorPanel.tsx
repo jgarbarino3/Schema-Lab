@@ -653,6 +653,9 @@ export function InspectorPanel({
   const updateSelectedCurvedMirror = useEditorStore(
     (state) => state.updateSelectedCurvedMirror,
   )
+  const updateSelectedFlipMirror = useEditorStore(
+    (state) => state.updateSelectedFlipMirror,
+  )
   const updateSelectedAttenuator = useEditorStore(
     (state) => state.updateSelectedAttenuator,
   )
@@ -2336,6 +2339,39 @@ export function InspectorPanel({
                   {strongestGaussianInteraction?.outputLocal
                     ? `${strongestGaussianInteraction.outputLocal.waistOffsetMm.toFixed(2)} mm`
                     : 'n/a'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {inspectedComponent.type === 'mirror' &&
+        inspectedComponent.variantId === 'flip-mirror' &&
+        inspectedComponent.config.flipMirror ? (
+          <div className="inspector__subsection">
+            <h3>Flip Mirror</h3>
+
+            <Field label="State">
+              <select
+                onChange={(event) =>
+                  updateSelectedFlipMirror({
+                    isFlippedDown: event.target.value === 'down',
+                  })
+                }
+                value={inspectedComponent.config.flipMirror.isFlippedDown ? 'down' : 'up'}
+              >
+                <option value="down">Down (reflect)</option>
+                <option value="up">Up (pass-through)</option>
+              </select>
+            </Field>
+
+            <div className="inspector__readout">
+              <div>
+                <span>Beam behavior</span>
+                <strong>
+                  {inspectedComponent.config.flipMirror.isFlippedDown
+                    ? 'Reflect'
+                    : 'Pass-through'}
                 </strong>
               </div>
             </div>

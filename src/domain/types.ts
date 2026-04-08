@@ -639,6 +639,10 @@ export interface CurvedMirrorConfig {
   isConvex: boolean
 }
 
+export interface FlipMirrorConfig {
+  isFlippedDown: boolean
+}
+
 export interface PolarizerConfig {
   axisLocalDeg: number
   extinctionRatio: number
@@ -715,6 +719,7 @@ export interface ComponentConfig {
   beamSplitter?: BeamSplitterConfig
   lens?: LensConfig
   curvedMirror?: CurvedMirrorConfig
+  flipMirror?: FlipMirrorConfig
   attenuator?: {
     transmissionPercent: number
     orientation: 'horizontal' | 'vertical'

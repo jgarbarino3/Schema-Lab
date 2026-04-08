@@ -106,6 +106,64 @@ describe('deterministic beam tracing', () => {
     expect(escaped).toBeDefined()
   })
 
+  it('toggles flip-mirror behavior between reflection and pass-through', () => {
+    const source = makeEnabledSource({
+      anchorMm: { x: -60, y: 112.5 },
+    })
+    const flipMirrorBase = makeComponent('mirror', {
+      id: 'flip-mirror-1',
+      variantId: 'flip-mirror',
+      anchorMm: { x: 100, y: 112.5 },
+    })
+
+    const downTrace = traceSceneBeams(
+      makeScene([
+        source,
+        {
+          ...flipMirrorBase,
+          config: {
+            ...createDefaultComponentConfig('mirror', 'flip-mirror'),
+            flipMirror: {
+              isFlippedDown: true,
+            },
+          },
+        },
+      ]),
+    )
+    const downEvent = downTrace.events.find(
+      (event) => event.componentId === flipMirrorBase.id,
+    )
+
+    expect(downEvent?.interactionKind).toBe('reflection')
+    expect(downEvent?.reflectedPowerMw).toBeGreaterThan(90)
+
+    const upTrace = traceSceneBeams(
+      makeScene([
+        source,
+        {
+          ...flipMirrorBase,
+          config: {
+            ...createDefaultComponentConfig('mirror', 'flip-mirror'),
+            flipMirror: {
+              isFlippedDown: false,
+            },
+          },
+        },
+      ]),
+    )
+    const upEvent = upTrace.events.find((event) => event.componentId === flipMirrorBase.id)
+    const transmittedEscape = upTrace.segments.find(
+      (segment) =>
+        segment.status === 'escaped' &&
+        segment.directionMm.x > 0.99 &&
+        Math.abs(segment.directionMm.y) < 0.001,
+    )
+
+    expect(upEvent?.interactionKind).toBe('transmission')
+    expect(upEvent?.transmittedPowerMw).toBeGreaterThan(99)
+    expect(transmittedEscape).toBeDefined()
+  })
+
   it('splits beam power with configured beamsplitter ratio and loss', () => {
     const source = makeEnabledSource({
       anchorMm: { x: -60, y: 162.5 },

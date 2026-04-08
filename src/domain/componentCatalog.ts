@@ -19,6 +19,7 @@ import type {
   PolarizerConfig,
   PortDefinition,
   PortKind,
+  FlipMirrorConfig,
   RealisticVisualPreset,
   ResolvedComponentSpec,
   SourceLane,
@@ -988,6 +989,15 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         description: '1 in UV-enhanced aluminum mirror for post-BBO UV steering.',
         physics: mirrorPhysics(250, 700, 89, 4),
       },
+      {
+        id: 'flip-mirror',
+        label: 'Flip Mirror',
+        vendor: 'Generic',
+        sku: 'FLIP-MIRROR',
+        description:
+          'Flip mount mirror with two states: down reflects into a branch, up passes the beam straight through.',
+        physics: mirrorPhysics(450, 2000, 96.5, 1.8),
+      },
     ],
   },
   {
@@ -1323,7 +1333,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     variants: [
       {
         id: 'variable-nd-horizontal',
-        label: 'Variable ND Attenuator',
+        label: 'Variable ND Attenuator (Horizontal)',
         description: 'Scalar attenuation optic in a horizontal mount orientation.',
         physics: attenuatorPhysics({
           transmissionPercent: 50,
@@ -1335,7 +1345,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       },
       {
         id: 'variable-nd-vertical',
-        label: 'Variable ND Attenuator',
+        label: 'Variable ND Attenuator (Vertical)',
         description: 'Scalar attenuation optic in a vertical mount orientation.',
         physics: attenuatorPhysics({
           transmissionPercent: 50,
@@ -2130,6 +2140,17 @@ export function createDefaultComponentConfig(
       }
     }
     case 'mirror': {
+      if (spec.variantId === 'flip-mirror') {
+        const defaultConfig: FlipMirrorConfig = {
+          isFlippedDown: true,
+        }
+
+        return {
+          flipMirror: defaultConfig,
+          support: supportConfig,
+        }
+      }
+
       return supportConfig
         ? {
             support: supportConfig,

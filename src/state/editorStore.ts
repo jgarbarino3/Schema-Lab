@@ -74,6 +74,7 @@ import type {
   ComponentType,
   CurvedMirrorConfig,
   DelayLineConfig,
+  FlipMirrorConfig,
   OpticalTableModel,
   IrisConfig,
   LensConfig,
@@ -115,6 +116,7 @@ interface ComponentConfigUpdate {
   beamSplitter?: Partial<BeamSplitterConfig>
   lens?: Partial<LensConfig>
   curvedMirror?: Partial<CurvedMirrorConfig>
+  flipMirror?: Partial<FlipMirrorConfig>
   attenuator?: Partial<NonNullable<ComponentConfig['attenuator']>>
   polarizer?: Partial<PolarizerConfig>
   waveplate?: Partial<WaveplateConfig>
@@ -275,6 +277,7 @@ interface EditorStore {
   updateSelectedBeamSplitter: (update: Partial<BeamSplitterConfig>) => void
   updateSelectedLens: (update: Partial<LensConfig>) => void
   updateSelectedCurvedMirror: (update: Partial<CurvedMirrorConfig>) => void
+  updateSelectedFlipMirror: (update: Partial<FlipMirrorConfig>) => void
   updateSelectedAttenuator: (update: Partial<ComponentConfig['attenuator']>) => void
   updateSelectedPolarizer: (update: Partial<PolarizerConfig>) => void
   updateSelectedWaveplate: (update: Partial<WaveplateConfig>) => void
@@ -1105,6 +1108,14 @@ function mergeComponentConfig(
           ...update.curvedMirror,
         }
       : current.curvedMirror,
+    flipMirror: update.flipMirror
+      ? {
+          ...(current.flipMirror ?? {
+            isFlippedDown: true,
+          }),
+          ...update.flipMirror,
+        }
+      : current.flipMirror,
     attenuator: update.attenuator
       ? {
           ...(current.attenuator ?? {
@@ -3339,6 +3350,66 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }, {
         mergeKey: `curved-mirror:${selectedComponent.id}`,
+      })
+    })
+  },
+
+  updateSelectedFlipMirror: (update) => {
+    set((state) => {
+      if (
+        state.interaction.pendingPlacement?.draft.type === 'mirror' &&
+        state.interaction.pendingPlacement.draft.variantId === 'flip-mirror'
+      ) {
+        const pendingPlacement = state.interaction.pendingPlacement
+
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                config: mergeComponentConfig(pendingPlacement.draft.config, {
+                  flipMirror: {
+                    ...pendingPlacement.draft.config.flipMirror,
+                    ...update,
+                  },
+                }),
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (
+        !selectedComponent ||
+        selectedComponent.type !== 'mirror' ||
+        selectedComponent.variantId !== 'flip-mirror'
+      ) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          components: state.scene.components.map((component) =>
+            component.id === selectedComponent.id
+              ? {
+                  ...component,
+                  config: mergeComponentConfig(component.config, {
+                    flipMirror: {
+                      ...component.config.flipMirror,
+                      ...update,
+                    },
+                  }),
+                }
+              : component,
+          ),
+        },
+      }, {
+        mergeKey: `flip-mirror:${selectedComponent.id}`,
       })
     })
   },

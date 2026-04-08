@@ -740,6 +740,66 @@ function traceMirror(
     return undefined
   }
 
+  const isFlipMirror =
+    candidate.component.type === 'mirror' &&
+    candidate.component.variantId === 'flip-mirror'
+  const isFlippedDown = candidate.component.config.flipMirror?.isFlippedDown ?? true
+
+  if (isFlipMirror && !isFlippedDown) {
+    const outgoingPowerMw = roundMm(ray.powerMw)
+    const outgoingPowerPercent = roundMm((outgoingPowerMw / ray.sourcePowerMw) * 100)
+    const attenuationClass = classifyAttenuationClass({
+      acceptanceFraction: 1,
+      powerPercent: outgoingPowerPercent,
+      blocked: outgoingPowerMw <= MIN_POWER_MW,
+    })
+
+    return {
+      interactionKind: outgoingPowerMw > MIN_POWER_MW ? 'transmission' : 'blocked',
+      outcomeClass:
+        attenuationClass === 'blocked'
+          ? 'blocked'
+          : attenuationClass === 'low-power'
+            ? 'low-power'
+            : 'transmitted',
+      transmittedPowerMw: outgoingPowerMw,
+      lostPowerMw: 0,
+      acceptanceFraction: 1,
+      wasClipped: false,
+      partialAcceptance: false,
+      internalOpticalPathMm: 0,
+      outputPolarization: ray.polarization,
+      note: `${createNote(candidate.spec)} • flipped up (pass-through) • ${ray.polarization.tag}`,
+      outgoing:
+        outgoingPowerMw > MIN_POWER_MW
+          ? [
+              {
+                attenuationClass,
+                branchKind: 'continued',
+                directionMm: ray.directionMm,
+                originMm: addVectors(
+                  candidate.hitPointMm,
+                  scaleVector(ray.directionMm, RAY_EPSILON_MM),
+                ),
+                pathMode: 'continue',
+                pathRole: ray.pathRole,
+                polarization: ray.polarization,
+                powerMw: outgoingPowerMw,
+                wavelengthNm: ray.wavelengthNm,
+                bandwidthNm: ray.bandwidthNm,
+                beamDiameterMm: getBeamDiameterAtDistanceMm(
+                  ray.beamDiameterMm,
+                  ray.divergenceMrad,
+                  candidate.rayDistanceMm,
+                ),
+                generation: ray.generation,
+                outcomeClass: attenuationClass === 'low-power' ? 'low-power' : 'transmitted',
+              },
+            ]
+          : [],
+    }
+  }
+
   const surface = getSurfaceWorldSegment(candidate.component, candidate.spec)
   const surfaceNormalMm = getSurfaceNormalMm(surface.startMm, surface.endMm)
   const rangeFactor = getRangeFactor(
