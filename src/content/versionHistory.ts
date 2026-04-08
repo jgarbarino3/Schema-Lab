@@ -1,0 +1,71 @@
+export interface VersionHistoryEntry {
+  version: string
+  summary: string
+  highlights?: string[]
+}
+
+export const CURRENT_VERSION = 'v1.5'
+
+export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v1.5',
+    summary:
+      'Premium UI polish and seamless optical-table interactions make the current app feel like the first mature release.',
+    highlights: [
+      'Compact polished UI',
+      'Better table placement',
+      'Smoother multi-surface interaction',
+    ],
+  },
+  {
+    version: 'v1.4',
+    summary:
+      'SVG import and richer component editing made complex setups faster to build and refine.',
+    highlights: [
+      'Interpreted SVG import',
+      'Ambiguity review',
+      'Resize controls and glyph polish',
+    ],
+  },
+  {
+    version: 'v1.2',
+    summary:
+      'Onboarding and communication improved with tutorial flows, realistic top-down rendering, and beam-line annotations.',
+    highlights: ['Tutorial scene', 'Realistic mode', 'Beam lines'],
+  },
+  {
+    version: 'v1.0',
+    summary:
+      'Optical table mode introduced multi-breadboard planning and large-hardware layouts.',
+    highlights: [
+      'Optical table workspace',
+      'Multiple breadboards',
+      'Table-scale planning',
+    ],
+  },
+  {
+    version: 'v0.8',
+    summary:
+      'Practical planning workflows expanded with warnings, exports, touch navigation, and clearer placement behavior.',
+    highlights: [
+      'Warning review',
+      'Grouped and mechanical exports',
+      'Touch pinch support',
+    ],
+  },
+  {
+    version: 'v0.5',
+    summary:
+      'Beam tracing and Gaussian planning turned Schema-Lab from a layout tool into an optics analysis workspace.',
+    highlights: [
+      'Deterministic beam paths',
+      'Power bookkeeping',
+      'Gaussian layer',
+    ],
+  },
+  {
+    version: 'v0.1',
+    summary:
+      'Initial millimeter-first breadboard editor with core placement, rotation-aware optics, and scene save/load.',
+  },
+]

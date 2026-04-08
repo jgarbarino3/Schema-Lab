@@ -10,6 +10,7 @@ import {
 import type Konva from 'konva'
 import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
+import { CURRENT_VERSION } from './content/versionHistory'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
@@ -59,6 +60,7 @@ import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
 import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { TutorialModal } from './ui/TutorialModal'
+import { VersionHistoryModal } from './ui/VersionHistoryModal'
 import { WarningReviewModal } from './ui/WarningReviewModal'
 import { WorkspaceModeModal } from './ui/WorkspaceModeModal'
 
@@ -241,6 +243,7 @@ function App() {
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
+  const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
     readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
   )
@@ -1006,6 +1009,7 @@ function App() {
         !isSvgImportOptionsOpen &&
         !isSvgCalibrationOpen &&
         !isSvgAmbiguityOpen &&
+        !isVersionHistoryOpen &&
         !isTypingTarget(event.target)
       ) {
         event.preventDefault()
@@ -1079,6 +1083,12 @@ function App() {
           return
         }
 
+        if (isVersionHistoryOpen) {
+          event.preventDefault()
+          setIsVersionHistoryOpen(false)
+          return
+        }
+
         if (isWorkspaceModalOpen) {
           event.preventDefault()
           setWorkspaceModalState(undefined)
@@ -1100,7 +1110,8 @@ function App() {
         isJsonModalOpen ||
         isSvgImportOptionsOpen ||
         isSvgCalibrationOpen ||
-        isSvgAmbiguityOpen
+        isSvgAmbiguityOpen ||
+        isVersionHistoryOpen
       ) {
         return
       }
@@ -1185,6 +1196,7 @@ function App() {
     isSvgImportOptionsOpen,
     isJsonModalOpen,
     isTutorialModalOpen,
+    isVersionHistoryOpen,
     isWorkspaceModalOpen,
     isWarningReviewOpen,
     openToolbarMenu,
@@ -1456,6 +1468,14 @@ function App() {
                 power bookkeeping, and workspace-scale planning. Switch to table mode
                 to place multiple breadboards and design a full optical stack.
               </p>
+              <button
+                aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
+                className="canvas-panel__version-link"
+                onClick={() => setIsVersionHistoryOpen(true)}
+                type="button"
+              >
+                {CURRENT_VERSION}
+              </button>
             </div>
             <div className="canvas-panel__hint">
               <span>Scroll to pan</span>
@@ -1697,6 +1717,11 @@ function App() {
         isOpen={isTutorialModalOpen}
         onCancel={() => setIsTutorialModalOpen(false)}
         onConfirm={handleLoadTutorial}
+      />
+
+      <VersionHistoryModal
+        isOpen={isVersionHistoryOpen}
+        onClose={() => setIsVersionHistoryOpen(false)}
       />
 
       <OnboardingTour
