@@ -281,11 +281,6 @@ try {
     'Mirror 2',
   ])
 
-  await page
-    .locator('.toolbar__field')
-    .filter({ hasText: 'Snap' })
-    .locator('select')
-    .selectOption('none')
   await ensureLibraryGroupExpanded('Beam Steering')
   await componentFamilyButton('Mirror').click()
   await clickStageRelative(0.53, 0.47)

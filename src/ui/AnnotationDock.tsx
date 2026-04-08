@@ -32,13 +32,17 @@ export function AnnotationDock({
   const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
   const setTextToolVariant = useEditorStore((state) => state.setTextToolVariant)
 
-  const handleActivateTool = (tool: 'line' | 'text' | 'shape') => {
+  const handleActivateTool = (
+    tool: 'select' | 'pan' | 'line' | 'text' | 'shape',
+  ) => {
     onDone()
     setActiveTool(tool)
   }
 
   const highlightedTool =
-    selectedAnnotation?.kind === 'text'
+    interaction.activeTool === 'select' || interaction.activeTool === 'pan'
+      ? interaction.activeTool
+      : selectedAnnotation?.kind === 'text'
       ? 'text'
       : selectedAnnotation?.kind === 'shape'
         ? 'shape'
@@ -49,6 +53,34 @@ export function AnnotationDock({
   return (
     <div className="annotation-dock">
       <div className="annotation-dock__tools">
+        <button
+          aria-label="Select"
+          aria-pressed={highlightedTool === 'select'}
+          className={`toolbar__icon-button${highlightedTool === 'select' ? ' is-active' : ''}`}
+          data-tooltip="Select"
+          onClick={() => handleActivateTool('select')}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+            <path d="M13 13l6 6" />
+          </svg>
+        </button>
+        <button
+          aria-label="Hand"
+          aria-pressed={highlightedTool === 'pan'}
+          className={`toolbar__icon-button${highlightedTool === 'pan' ? ' is-active' : ''}`}
+          data-tooltip="Hand"
+          onClick={() => handleActivateTool('pan')}
+          type="button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
+            <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
+            <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
+            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+          </svg>
+        </button>
         <button
           aria-label="Line"
           aria-pressed={highlightedTool === 'line'}

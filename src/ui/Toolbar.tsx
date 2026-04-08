@@ -91,14 +91,12 @@ export function Toolbar({
   const [menuStyle, setMenuStyle] = useState<CSSProperties>()
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
-  const snapMode = useEditorStore((state) => state.snapMode)
   const renderMode = useEditorStore((state) => state.renderMode)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const mountVisibilityDefaults = useEditorStore(
     (state) => state.mountVisibilityDefaults,
   )
-  const setSnapMode = useEditorStore((state) => state.setSnapMode)
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setWarningFilter = useEditorStore((state) => state.setWarningFilter)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
@@ -110,7 +108,6 @@ export function Toolbar({
     (state) => state.restoreDismissedWarnings,
   )
   const interaction = useEditorStore((state) => state.interaction)
-  const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
@@ -656,49 +653,6 @@ export function Toolbar({
           </div>
 
           <div className="toolbar__controls toolbar__controls--primary" data-tour="toolbar-controls">
-            <div className="toolbar__tool-group">
-              <button
-                aria-label="Select"
-                aria-pressed={interaction.activeTool === 'select'}
-                className={`toolbar__icon-button${interaction.activeTool === 'select' ? ' is-active' : ''}`}
-                data-tooltip="Select"
-                onClick={() => setActiveTool('select')}
-                type="button"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
-                  <path d="M13 13l6 6" />
-                </svg>
-              </button>
-              <button
-                aria-label="Hand"
-                aria-pressed={interaction.activeTool === 'pan'}
-                className={`toolbar__icon-button${interaction.activeTool === 'pan' ? ' is-active' : ''}`}
-                data-tooltip="Hand"
-                onClick={() => setActiveTool('pan')}
-                type="button"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
-                  <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
-                  <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0" />
-                  <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-                </svg>
-              </button>
-            </div>
-
-            <label className="toolbar__field">
-              <span>Snap</span>
-              <select
-                onChange={(event) => setSnapMode(event.target.value as typeof snapMode)}
-                value={snapMode}
-              >
-                <option value="always">Always</option>
-                <option value="onDrop">On drop</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-
             <div className="toolbar__tool-group toolbar__tool-group--segmented" data-tour="workspace-modes">
               <button
                 className={workspaceViewMode === 'board-focus' ? 'is-active-tool' : undefined}
