@@ -192,16 +192,22 @@ function parseBreadboardInstance(value: unknown): BreadboardInstance {
     throw new Error('workspace.breadboards entries must be objects.')
   }
 
+  const model = parseBreadboard(value.model)
+
   return {
     id: expectString(value, 'id'),
     label: expectString(value, 'label'),
-    model: parseBreadboard(value.model),
+    model,
     anchorMm: expectVector2(value, 'anchorMm'),
     rotationQuarterTurns: parseQuarterTurn(
       typeof value.rotationQuarterTurns === 'number'
         ? value.rotationQuarterTurns
         : 0,
     ),
+    mountPlaneOffsetMm:
+      typeof value.mountPlaneOffsetMm === 'number'
+        ? expectNumber(value, 'mountPlaneOffsetMm')
+        : model.thicknessMm,
   }
 }
 

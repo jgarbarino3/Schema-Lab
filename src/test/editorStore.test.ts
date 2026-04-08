@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createBreadboardFromPreset } from '../domain/breadboardPresets'
+import {
+  createDefaultComponentConfig,
+  getComponentDefinition,
+} from '../domain/componentCatalog'
 import { createEmptyScene } from '../domain/serialization'
+import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
+import {
+  convertSceneToOpticalTable,
+  createBreadboardInstance,
+} from '../domain/workspace'
 import { useEditorStore } from '../state/editorStore'
 
 describe('editor store pending placement', () => {
@@ -133,5 +143,105 @@ describe('editor store scene history', () => {
     store.undo()
 
     expect(useEditorStore.getState().scene.components[0]?.label).toBe('Mirror 1')
+  })
+})
+
+describe('editor store optical table placement', () => {
+  const mirrorVariantId = getComponentDefinition('mirror').defaultVariantId
+
+  beforeEach(() => {
+    const scene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    scene.workspace.breadboards.push(
+      createBreadboardInstance({
+        id: 'breadboard-2',
+        label: 'Breadboard 2',
+        model: createBreadboardFromPreset('metric-300-square'),
+        anchorMm: { x: 2280, y: 520 },
+      }),
+    )
+
+    useEditorStore.getState().loadScene(scene, { history: 'reset' })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('places an armed component onto the breadboard under the drop point', () => {
+    const store = useEditorStore.getState()
+
+    store.selectOpticalTable()
+    store.addComponent('mirror')
+    store.commitPendingPlacement({ x: 2355, y: 595 })
+
+    const placedMirror = useEditorStore.getState().scene.components[0]
+
+    expect(placedMirror?.hostSurfaceId).toBe('breadboard-2')
+    expect(useEditorStore.getState().interaction.pendingPlacement).toBeUndefined()
+  })
+
+  it('retargets component drags across table and breadboard surfaces', () => {
+    const scene = useEditorStore.getState().scene
+
+    useEditorStore.getState().loadScene(
+      {
+        ...scene,
+        components: [
+          {
+            id: 'mirror-1',
+            type: 'mirror',
+            label: 'Mirror 1',
+            variantId: mirrorVariantId,
+            anchorMm: { x: 420, y: 360 },
+            hostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+            rotationQuarterTurns: 0,
+            config: createDefaultComponentConfig('mirror', mirrorVariantId),
+          },
+        ],
+      },
+      { history: 'reset' },
+    )
+
+    const store = useEditorStore.getState()
+
+    store.beginComponentDrag('mirror-1')
+    store.updateComponentDrag('mirror-1', { x: 2355, y: 595 })
+    store.commitComponentDrag('mirror-1', { x: 2355, y: 595 })
+
+    expect(useEditorStore.getState().scene.components[0]?.hostSurfaceId).toBe(
+      'breadboard-2',
+    )
+
+    useEditorStore.getState().beginComponentDrag('mirror-1')
+    useEditorStore.getState().updateComponentDrag('mirror-1', { x: 420, y: 360 })
+    useEditorStore.getState().commitComponentDrag('mirror-1', { x: 420, y: 360 })
+
+    expect(useEditorStore.getState().scene.components[0]?.hostSurfaceId).toBe(
+      OPTICAL_TABLE_SURFACE_ID,
+    )
+  })
+
+  it('retargets an armed placement from the host surface control without canceling it', () => {
+    const store = useEditorStore.getState()
+
+    store.addComponent('mirror')
+    expect(useEditorStore.getState().interaction.pendingPlacement).toBeDefined()
+
+    store.setActiveHostSurfaceId('breadboard-2')
+
+    const pendingPlacement = useEditorStore.getState().interaction.pendingPlacement
+
+    expect(pendingPlacement).toBeDefined()
+    expect(pendingPlacement?.draft.hostSurfaceId).toBe('breadboard-2')
+    expect(useEditorStore.getState().interaction.activeHostSurfaceId).toBe(
+      'breadboard-2',
+    )
+    expect(pendingPlacement?.candidateAnchorMm.x).toBeGreaterThan(2280)
+    expect(pendingPlacement?.candidateAnchorMm.y).toBeGreaterThan(520)
   })
 })

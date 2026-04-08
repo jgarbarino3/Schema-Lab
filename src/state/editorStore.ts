@@ -40,6 +40,8 @@ import {
   getBreadboardWorldBoundsMm,
   getDefaultSurfaceId,
   getWorkspaceWorldBoundsMm,
+  resolveTopmostSurfaceIdAtWorldPoint,
+  surfaceLocalToWorld,
 } from '../domain/workspace'
 import type {
   ActiveTool,
@@ -106,6 +108,7 @@ interface ComponentConfigUpdate {
 interface DragPreviewState {
   componentId: string
   candidateAnchorMm: Vector2Mm
+  hostSurfaceId?: string
 }
 
 interface BreadboardDragPreview {
@@ -538,6 +541,47 @@ function resolvePlacementForScene(args: {
       snapMode,
     }),
   })
+}
+
+function resolveComponentHostSurfaceIdAtPoint(
+  scene: SceneDocument,
+  component: Pick<ComponentInstance, 'hostSurfaceId'>,
+  candidateAnchorMm: Vector2Mm,
+) {
+  if (scene.workspace.kind !== 'optical-table') {
+    return getDefaultSurfaceId(scene)
+  }
+
+  return (
+    resolveTopmostSurfaceIdAtWorldPoint(scene, candidateAnchorMm) ??
+    component.hostSurfaceId ??
+    getDefaultSurfaceId(scene)
+  )
+}
+
+function retargetComponentHostSurfaceAtPoint(
+  scene: SceneDocument,
+  component: ComponentInstance,
+  candidateAnchorMm: Vector2Mm,
+): ComponentInstance {
+  return {
+    ...component,
+    hostSurfaceId: resolveComponentHostSurfaceIdAtPoint(
+      scene,
+      component,
+      candidateAnchorMm,
+    ),
+  }
+}
+
+function getSurfaceCenterAnchorMm(
+  scene: SceneDocument,
+  surfaceId: string | undefined,
+) {
+  const surface = getSurfacePlacementModel(scene, surfaceId)
+  const centerMm = getNearestBoardCenterHole(surface.breadboard)
+
+  return surfaceLocalToWorld(scene, surface.hostSurfaceId, centerMm)
 }
 
 function reconcileComponentsToScene(
@@ -1418,17 +1462,27 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updatePendingPlacementAnchor: (anchorMm) => {
     set((state) => {
-      if (!state.interaction.pendingPlacement) {
+      const pendingPlacement = state.interaction.pendingPlacement
+
+      if (!pendingPlacement) {
         return state
       }
+
+      const draft = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        pendingPlacement.draft,
+        anchorMm,
+      )
 
       return {
         interaction: {
           ...state.interaction,
           pendingPlacement: {
-            ...state.interaction.pendingPlacement,
+            ...pendingPlacement,
+            draft,
             candidateAnchorMm: anchorMm,
           },
+          activeHostSurfaceId: draft.hostSurfaceId,
         },
       }
     })
@@ -1460,15 +1514,22 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const candidateAnchorMm = anchorMm ?? pendingPlacement.candidateAnchorMm
+      const draft = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        pendingPlacement.draft,
+        candidateAnchorMm,
+      )
+
       const placement = resolvePlacementForScene({
-        candidateAnchorMm: anchorMm ?? pendingPlacement.candidateAnchorMm,
-        component: pendingPlacement.draft,
+        candidateAnchorMm,
+        component: draft,
         phase: 'drop',
         scene: state.scene,
         snapMode: state.snapMode,
       })
       const nextComponent: ComponentInstance = {
-        ...pendingPlacement.draft,
+        ...draft,
         anchorMm: placement.resolvedAnchorMm,
       }
 
@@ -1480,6 +1541,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: { type: 'component', componentId: nextComponent.id },
         interaction: {
           ...state.interaction,
+          activeHostSurfaceId: nextComponent.hostSurfaceId,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
           notice: describePlacementReason(placement.reason),
@@ -1651,9 +1713,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeDragComponentId: componentId,
+          activeHostSurfaceId:
+            component.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
           dragPreview: {
             componentId,
             candidateAnchorMm: component.anchorMm,
+            hostSurfaceId: component.hostSurfaceId,
           },
           notice: undefined,
         },
@@ -1663,16 +1728,30 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   updateComponentDrag: (componentId, anchorMm) => {
     set((state) => {
+      const component = state.scene.components.find((item) => item.id === componentId)
+
+      if (!component) {
+        return state
+      }
+
       if (state.interaction.activeDragComponentId !== componentId) {
         return state
       }
 
+      const previewComponent = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        component,
+        anchorMm,
+      )
+
       return {
         interaction: {
           ...state.interaction,
+          activeHostSurfaceId: previewComponent.hostSurfaceId,
           dragPreview: {
             componentId,
             candidateAnchorMm: anchorMm,
+            hostSurfaceId: previewComponent.hostSurfaceId,
           },
         },
       }
@@ -1693,12 +1772,23 @@ export const useEditorStore = create<EditorStore>((set) => ({
         }
       }
 
+      const candidateAnchorMm =
+        anchorMm ??
+        state.interaction.dragPreview?.candidateAnchorMm ??
+        component.anchorMm
+      const previewComponent = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        {
+          ...component,
+          hostSurfaceId:
+            state.interaction.dragPreview?.hostSurfaceId ?? component.hostSurfaceId,
+        },
+        candidateAnchorMm,
+      )
+
       const placement = resolvePlacementForScene({
-        candidateAnchorMm:
-          anchorMm ??
-          state.interaction.dragPreview?.candidateAnchorMm ??
-          component.anchorMm,
-        component,
+        candidateAnchorMm,
+        component: previewComponent,
         phase: 'drop',
         scene: state.scene,
         snapMode: state.snapMode,
@@ -1712,12 +1802,14 @@ export const useEditorStore = create<EditorStore>((set) => ({
               ? {
                   ...item,
                   anchorMm: placement.resolvedAnchorMm,
+                  hostSurfaceId: previewComponent.hostSurfaceId,
                 }
               : item,
           ),
         },
         interaction: {
           ...state.interaction,
+          activeHostSurfaceId: previewComponent.hostSurfaceId,
           activeDragComponentId: undefined,
           dragPreview: undefined,
           notice: describePlacementReason(placement.reason),
@@ -3276,15 +3368,20 @@ export const useEditorStore = create<EditorStore>((set) => ({
         state.interaction.activeHostSurfaceId ?? state.scene.workspace.breadboards[0]?.id
       const nextBreadboards = state.scene.workspace.breadboards.map((breadboard) =>
         breadboard.id === activeBreadboardId
-          ? {
-              ...breadboard,
-              label: update.label ?? breadboard.label,
-              model: syncBreadboardPresetId({
+          ? (() => {
+              const nextModel = syncBreadboardPresetId({
                 ...breadboard.model,
                 ...update,
                 label: update.label ?? breadboard.model.label,
-              }),
-            }
+              })
+
+              return {
+                ...breadboard,
+                label: update.label ?? breadboard.label,
+                model: nextModel,
+                mountPlaneOffsetMm: nextModel.thicknessMm,
+              }
+            })()
           : breadboard,
       )
       const nextScene: SceneDocument = {
@@ -3365,6 +3462,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
                   ...breadboard,
                   label: nextBreadboard.label,
                   model: nextBreadboard,
+                  mountPlaneOffsetMm: nextBreadboard.thicknessMm,
                 }
               : breadboard,
           ),
@@ -3455,12 +3553,34 @@ export const useEditorStore = create<EditorStore>((set) => ({
   },
 
   setActiveHostSurfaceId: (surfaceId) => {
-    set((state) => ({
-      interaction: {
-        ...state.interaction,
-        activeHostSurfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
-      },
-    }))
+    set((state) => {
+      const nextSurfaceId = surfaceId ?? getDefaultSurfaceId(state.scene)
+      const pendingPlacement = state.interaction.pendingPlacement
+
+      if (!pendingPlacement) {
+        return {
+          interaction: {
+            ...state.interaction,
+            activeHostSurfaceId: nextSurfaceId,
+          },
+        }
+      }
+
+      return {
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: nextSurfaceId,
+          pendingPlacement: {
+            ...pendingPlacement,
+            candidateAnchorMm: getSurfaceCenterAnchorMm(state.scene, nextSurfaceId),
+            draft: {
+              ...pendingPlacement.draft,
+              hostSurfaceId: nextSurfaceId,
+            },
+          },
+        },
+      }
+    })
   },
 
   dismissWarning: (warningId) => {

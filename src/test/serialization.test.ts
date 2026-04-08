@@ -8,6 +8,7 @@ import {
   parseSceneDocument,
   serializeSceneDocument,
 } from '../domain/serialization'
+import { convertSceneToOpticalTable } from '../domain/workspace'
 
 describe('scene serialization', () => {
   it('round-trips a version 5 scene document through JSON', () => {
@@ -238,5 +239,51 @@ describe('scene serialization', () => {
     expect(() => parseSceneDocument(invalidJson)).toThrow(
       'Unsupported scene version: 99.',
     )
+  })
+
+  it('defaults missing breadboard mount-plane metadata to the breadboard thickness', () => {
+    const opticalTableScene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (opticalTableScene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    const legacyJson = JSON.stringify({
+      ...opticalTableScene,
+      workspace: {
+        ...opticalTableScene.workspace,
+        breadboards: opticalTableScene.workspace.breadboards.map(
+          ({ mountPlaneOffsetMm: _mountPlaneOffsetMm, ...breadboard }) => breadboard,
+        ),
+      },
+    })
+
+    const parsed = parseSceneDocument(legacyJson)
+
+    if (parsed.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    expect(parsed.workspace.breadboards[0]?.mountPlaneOffsetMm).toBe(
+      parsed.workspace.breadboards[0]?.model.thicknessMm,
+    )
+  })
+
+  it('persists explicit breadboard mount-plane metadata through scene JSON', () => {
+    const scene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    scene.workspace.breadboards[0]!.mountPlaneOffsetMm = 38
+
+    const parsed = parseSceneDocument(serializeSceneDocument(scene))
+
+    if (parsed.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    expect(parsed.workspace.breadboards[0]?.mountPlaneOffsetMm).toBe(38)
   })
 })

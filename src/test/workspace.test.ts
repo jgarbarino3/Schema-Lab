@@ -14,6 +14,11 @@ import {
 import {
   convertSceneToOpticalTable,
   convertSceneToSingleBreadboard,
+  createBreadboardInstance,
+  getSurfaceMountPlaneOffsetMm,
+  getSurfaceSupportCompensationMm,
+  resolveTopmostSurfaceIdAtWorldPoint,
+  surfaceLocalToWorld,
 } from '../domain/workspace'
 
 function makeComponent(
@@ -60,6 +65,9 @@ describe('workspace conversions and geometry overrides', () => {
     expect(converted.workspace.breadboards).toHaveLength(1)
     expect(converted.components[0]?.hostSurfaceId).toBe(
       converted.workspace.breadboards[0]?.id,
+    )
+    expect(converted.workspace.breadboards[0]?.mountPlaneOffsetMm).toBe(
+      converted.workspace.breadboards[0]?.model.thicknessMm,
     )
     expect(converted.components[0]?.anchorMm.x).toBeGreaterThan(100)
   })
@@ -159,5 +167,59 @@ describe('workspace conversions and geometry overrides', () => {
     expect(capture?.totalCapturedPowerMw).toBeLessThan(100)
     expect(capture?.totalCapturedPowerMw).toBeGreaterThan(1)
     expect(capture?.totalCapturedPowerMw).toBeCloseTo(4, 0)
+  })
+
+  it('resolves the topmost surface under a world point before falling back to the table', () => {
+    const scene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    const secondBreadboard = createBreadboardInstance({
+      id: 'breadboard-2',
+      label: 'Breadboard 2',
+      model: createBreadboardFromPreset('metric-300x400'),
+      anchorMm: {
+        x: scene.workspace.breadboards[0]!.anchorMm.x + 90,
+        y: scene.workspace.breadboards[0]!.anchorMm.y + 30,
+      },
+      rotationQuarterTurns: 1,
+    })
+
+    scene.workspace.breadboards.push(secondBreadboard)
+    const rotatedBreadboardPoint = surfaceLocalToWorld(scene, secondBreadboard.id, {
+      x: 150,
+      y: 150,
+    })
+
+    expect(resolveTopmostSurfaceIdAtWorldPoint(scene, rotatedBreadboardPoint)).toBe(
+      secondBreadboard.id,
+    )
+    expect(resolveTopmostSurfaceIdAtWorldPoint(scene, { x: 120, y: 120 })).toBe(
+      'optical-table',
+    )
+    expect(
+      resolveTopmostSurfaceIdAtWorldPoint(scene, { x: -20, y: -20 }),
+    ).toBeUndefined()
+  })
+
+  it('computes table support compensation against breadboard mount planes', () => {
+    const scene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    const breadboard = scene.workspace.breadboards[0]!
+
+    expect(getSurfaceMountPlaneOffsetMm(scene, breadboard.id)).toBe(
+      breadboard.model.thicknessMm,
+    )
+    expect(getSurfaceMountPlaneOffsetMm(scene, 'optical-table')).toBe(0)
+    expect(getSurfaceSupportCompensationMm(scene, 'optical-table')).toBe(
+      breadboard.model.thicknessMm,
+    )
+    expect(getSurfaceSupportCompensationMm(scene, breadboard.id)).toBe(0)
   })
 })

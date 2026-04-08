@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -9,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import type { ExportFormat } from '../domain/exportLayout'
 import type { BeamTraceResult, SceneWarning, WorkspaceKind } from '../domain/types'
+import { getSurfaceSummaryList } from '../domain/workspace'
 import { useEditorStore } from '../state/editorStore'
 
 export type ExportAction = 'scene-json' | ExportFormat
@@ -133,6 +135,13 @@ export function Toolbar({
     warning.tier === 'simple' ? warningFilters.simple : warningFilters.advanced,
   )
   const pendingPlacement = interaction.pendingPlacement
+  const activeHostSummary = useMemo(
+    () =>
+      getSurfaceSummaryList(scene).find(
+        (summary) => summary.id === interaction.activeHostSurfaceId,
+      ),
+    [interaction.activeHostSurfaceId, scene],
+  )
 
   const toggleToolbarMenu = (
     menu: NonNullable<typeof openToolbarMenu>,
@@ -719,6 +728,12 @@ export function Toolbar({
                 Table
               </button>
             </div>
+
+            {activeHostSummary ? (
+              <span className="toolbar__pill toolbar__pill--host">
+                {pendingPlacement ? 'Placing on' : 'Host'}: {activeHostSummary.label}
+              </span>
+            ) : null}
 
             <div className="toolbar__tool-group">
               <button

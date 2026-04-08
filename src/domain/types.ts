@@ -233,6 +233,7 @@ export interface BreadboardInstance {
   model: BreadboardModel
   anchorMm: Vector2Mm
   rotationQuarterTurns: QuarterTurn
+  mountPlaneOffsetMm: number
 }
 
 export interface SingleBreadboardWorkspace {

@@ -599,6 +599,11 @@ export function SchemaStage({
       return
     }
 
+    if (isLineTool) {
+      handleLineToolClick()
+      return
+    }
+
     if (interaction.pendingPlacement) {
       clearBeamInspectionSelection()
       commitPendingPlacement(getStagePointerWorldMm())
@@ -778,30 +783,6 @@ export function SchemaStage({
             viewport={viewport}
           />
 
-          <ComponentsLayer
-            components={scene.components}
-            dragPreview={interaction.dragPreview}
-            hoveredComponentId={interaction.hoveredComponentId}
-            highlightedComponentIds={highlightedComponentIds}
-            isPanMode={isPanMode}
-            onBeginComponentDrag={beginComponentDrag}
-            onCommitComponentDrag={commitComponentDrag}
-            onHoverComponent={setHoveredComponentId}
-            onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
-            onSelectComponent={selectComponent}
-            onUpdateComponentDrag={updateComponentDrag}
-            pendingPlacement={interaction.pendingPlacement}
-            renderMode={renderMode}
-            scene={scene}
-            showLabels={showLabels}
-            showPostHolders={showPostHolders}
-            selectedComponentId={
-              selection.type === 'component' ? selection.componentId : undefined
-            }
-            snapMode={snapMode}
-            viewport={viewport}
-          />
-
           {scene.annotations.length > 0 || interaction.lineDrawStartMm ? (
             <Layer>
               {scene.annotations.map((line) => {
@@ -842,6 +823,32 @@ export function SchemaStage({
               })() : null}
             </Layer>
           ) : null}
+
+          <ComponentsLayer
+            components={scene.components}
+            dragPreview={interaction.dragPreview}
+            hoveredComponentId={interaction.hoveredComponentId}
+            highlightedComponentIds={highlightedComponentIds}
+            isLineTool={isLineTool}
+            isPanMode={isPanMode}
+            onBeginComponentDrag={beginComponentDrag}
+            onCommitComponentDrag={commitComponentDrag}
+            onHoverComponent={setHoveredComponentId}
+            onLineToolClick={handleLineToolClick}
+            onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
+            onSelectComponent={selectComponent}
+            onUpdateComponentDrag={updateComponentDrag}
+            pendingPlacement={interaction.pendingPlacement}
+            renderMode={renderMode}
+            scene={scene}
+            showLabels={showLabels}
+            showPostHolders={showPostHolders}
+            selectedComponentId={
+              selection.type === 'component' ? selection.componentId : undefined
+            }
+            snapMode={snapMode}
+            viewport={viewport}
+          />
 
           <RulerLayer 
             cursorScreenPx={

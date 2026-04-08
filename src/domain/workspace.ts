@@ -267,6 +267,87 @@ export function getHostSurfaceIdForComponent(
   return getDefaultSurfaceId(scene)
 }
 
+function isPointWithinSurfaceLocalBounds(
+  model: BreadboardModel | OpticalTableModel,
+  pointMm: Vector2Mm,
+) {
+  return (
+    pointMm.x >= 0 &&
+    pointMm.y >= 0 &&
+    pointMm.x <= model.widthMm &&
+    pointMm.y <= model.heightMm
+  )
+}
+
+export function resolveTopmostSurfaceIdAtWorldPoint(
+  scene: SceneDocument,
+  pointMm: Vector2Mm,
+): string | undefined {
+  if (scene.workspace.kind === 'single-breadboard') {
+    return isPointWithinSurfaceLocalBounds(scene.workspace.breadboard, pointMm)
+      ? SINGLE_BREADBOARD_SURFACE_ID
+      : undefined
+  }
+
+  for (let index = scene.workspace.breadboards.length - 1; index >= 0; index -= 1) {
+    const breadboard = scene.workspace.breadboards[index]
+
+    if (!breadboard) {
+      continue
+    }
+
+    if (
+      isPointWithinSurfaceLocalBounds(
+        breadboard.model,
+        surfaceWorldToLocal(scene, breadboard.id, pointMm),
+      )
+    ) {
+      return breadboard.id
+    }
+  }
+
+  return isPointWithinSurfaceLocalBounds(scene.workspace.table, pointMm)
+    ? OPTICAL_TABLE_SURFACE_ID
+    : undefined
+}
+
+export function getSurfaceMountPlaneOffsetMm(
+  scene: SceneDocument,
+  surfaceId: string | undefined,
+): number {
+  if (scene.workspace.kind === 'single-breadboard') {
+    return surfaceId === undefined || surfaceId === SINGLE_BREADBOARD_SURFACE_ID
+      ? roundMm(scene.workspace.breadboard.thicknessMm)
+      : 0
+  }
+
+  if (!surfaceId || surfaceId === OPTICAL_TABLE_SURFACE_ID) {
+    return 0
+  }
+
+  return roundMm(
+    getBreadboardInstance(scene, surfaceId)?.mountPlaneOffsetMm ?? 0,
+  )
+}
+
+export function getSurfaceSupportCompensationMm(
+  scene: SceneDocument,
+  surfaceId: string | undefined,
+): number {
+  if (scene.workspace.kind !== 'optical-table') {
+    return 0
+  }
+
+  const referenceOffsetMm = Math.max(
+    0,
+    ...scene.workspace.breadboards.map((breadboard) => breadboard.mountPlaneOffsetMm),
+  )
+
+  return roundMm(
+    Math.max(0, referenceOffsetMm - getSurfaceMountPlaneOffsetMm(scene, surfaceId)),
+  )
+}
+
 export function getSurfaceSummaryList(scene: SceneDocument): WorkspaceSurfaceSummary[] {
   if (scene.workspace.kind === 'single-breadboard') {
     return [
@@ -341,13 +422,17 @@ export function createBreadboardInstance(args?: {
   model?: BreadboardModel
   anchorMm?: Vector2Mm
   rotationQuarterTurns?: QuarterTurn
+  mountPlaneOffsetMm?: number
 }): BreadboardInstance {
+  const model = args?.model ?? getDefaultBreadboard()
+
   return {
     id: args?.id ?? `breadboard-${Math.random().toString(36).slice(2, 10)}`,
     label: args?.label ?? 'Breadboard',
-    model: args?.model ?? getDefaultBreadboard(),
+    model,
     anchorMm: args?.anchorMm ?? { x: 0, y: 0 },
     rotationQuarterTurns: args?.rotationQuarterTurns ?? 0,
+    mountPlaneOffsetMm: roundMm(args?.mountPlaneOffsetMm ?? model.thicknessMm),
   }
 }
 

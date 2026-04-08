@@ -4,6 +4,11 @@ import {
   resolveScenePlacement,
 } from '../domain/placement'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
+import {
+  getDefaultSurfaceId,
+  getSurfaceSupportCompensationMm,
+  resolveTopmostSurfaceIdAtWorldPoint,
+} from '../domain/workspace'
 import type {
   ComponentInstance,
   PendingPlacementState,
@@ -18,6 +23,7 @@ import { ComponentNode } from './ComponentNode'
 interface DragPreviewState {
   componentId: string
   candidateAnchorMm: { x: number; y: number }
+  hostSurfaceId?: string
 }
 
 interface ComponentsLayerProps {
@@ -25,6 +31,7 @@ interface ComponentsLayerProps {
   dragPreview?: DragPreviewState
   hoveredComponentId?: string
   highlightedComponentIds?: string[]
+  isLineTool?: boolean
   isPanMode: boolean
   showLabels?: boolean
   showPostHolders?: boolean
@@ -34,6 +41,7 @@ interface ComponentsLayerProps {
     anchorMm?: { x: number; y: number },
   ) => void
   onHoverComponent: (componentId?: string) => void
+  onLineToolClick?: () => void
   onSelectComponent: (componentId: string) => void
   onResizeComponent?: (
     componentId: string,
@@ -63,17 +71,35 @@ function getPreviewAccent(status: 'valid' | 'snapped' | 'warning') {
   }
 }
 
+function resolvePreviewHostSurfaceId(
+  scene: SceneDocument,
+  component: Pick<ComponentInstance, 'hostSurfaceId'>,
+  candidateAnchorMm: { x: number; y: number },
+) {
+  if (scene.workspace.kind !== 'optical-table') {
+    return component.hostSurfaceId ?? getDefaultSurfaceId(scene)
+  }
+
+  return (
+    resolveTopmostSurfaceIdAtWorldPoint(scene, candidateAnchorMm) ??
+    component.hostSurfaceId ??
+    getDefaultSurfaceId(scene)
+  )
+}
+
 export function ComponentsLayer({
   components,
   dragPreview,
   hoveredComponentId,
   highlightedComponentIds,
+  isLineTool = false,
   isPanMode,
   showLabels = true,
   showPostHolders = false,
   onBeginComponentDrag,
   onCommitComponentDrag,
   onHoverComponent,
+  onLineToolClick,
   onResizeComponent,
   onSelectComponent,
   onUpdateComponentDrag,
@@ -87,17 +113,33 @@ export function ComponentsLayer({
   const previewedComponent = dragPreview
     ? components.find((component) => component.id === dragPreview.componentId)
     : undefined
-  const previewPlacement =
+  const previewHostSurfaceId =
     previewedComponent && dragPreview
+      ? dragPreview.hostSurfaceId ??
+        resolvePreviewHostSurfaceId(
+          scene,
+          previewedComponent,
+          dragPreview.candidateAnchorMm,
+        )
+      : undefined
+  const previewComponent =
+    previewedComponent && previewHostSurfaceId
+      ? {
+          ...previewedComponent,
+          hostSurfaceId: previewHostSurfaceId,
+        }
+      : undefined
+  const previewPlacement =
+    previewComponent && dragPreview
       ? annotateScenePlacementOccupancy({
           scene,
           components,
-          ignoreComponentId: previewedComponent.id,
-          hostSurfaceId: previewedComponent.hostSurfaceId,
+          ignoreComponentId: previewComponent.id,
+          hostSurfaceId: previewComponent.hostSurfaceId,
           result: resolveScenePlacement({
             scene,
             candidateAnchorMm: dragPreview.candidateAnchorMm,
-            component: previewedComponent,
+            component: previewComponent,
             phase: 'drag',
             snapMode,
           }),
@@ -136,7 +178,7 @@ export function ComponentsLayer({
         <ComponentNode
           isHighlighted={highlightedComponentIds?.includes(component.id)}
           instance={component}
-          isDragEnabled={!isPanMode}
+          isDragEnabled={!isPanMode && !isLineTool}
           isHovered={component.id === hoveredComponentId}
           isSelected={component.id === selectedComponentId}
           showLabels={showLabels}
@@ -150,21 +192,40 @@ export function ComponentsLayer({
           }}
           onDragStart={onBeginComponentDrag}
           onHoverChange={isPanMode ? undefined : onHoverComponent}
-          onResize={isPanMode ? undefined : onResizeComponent}
-          onSelect={isPanMode ? undefined : onSelectComponent}
+          onResize={isPanMode || isLineTool ? undefined : onResizeComponent}
+          onSelect={
+            isPanMode
+              ? undefined
+              : isLineTool
+                ? () => onLineToolClick?.()
+                : onSelectComponent
+          }
           placementStatus={
             dragPreview?.componentId === component.id
               ? previewPlacement?.status
               : undefined
           }
           renderMode={renderMode}
+          surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
+            scene,
+            component.hostSurfaceId,
+          )}
           resolveDragPositionPx={
             snapMode === 'always'
               ? (screenPointPx: ScreenPointPx) => {
+                  const candidateAnchorMm = screenToWorld(screenPointPx, viewport)
+                  const candidateComponent = {
+                    ...component,
+                    hostSurfaceId: resolvePreviewHostSurfaceId(
+                      scene,
+                      component,
+                      candidateAnchorMm,
+                    ),
+                  }
                   const placement = resolveScenePlacement({
                     scene,
-                    candidateAnchorMm: screenToWorld(screenPointPx, viewport),
-                    component,
+                    candidateAnchorMm,
+                    component: candidateComponent,
                     phase: 'drag',
                     snapMode,
                   })
@@ -190,6 +251,10 @@ export function ComponentsLayer({
             placementStatus={pendingPlacementResult.status}
             renderMode={renderMode}
             showLabels={showLabels}
+            surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
+              scene,
+              pendingPlacement.draft.hostSurfaceId,
+            )}
             viewport={viewport}
           />
 

@@ -40,6 +40,7 @@ interface ComponentNodeProps {
   placementStatus?: PlacementStatus
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
+  surfaceSupportCompensationMm?: number
   viewport: ViewportState
 }
 
@@ -75,6 +76,7 @@ export function ComponentNode({
   placementStatus,
   renderMode,
   resolveDragPositionPx,
+  surfaceSupportCompensationMm = 0,
   viewport,
 }: ComponentNodeProps) {
   const spec = getResolvedComponentSpecForInstance(instance)
@@ -113,6 +115,17 @@ export function ComponentNode({
     showPostHolders &&
     renderMode === 'simple' &&
     isPostMountedType(instance.type)
+  const showSupportCompensation =
+    surfaceSupportCompensationMm > 0.1 && isPostMountedType(instance.type)
+  const mountCenterX = mountBoundsMm.x + mountBoundsMm.width / 2
+  const mountCenterY = mountBoundsMm.y + mountBoundsMm.height / 2
+  const compensationOuterRadiusMm =
+    Math.min(mountBoundsMm.width, mountBoundsMm.height) / 2 +
+    Math.min(3.4, surfaceSupportCompensationMm * 0.08)
+  const compensationInnerRadiusMm = Math.max(
+    0.6,
+    compensationOuterRadiusMm - (renderMode === 'realistic' ? 1.2 : 1.6),
+  )
   const isEnabledSource = instance.config.source?.isEnabled && spec.renderHint.glyph === 'laser'
   const sourceGlowColor = isEnabledSource
     ? wavelengthToHex(instance.config.source?.wavelengthNm ?? 0)
@@ -205,8 +218,9 @@ export function ComponentNode({
         onDragStart(instance.id)
       }}
       onMouseDown={(event) => {
-        event.cancelBubble = true
-        handleSelect()
+        if (isDragEnabled || onSelect || onResize) {
+          event.cancelBubble = true
+        }
       }}
       onMouseEnter={() => {
         onHoverChange?.(instance.id)
@@ -223,8 +237,9 @@ export function ComponentNode({
         handleSelect()
       }}
       onTouchStart={(event) => {
-        event.cancelBubble = true
-        handleSelect()
+        if (isDragEnabled || onSelect || onResize) {
+          event.cancelBubble = true
+        }
       }}
       rotation={quarterTurnsToDegrees(instance.rotationQuarterTurns)}
       scaleX={viewport.zoomPxPerMm}
@@ -266,6 +281,41 @@ export function ComponentNode({
           x={supportBoundsMm.x}
           y={supportBoundsMm.y}
         />
+      ) : null}
+
+      {showSupportCompensation ? (
+        <>
+          <Circle
+            fill={
+              renderMode === 'realistic'
+                ? 'rgba(91, 105, 116, 0.3)'
+                : 'rgba(118, 173, 204, 0.14)'
+            }
+            listening={false}
+            radius={compensationOuterRadiusMm}
+            stroke={
+              renderMode === 'realistic'
+                ? 'rgba(214, 226, 236, 0.3)'
+                : 'rgba(169, 219, 242, 0.42)'
+            }
+            strokeWidth={0.5}
+            x={mountCenterX}
+            y={mountCenterY}
+          />
+          <Circle
+            fill="rgba(0, 0, 0, 0)"
+            listening={false}
+            radius={compensationInnerRadiusMm}
+            stroke={
+              renderMode === 'realistic'
+                ? 'rgba(25, 31, 36, 0.3)'
+                : 'rgba(46, 79, 96, 0.28)'
+            }
+            strokeWidth={0.45}
+            x={mountCenterX}
+            y={mountCenterY}
+          />
+        </>
       ) : null}
 
       {isEnabledSource ? (

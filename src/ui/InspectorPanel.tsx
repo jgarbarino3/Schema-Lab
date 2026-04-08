@@ -1019,9 +1019,13 @@ export function InspectorPanel({
                 <h3>Host Surfaces</h3>
                 <div className="inspector__list">
                   <button
-                    className="inspector__list-item"
+                    className={`inspector__list-item${activeHostSurfaceId === 'optical-table' ? ' is-active-host' : ''}`}
                     onClick={() => {
-                      setActiveHostSurfaceId('optical-table')
+                      if (pendingPlacement) {
+                        setActiveHostSurfaceId('optical-table')
+                        return
+                      }
+
                       selectOpticalTable()
                     }}
                     type="button"
@@ -1031,10 +1035,14 @@ export function InspectorPanel({
                   </button>
                   {breadboardInstances.map((breadboard) => (
                     <button
-                      className="inspector__list-item"
+                      className={`inspector__list-item${activeHostSurfaceId === breadboard.id ? ' is-active-host' : ''}`}
                       key={breadboard.id}
                       onClick={() => {
-                        setActiveHostSurfaceId(breadboard.id)
+                        if (pendingPlacement) {
+                          setActiveHostSurfaceId(breadboard.id)
+                          return
+                        }
+
                         selectBreadboard(breadboard.id)
                       }}
                       type="button"
