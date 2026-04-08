@@ -1996,6 +1996,7 @@ export function applySvgImportToScene(args: {
 
     baseScene.annotations.push({
       id: createAnnotationId(existingAnnotationIds),
+      kind: 'line',
       startMm,
       endMm,
       color: segment.color || DEFAULT_ANNOTATION_COLOR,

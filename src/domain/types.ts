@@ -1,6 +1,7 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 7 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 6 as const
+export const SCENE_DOCUMENT_VERSION = 8 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 7 as const
+export const WORKSPACE_SCENE_DOCUMENT_VERSION = 6 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
 export const STAGE1_SCENE_DOCUMENT_VERSION = 1 as const
@@ -56,15 +57,77 @@ export type PlacementReason =
   | 'occupied'
   | 'snap-preview'
   | 'outside-source-lane'
-export type ActiveTool = 'select' | 'pan' | 'line'
+export type ActiveTool = 'select' | 'pan' | 'line' | 'text' | 'shape'
+
+export type AnnotationKind = 'line' | 'text' | 'shape'
+export type AnnotationFontFamily = 'clean-sans' | 'serif' | 'mono' | 'soft-display'
+export type AnnotationTextAlign = 'left' | 'center' | 'right'
+export type AnnotationShapeKind = 'rectangle' | 'ellipse' | 'arrow'
+
+export interface AnnotationTextStyle {
+  fontFamily: AnnotationFontFamily
+  fontSizeMm: number
+  color: string
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  align: AnnotationTextAlign
+}
 
 export interface AnnotationLine {
   id: string
+  kind: 'line'
   startMm: Vector2Mm
   endMm: Vector2Mm
   color: string
   strokeWidthMm: number
 }
+
+export interface AnnotationText {
+  id: string
+  kind: 'text'
+  anchorMm: Vector2Mm
+  widthMm: number
+  text: string
+  style: AnnotationTextStyle
+}
+
+export interface RectangleShapeAnnotation {
+  id: string
+  kind: 'shape'
+  shapeKind: 'rectangle'
+  boundsMm: BoundsMm
+  strokeColor: string
+  fillColor: string
+  strokeWidthMm: number
+}
+
+export interface EllipseShapeAnnotation {
+  id: string
+  kind: 'shape'
+  shapeKind: 'ellipse'
+  boundsMm: BoundsMm
+  strokeColor: string
+  fillColor: string
+  strokeWidthMm: number
+}
+
+export interface ArrowShapeAnnotation {
+  id: string
+  kind: 'shape'
+  shapeKind: 'arrow'
+  startMm: Vector2Mm
+  endMm: Vector2Mm
+  strokeColor: string
+  fillColor: string
+  strokeWidthMm: number
+}
+
+export type ShapeAnnotation =
+  | RectangleShapeAnnotation
+  | EllipseShapeAnnotation
+  | ArrowShapeAnnotation
+export type SceneAnnotation = AnnotationLine | AnnotationText | ShapeAnnotation
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
@@ -691,7 +754,7 @@ export interface SceneDocument {
   workspace: WorkspaceModel
   beamSettings: SceneBeamSettings
   components: ComponentInstance[]
-  annotations: AnnotationLine[]
+  annotations: SceneAnnotation[]
 }
 
 export interface ViewportState {

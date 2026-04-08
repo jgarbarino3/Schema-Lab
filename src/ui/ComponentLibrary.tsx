@@ -60,8 +60,10 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const workspaceKind = useEditorStore((state) => state.scene.workspace.kind)
   const activeTool = useEditorStore((state) => state.interaction.activeTool)
   const lineColor = useEditorStore((state) => state.interaction.lineColor)
+  const shapeToolKind = useEditorStore((state) => state.interaction.shapeToolKind)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setLineColor = useEditorStore((state) => state.setLineColor)
+  const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
   )
@@ -105,7 +107,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   }, [pendingBreadboardPresetId])
 
   useEffect(() => {
-    if (activeTool === 'line' && !expandedGroups.has('__beam-lines')) {
+    if ((activeTool === 'line' || activeTool === 'text' || activeTool === 'shape') && !expandedGroups.has('__beam-lines')) {
       setExpandedGroups((prev) => new Set([...prev, '__beam-lines']))
     }
   }, [activeTool])
@@ -203,7 +205,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             <span className="component-library__chevron">
               {expandedGroups.has('__beam-lines') ? '\u25BE' : '\u25B8'}
             </span>
-            <h3>Beam Lines</h3>
+            <h3>Annotations</h3>
           </button>
 
           {expandedGroups.has('__beam-lines') ? (
@@ -215,10 +217,40 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
               >
                 <span className="component-library__item-title">Line Tool</span>
                 <span className="component-library__item-meta">
-                  Click two points on the canvas to draw a straight beam line
+                  Click two points anywhere on the canvas to draw a straight line
                 </span>
                 {activeTool === 'line' ? (
                   <span className="component-library__item-state">Active</span>
+                ) : null}
+              </button>
+
+              <button
+                className={`component-library__item${activeTool === 'text' ? ' is-armed' : ''}`}
+                onClick={() => setActiveTool(activeTool === 'text' ? 'select' : 'text')}
+                type="button"
+              >
+                <span className="component-library__item-title">Text Tool</span>
+                <span className="component-library__item-meta">
+                  Click anywhere to place editable text directly on the canvas
+                </span>
+                {activeTool === 'text' ? (
+                  <span className="component-library__item-state">Active</span>
+                ) : null}
+              </button>
+
+              <button
+                className={`component-library__item${activeTool === 'shape' ? ' is-armed' : ''}`}
+                onClick={() => setActiveTool(activeTool === 'shape' ? 'select' : 'shape')}
+                type="button"
+              >
+                <span className="component-library__item-title">Shape Tool</span>
+                <span className="component-library__item-meta">
+                  Drop arrows, rectangles, or ellipses for callouts and framing
+                </span>
+                {activeTool === 'shape' ? (
+                  <span className="component-library__item-state">
+                    {shapeToolKind}
+                  </span>
                 ) : null}
               </button>
 
@@ -237,6 +269,28 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                         title={label}
                         type="button"
                       />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTool === 'shape' ? (
+                <div className="component-library__line-colors">
+                  <span className="component-library__color-label">Shape kind</span>
+                  <div className="inspector__button-row">
+                    {(['rectangle', 'ellipse', 'arrow'] as const).map((kind) => (
+                      <button
+                        className={shapeToolKind === kind ? 'is-active' : undefined}
+                        key={kind}
+                        onClick={() => setShapeToolKind(kind)}
+                        type="button"
+                      >
+                        {kind === 'rectangle'
+                          ? 'Rectangle'
+                          : kind === 'ellipse'
+                            ? 'Ellipse'
+                            : 'Arrow'}
+                      </button>
                     ))}
                   </div>
                 </div>

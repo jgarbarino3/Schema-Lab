@@ -1,4 +1,5 @@
 import { useState, useMemo, type ReactNode } from 'react'
+import { ANNOTATION_FONT_OPTIONS, ANNOTATION_SHAPE_OPTIONS } from '../domain/annotations'
 import {
   getBreadboardHoleCounts,
   getEffectiveHolePitchMm,
@@ -39,10 +40,12 @@ import {
   getWorkspacePrimaryBreadboard,
 } from '../domain/workspace'
 import type {
+  AnnotationText,
   BeamInteractionEvent,
   BeamTraceResult,
   FilterTransmissionClass,
   GaussianTraceResult,
+  ShapeAnnotation,
   PolarizationConfig,
   QuarterTurn,
   WorldPort,
@@ -676,6 +679,18 @@ export function InspectorPanel({
   const updateSelectedGeometryOverride = useEditorStore(
     (state) => state.updateSelectedGeometryOverride,
   )
+  const updateSelectedTextAnnotation = useEditorStore(
+    (state) => state.updateSelectedTextAnnotation,
+  )
+  const updateSelectedTextStyle = useEditorStore(
+    (state) => state.updateSelectedTextStyle,
+  )
+  const updateSelectedShapeAnnotation = useEditorStore(
+    (state) => state.updateSelectedShapeAnnotation,
+  )
+  const updateSelectedShapeStyle = useEditorStore(
+    (state) => state.updateSelectedShapeStyle,
+  )
   const clearSelectedGeometryOverride = useEditorStore(
     (state) => state.clearSelectedGeometryOverride,
   )
@@ -706,6 +721,10 @@ export function InspectorPanel({
           (component) => component.id === selection.componentId,
         ) ?? null
       : null
+  const selectedAnnotation =
+    selection.type === 'annotation'
+      ? scene.annotations.find((annotation) => annotation.id === selection.annotationId) ?? null
+      : null
   const inspectedComponent = pendingPlacement
     ? {
         ...pendingPlacement.draft,
@@ -714,6 +733,8 @@ export function InspectorPanel({
     : selectedComponent
   const inspectorMode = pendingPlacement || pendingBreadboardPlacement
     ? 'Pending Placement'
+    : selectedAnnotation
+      ? 'Selected Annotation'
     : inspectedComponent
       ? 'Selected Component'
       : selection.type === 'optical-table'
@@ -742,6 +763,337 @@ export function InspectorPanel({
     const rect = e.currentTarget.getBoundingClientRect()
     e.currentTarget.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`)
     e.currentTarget.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`)
+  }
+
+  if (selectedAnnotation) {
+    return (
+      <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
+        <div className="panel__header">
+          <span className="panel__eyebrow">{inspectorMode}</span>
+          <div className="panel__header-top">
+            <div>
+              <h2>Annotation Inspector</h2>
+              <p>
+                Fine-tune freeform notes, labels, and diagram shapes placed directly on
+                the canvas.
+              </p>
+            </div>
+            <button
+              className="panel__collapse-button"
+              data-tour="panel-inspector-toggle"
+              onClick={onCollapse}
+              type="button"
+            >
+              Collapse
+            </button>
+          </div>
+        </div>
+
+        <div className="inspector__content">
+          {selectedAnnotation.kind === 'text' ? (
+            <>
+              <div className="inspector__subsection">
+                <h3>Text</h3>
+                <Field label="Content">
+                  <textarea
+                    className="inspector__textarea"
+                    onChange={(event) =>
+                      updateSelectedTextAnnotation({ text: event.target.value })
+                    }
+                    rows={5}
+                    value={selectedAnnotation.text}
+                  />
+                </Field>
+
+                <div className="inspector__grid">
+                  <NumberField
+                    label="X position"
+                    onChange={(x) =>
+                      updateSelectedTextAnnotation({
+                        anchorMm: { x, y: selectedAnnotation.anchorMm.y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.anchorMm.x}
+                  />
+                  <NumberField
+                    label="Y position"
+                    onChange={(y) =>
+                      updateSelectedTextAnnotation({
+                        anchorMm: { x: selectedAnnotation.anchorMm.x, y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.anchorMm.y}
+                  />
+                  <NumberField
+                    label="Width"
+                    onChange={(widthMm) =>
+                      updateSelectedTextAnnotation({ widthMm })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.widthMm}
+                  />
+                  <NumberField
+                    label="Font size"
+                    onChange={(fontSizeMm) =>
+                      updateSelectedTextStyle({ fontSizeMm })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.style.fontSizeMm}
+                  />
+                </div>
+
+                <Field label="Font">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedTextStyle({
+                        fontFamily: event.target.value as AnnotationText['style']['fontFamily'],
+                      })
+                    }
+                    value={selectedAnnotation.style.fontFamily}
+                  >
+                    {ANNOTATION_FONT_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Color">
+                  <input
+                    onChange={(event) =>
+                      updateSelectedTextStyle({ color: event.target.value })
+                    }
+                    type="color"
+                    value={selectedAnnotation.style.color}
+                  />
+                </Field>
+
+                <div className="inspector__button-row">
+                  <button
+                    className={selectedAnnotation.style.bold ? 'is-active' : undefined}
+                    onClick={() =>
+                      updateSelectedTextStyle({
+                        bold: !selectedAnnotation.style.bold,
+                      })
+                    }
+                    type="button"
+                  >
+                    Bold
+                  </button>
+                  <button
+                    className={selectedAnnotation.style.italic ? 'is-active' : undefined}
+                    onClick={() =>
+                      updateSelectedTextStyle({
+                        italic: !selectedAnnotation.style.italic,
+                      })
+                    }
+                    type="button"
+                  >
+                    Italic
+                  </button>
+                  <button
+                    className={selectedAnnotation.style.underline ? 'is-active' : undefined}
+                    onClick={() =>
+                      updateSelectedTextStyle({
+                        underline: !selectedAnnotation.style.underline,
+                      })
+                    }
+                    type="button"
+                  >
+                    Underline
+                  </button>
+                </div>
+
+                <div className="inspector__button-row">
+                  <button
+                    className={selectedAnnotation.style.align === 'left' ? 'is-active' : undefined}
+                    onClick={() => updateSelectedTextStyle({ align: 'left' })}
+                    type="button"
+                  >
+                    Left
+                  </button>
+                  <button
+                    className={selectedAnnotation.style.align === 'center' ? 'is-active' : undefined}
+                    onClick={() => updateSelectedTextStyle({ align: 'center' })}
+                    type="button"
+                  >
+                    Center
+                  </button>
+                  <button
+                    className={selectedAnnotation.style.align === 'right' ? 'is-active' : undefined}
+                    onClick={() => updateSelectedTextStyle({ align: 'right' })}
+                    type="button"
+                  >
+                    Right
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : selectedAnnotation.kind === 'shape' ? (
+            <div className="inspector__subsection">
+              <h3>Shape</h3>
+              <Field label="Kind">
+                <select
+                  onChange={(event) =>
+                    updateSelectedShapeStyle({
+                      shapeKind: event.target.value as ShapeAnnotation['shapeKind'],
+                    })
+                  }
+                  value={selectedAnnotation.shapeKind}
+                >
+                  {ANNOTATION_SHAPE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              {selectedAnnotation.shapeKind === 'arrow' ? (
+                <div className="inspector__grid">
+                  <NumberField
+                    label="Start X"
+                    onChange={(x) =>
+                      updateSelectedShapeAnnotation({
+                        startMm: { x, y: selectedAnnotation.startMm.y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.startMm.x}
+                  />
+                  <NumberField
+                    label="Start Y"
+                    onChange={(y) =>
+                      updateSelectedShapeAnnotation({
+                        startMm: { x: selectedAnnotation.startMm.x, y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.startMm.y}
+                  />
+                  <NumberField
+                    label="End X"
+                    onChange={(x) =>
+                      updateSelectedShapeAnnotation({
+                        endMm: { x, y: selectedAnnotation.endMm.y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.endMm.x}
+                  />
+                  <NumberField
+                    label="End Y"
+                    onChange={(y) =>
+                      updateSelectedShapeAnnotation({
+                        endMm: { x: selectedAnnotation.endMm.x, y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.endMm.y}
+                  />
+                </div>
+              ) : (
+                <div className="inspector__grid">
+                  <NumberField
+                    label="X position"
+                    onChange={(x) =>
+                      updateSelectedShapeAnnotation({
+                        boundsMm: { x },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.boundsMm.x}
+                  />
+                  <NumberField
+                    label="Y position"
+                    onChange={(y) =>
+                      updateSelectedShapeAnnotation({
+                        boundsMm: { y },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.boundsMm.y}
+                  />
+                  <NumberField
+                    label="Width"
+                    onChange={(width) =>
+                      updateSelectedShapeAnnotation({
+                        boundsMm: { width },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.boundsMm.width}
+                  />
+                  <NumberField
+                    label="Height"
+                    onChange={(height) =>
+                      updateSelectedShapeAnnotation({
+                        boundsMm: { height },
+                      })
+                    }
+                    suffix="mm"
+                    value={selectedAnnotation.boundsMm.height}
+                  />
+                </div>
+              )}
+
+              <div className="inspector__grid">
+                <Field label="Stroke">
+                  <input
+                    onChange={(event) =>
+                      updateSelectedShapeStyle({ strokeColor: event.target.value })
+                    }
+                    type="color"
+                    value={selectedAnnotation.strokeColor}
+                  />
+                </Field>
+                <Field label="Fill">
+                  <input
+                    onChange={(event) =>
+                      updateSelectedShapeStyle({ fillColor: event.target.value })
+                    }
+                    type="color"
+                    value={
+                      selectedAnnotation.fillColor.startsWith('#')
+                        ? selectedAnnotation.fillColor
+                        : '#61b4da'
+                    }
+                  />
+                </Field>
+              </div>
+
+              <NumberField
+                label="Stroke width"
+                onChange={(strokeWidthMm) =>
+                  updateSelectedShapeStyle({ strokeWidthMm })
+                }
+                suffix="mm"
+                value={selectedAnnotation.strokeWidthMm}
+              />
+
+              <div className="inspector__button-row">
+                <button
+                  onClick={() =>
+                    updateSelectedShapeStyle({ fillColor: 'transparent' })
+                  }
+                  type="button"
+                >
+                  No Fill
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <p className="inspector__hint">
+            Annotation objects live in world-space, so they stay free on the canvas
+            instead of attaching to a specific breadboard surface.
+          </p>
+        </div>
+      </aside>
+    )
   }
 
   if (!inspectedComponent) {

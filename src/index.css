@@ -902,6 +902,95 @@ textarea {
   cursor: grabbing;
 }
 
+.annotation-toolbar {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.48rem;
+  align-items: end;
+  max-width: min(100%, 460px);
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(145, 202, 222, 0.26);
+  border-radius: 16px;
+  background: rgba(9, 13, 17, 0.84);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.annotation-toolbar__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  min-width: 5.8rem;
+}
+
+.annotation-toolbar__field--compact {
+  min-width: 4.3rem;
+}
+
+.annotation-toolbar__field span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.annotation-toolbar__field select,
+.annotation-toolbar__field input,
+.annotation-toolbar__ghost,
+.annotation-toolbar__toggle {
+  height: 2.2rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(145, 202, 222, 0.16);
+  border-radius: 10px;
+  background: rgba(14, 20, 25, 0.86);
+  color: var(--text);
+}
+
+.annotation-toolbar__field input[type="color"] {
+  width: 3rem;
+  padding: 0.18rem;
+}
+
+.annotation-toolbar__button-row {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.annotation-toolbar__toggle {
+  min-width: 2.5rem;
+  font-weight: 600;
+}
+
+.annotation-toolbar__toggle.is-active,
+.annotation-toolbar__ghost:hover {
+  border-color: rgba(145, 202, 222, 0.42);
+  color: var(--accent-strong);
+}
+
+.annotation-text-editor {
+  position: absolute;
+  z-index: 7;
+  min-height: 2.8rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  line-height: 1.24;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  caret-color: var(--accent-strong);
+}
+
+.annotation-text-editor::selection {
+  background: rgba(97, 180, 218, 0.28);
+}
+
+.inspector__textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
 .inspector__action-row {
   margin-top: 0.85rem;
   display: flex;

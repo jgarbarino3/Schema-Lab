@@ -129,12 +129,19 @@ export function Toolbar({
   const duplicateSelectedComponent = useEditorStore(
     (state) => state.duplicateSelectedComponent,
   )
+  const duplicateSelectedAnnotation = useEditorStore(
+    (state) => state.duplicateSelectedAnnotation,
+  )
   const deleteSelectedComponent = useEditorStore(
     (state) => state.deleteSelectedComponent,
+  )
+  const deleteSelectedAnnotation = useEditorStore(
+    (state) => state.deleteSelectedAnnotation,
   )
   const resetViewport = useEditorStore((state) => state.resetViewport)
   const zoomPxPerMm = useEditorStore((state) => state.viewport.zoomPxPerMm)
   const updateBeamSettings = useEditorStore((state) => state.updateBeamSettings)
+  const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
   const activeSourceCount = scene.components.filter(
     (component) => component.config.source?.isEnabled,
   ).length
@@ -143,6 +150,7 @@ export function Toolbar({
     warning.tier === 'simple' ? warningFilters.simple : warningFilters.advanced,
   )
   const pendingPlacement = interaction.pendingPlacement
+  const isAnnotationSelected = selection.type === 'annotation'
   const activeHostSummary = useMemo(
     () =>
       getSurfaceSummaryList(scene).find(
@@ -303,7 +311,13 @@ export function Toolbar({
             <section>
               <h3>Placement Mode</h3>
               <p>
-                Clicking a family arms a pending placement. In optical-table workspaces, Board Focus keeps you centered on one breadboard while Table View zooms back out to the full table. Press R to rotate, click or tap to place, and Esc to cancel.
+                Clicking a family arms a pending placement. In optical-table workspaces, Board Focus keeps you centered on one breadboard while Table View zooms back out to the full table. Press R to rotate components, click or tap to place, and Esc to cancel.
+              </p>
+            </section>
+            <section>
+              <h3>Annotations</h3>
+              <p>
+                Line, Text, and Shape tools now place free annotations anywhere on the canvas. Text opens an inline editor immediately, and selected notes or shapes expose a floating style bar plus inspector controls for typography, color, and sizing.
               </p>
             </section>
             <section>
@@ -687,6 +701,33 @@ export function Toolbar({
                   <line x1="6.4" y1="17.6" x2="17.6" y2="6.4" />
                 </svg>
               </button>
+              <button
+                aria-label="Text"
+                aria-pressed={interaction.activeTool === 'text'}
+                className={`toolbar__icon-button${interaction.activeTool === 'text' ? ' is-active' : ''}`}
+                data-tooltip="Text"
+                onClick={() => setActiveTool('text')}
+                type="button"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 5h16" />
+                  <path d="M12 5v14" />
+                  <path d="M8 19h8" />
+                </svg>
+              </button>
+              <button
+                aria-label="Shape"
+                aria-pressed={interaction.activeTool === 'shape'}
+                className={`toolbar__icon-button${interaction.activeTool === 'shape' ? ' is-active' : ''}`}
+                data-tooltip="Shape"
+                onClick={() => setActiveTool('shape')}
+                type="button"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="4" width="8" height="8" rx="1.2" />
+                  <circle cx="17.5" cy="17.5" r="3.5" />
+                </svg>
+              </button>
             </div>
 
             {interaction.activeTool === 'line' ? (
@@ -706,6 +747,22 @@ export function Toolbar({
                   />
                 ))}
               </div>
+            ) : null}
+
+            {interaction.activeTool === 'shape' ? (
+              <label className="toolbar__field">
+                <span>Shape</span>
+                <select
+                  onChange={(event) =>
+                    setShapeToolKind(event.target.value as typeof interaction.shapeToolKind)
+                  }
+                  value={interaction.shapeToolKind}
+                >
+                  <option value="rectangle">Rectangle</option>
+                  <option value="ellipse">Ellipse</option>
+                  <option value="arrow">Arrow</option>
+                </select>
+              </label>
             ) : null}
 
             <label className="toolbar__field">
@@ -875,16 +932,30 @@ export function Toolbar({
             </button>
 
             <button
-              disabled={selection.type !== 'component'}
-              onClick={duplicateSelectedComponent}
+              disabled={selection.type !== 'component' && !isAnnotationSelected}
+              onClick={() => {
+                if (isAnnotationSelected) {
+                  duplicateSelectedAnnotation()
+                  return
+                }
+
+                duplicateSelectedComponent()
+              }}
               type="button"
             >
               Duplicate
             </button>
 
             <button
-              disabled={selection.type !== 'component'}
-              onClick={deleteSelectedComponent}
+              disabled={selection.type !== 'component' && !isAnnotationSelected}
+              onClick={() => {
+                if (isAnnotationSelected) {
+                  deleteSelectedAnnotation()
+                  return
+                }
+
+                deleteSelectedComponent()
+              }}
               type="button"
             >
               Delete

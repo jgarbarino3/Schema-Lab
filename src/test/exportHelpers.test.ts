@@ -74,6 +74,79 @@ describe('export helpers', () => {
     expect(dxfMarkup).toContain('COMPONENTS')
   })
 
+  it('exports text and shape annotations in SVG and DXF output', () => {
+    const scene = createEmptyScene()
+    scene.annotations = [
+      {
+        id: 'text-1',
+        kind: 'text',
+        anchorMm: { x: 38, y: 42 },
+        widthMm: 64,
+        text: 'Pump note',
+        style: {
+          fontFamily: 'clean-sans',
+          fontSizeMm: 5.4,
+          color: '#ffeeaa',
+          bold: true,
+          italic: true,
+          underline: true,
+          align: 'left',
+        },
+      },
+      {
+        id: 'shape-1',
+        kind: 'shape',
+        shapeKind: 'rectangle',
+        boundsMm: {
+          x: 32,
+          y: 34,
+          width: 92,
+          height: 20,
+        },
+        strokeColor: '#00eeff',
+        fillColor: 'transparent',
+        strokeWidthMm: 1,
+      },
+      {
+        id: 'shape-2',
+        kind: 'shape',
+        shapeKind: 'arrow',
+        startMm: { x: 124, y: 92 },
+        endMm: { x: 170, y: 120 },
+        strokeColor: '#ff00ff',
+        fillColor: '#ff00ff',
+        strokeWidthMm: 1,
+      },
+    ]
+
+    const beamTrace = traceSceneBeams(scene)
+    const gaussianTrace = analyzeGaussianPaths(scene, beamTrace)
+    const svgMarkup = createSceneSvg({
+      beamTrace,
+      gaussianTrace,
+      renderMode: 'realistic',
+      scene,
+      scope: 'breadboard-only',
+      showGaussianEnvelope: false,
+    })
+    const dxfMarkup = createSceneDxf({
+      beamTrace,
+      gaussianTrace,
+      renderMode: 'realistic',
+      scene,
+      scope: 'breadboard-only',
+      showGaussianEnvelope: false,
+    })
+
+    expect(svgMarkup).toContain('Pump note')
+    expect(svgMarkup).toContain('font-style="italic"')
+    expect(svgMarkup).toContain('id="shape-1"')
+    expect(svgMarkup).toContain('shape-2-head')
+    expect(dxfMarkup).toContain('Pump note')
+    expect(dxfMarkup).toContain('LWPOLYLINE')
+    expect(dxfMarkup).toContain('TEXT')
+  })
+
   it('does not emit source-lane visuals in optical-table SVG exports', () => {
     const scene = convertSceneToOpticalTable(createEmptyScene())
 

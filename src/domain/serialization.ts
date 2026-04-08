@@ -1,3 +1,8 @@
+import {
+  clampAnnotationFontSizeMm,
+  DEFAULT_ANNOTATION_TEXT_STYLE,
+  normalizeRectLikeBounds,
+} from './annotations'
 import { findBreadboardPresetId } from './breadboardPresets'
 import { createDefaultPolarizationConfig } from './polarization'
 import {
@@ -10,6 +15,11 @@ import {
 } from './componentCatalog'
 import type {
   AnnotationLine,
+  AnnotationShapeKind,
+  AnnotationText,
+  AnnotationTextStyle,
+  SceneAnnotation,
+  ShapeAnnotation,
   BreadboardFinish,
   BreadboardModel,
   BreadboardInstance,
@@ -34,6 +44,7 @@ import {
   SCENE_DOCUMENT_VERSION,
   STAGE1_SCENE_DOCUMENT_VERSION,
   STAGE2_SCENE_DOCUMENT_VERSION,
+  WORKSPACE_SCENE_DOCUMENT_VERSION,
 } from './types'
 
 const BREADBOARD_FINISH_VALUES: BreadboardFinish[] = [
@@ -65,6 +76,18 @@ const TELESCOPE_MODE_VALUES = ['transmission', 'reflection'] as const
 const OPA_ROLE_VALUES = ['white-light', 'combiner', 'gain'] as const
 const OPA_OUTPUT_MODE_VALUES = ['signal', 'idler', 'signal+idler'] as const
 
+const ANNOTATION_FONT_FAMILY_VALUES = [
+  'clean-sans',
+  'serif',
+  'mono',
+  'soft-display',
+] as const
+const ANNOTATION_TEXT_ALIGN_VALUES = ['left', 'center', 'right'] as const
+const ANNOTATION_SHAPE_KIND_VALUES: AnnotationShapeKind[] = [
+  'rectangle',
+  'ellipse',
+  'arrow',
+]
 const DEFAULT_BEAM_SETTINGS: SceneBeamSettings = {
   beamFidelityMode: 'geometric',
   sharedBeamHeightMm: 75,
@@ -216,7 +239,7 @@ function parseWorkspace(
   version: number,
 ): WorkspaceModel {
   if (
-    version === PREVIOUS_SCENE_DOCUMENT_VERSION ||
+    version === WORKSPACE_SCENE_DOCUMENT_VERSION ||
     version === STAGE2_SCENE_DOCUMENT_VERSION ||
     version === LEGACY_SCENE_DOCUMENT_VERSION ||
     version === STAGE1_SCENE_DOCUMENT_VERSION
@@ -660,31 +683,131 @@ export function createEmptyScene(): SceneDocument {
   }
 }
 
-function parseAnnotationLine(value: unknown): AnnotationLine | undefined {
+function parseAnnotationLine(value: Record<string, unknown>): AnnotationLine | undefined {
+  const startMm = value.startMm
+  const endMm = value.endMm
+
+  if (!isRecord(startMm) || !isRecord(endMm)) {
+    return undefined
+  }
+
+  return {
+    id: expectString(value, 'id'),
+    kind: 'line',
+    startMm: {
+      x: expectNumber(startMm, 'x'),
+      y: expectNumber(startMm, 'y'),
+    },
+    endMm: {
+      x: expectNumber(endMm, 'x'),
+      y: expectNumber(endMm, 'y'),
+    },
+    color: expectString(value, 'color'),
+    strokeWidthMm: expectNumber(value, 'strokeWidthMm'),
+  }
+}
+
+function parseAnnotationTextStyle(value: unknown): AnnotationTextStyle {
+  if (!isRecord(value)) {
+    return { ...DEFAULT_ANNOTATION_TEXT_STYLE }
+  }
+
+  return {
+    fontFamily:
+      typeof value.fontFamily === 'string'
+        ? expectEnum(value, 'fontFamily', [...ANNOTATION_FONT_FAMILY_VALUES])
+        : DEFAULT_ANNOTATION_TEXT_STYLE.fontFamily,
+    fontSizeMm:
+      typeof value.fontSizeMm === 'number'
+        ? clampAnnotationFontSizeMm(expectNumber(value, 'fontSizeMm'))
+        : DEFAULT_ANNOTATION_TEXT_STYLE.fontSizeMm,
+    color:
+      typeof value.color === 'string'
+        ? expectString(value, 'color')
+        : DEFAULT_ANNOTATION_TEXT_STYLE.color,
+    bold: typeof value.bold === 'boolean' ? value.bold : DEFAULT_ANNOTATION_TEXT_STYLE.bold,
+    italic:
+      typeof value.italic === 'boolean'
+        ? value.italic
+        : DEFAULT_ANNOTATION_TEXT_STYLE.italic,
+    underline:
+      typeof value.underline === 'boolean'
+        ? value.underline
+        : DEFAULT_ANNOTATION_TEXT_STYLE.underline,
+    align:
+      typeof value.align === 'string'
+        ? expectEnum(value, 'align', [...ANNOTATION_TEXT_ALIGN_VALUES])
+        : DEFAULT_ANNOTATION_TEXT_STYLE.align,
+  }
+}
+
+function parseAnnotationText(value: Record<string, unknown>): AnnotationText | undefined {
+  return {
+    id: expectString(value, 'id'),
+    kind: 'text',
+    anchorMm: expectVector2(value, 'anchorMm'),
+    widthMm: expectNumber(value, 'widthMm'),
+    text: expectString(value, 'text'),
+    style: parseAnnotationTextStyle(value.style),
+  }
+}
+
+function parseShapeAnnotation(value: Record<string, unknown>): ShapeAnnotation | undefined {
+  const shapeKind = expectEnum(value, 'shapeKind', ANNOTATION_SHAPE_KIND_VALUES)
+
+  if (shapeKind === 'arrow') {
+    return {
+      id: expectString(value, 'id'),
+      kind: 'shape',
+      shapeKind,
+      startMm: expectVector2(value, 'startMm'),
+      endMm: expectVector2(value, 'endMm'),
+      strokeColor: expectString(value, 'strokeColor'),
+      fillColor: expectString(value, 'fillColor'),
+      strokeWidthMm: expectNumber(value, 'strokeWidthMm'),
+    }
+  }
+
+  const boundsMm = value.boundsMm
+  if (!isRecord(boundsMm)) {
+    return undefined
+  }
+
+  return {
+    id: expectString(value, 'id'),
+    kind: 'shape',
+    shapeKind,
+    boundsMm: normalizeRectLikeBounds({
+      x: expectNumber(boundsMm, 'x'),
+      y: expectNumber(boundsMm, 'y'),
+      width: expectNumber(boundsMm, 'width'),
+      height: expectNumber(boundsMm, 'height'),
+    }),
+    strokeColor: expectString(value, 'strokeColor'),
+    fillColor: expectString(value, 'fillColor'),
+    strokeWidthMm: expectNumber(value, 'strokeWidthMm'),
+  }
+}
+
+function parseAnnotation(value: unknown): SceneAnnotation | undefined {
   if (!isRecord(value)) {
     return undefined
   }
 
   try {
-    const startMm = value.startMm
-    const endMm = value.endMm
-
-    if (!isRecord(startMm) || !isRecord(endMm)) {
-      return undefined
+    if (typeof value.kind !== 'string') {
+      return parseAnnotationLine(value)
     }
 
-    return {
-      id: expectString(value, 'id'),
-      startMm: {
-        x: expectNumber(startMm, 'x'),
-        y: expectNumber(startMm, 'y'),
-      },
-      endMm: {
-        x: expectNumber(endMm, 'x'),
-        y: expectNumber(endMm, 'y'),
-      },
-      color: expectString(value, 'color'),
-      strokeWidthMm: expectNumber(value, 'strokeWidthMm'),
+    switch (value.kind) {
+      case 'line':
+        return parseAnnotationLine(value)
+      case 'text':
+        return parseAnnotationText(value)
+      case 'shape':
+        return parseShapeAnnotation(value)
+      default:
+        return undefined
     }
   } catch {
     return undefined
@@ -722,6 +845,7 @@ export function parseSceneDocument(rawText: string): SceneDocument {
   if (
     version !== SCENE_DOCUMENT_VERSION &&
     version !== PREVIOUS_SCENE_DOCUMENT_VERSION &&
+    version !== WORKSPACE_SCENE_DOCUMENT_VERSION &&
     version !== STAGE2_SCENE_DOCUMENT_VERSION &&
     version !== LEGACY_SCENE_DOCUMENT_VERSION &&
     version !== STAGE1_SCENE_DOCUMENT_VERSION
@@ -755,7 +879,7 @@ export function parseSceneDocument(rawText: string): SceneDocument {
     components: componentsValue.map((component) => {
       const nextComponent = parseComponent(component, version)
 
-      if (version === PREVIOUS_SCENE_DOCUMENT_VERSION) {
+      if (version === WORKSPACE_SCENE_DOCUMENT_VERSION) {
         return {
           ...nextComponent,
           hostSurfaceId: undefined,
@@ -765,7 +889,7 @@ export function parseSceneDocument(rawText: string): SceneDocument {
       return nextComponent
     }),
     annotations: Array.isArray(parsedValue.annotations)
-      ? (parsedValue.annotations.map(parseAnnotationLine).filter(Boolean) as AnnotationLine[])
+      ? (parsedValue.annotations.map(parseAnnotation).filter(Boolean) as SceneAnnotation[])
       : [],
   }
 }

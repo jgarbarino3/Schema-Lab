@@ -11,6 +11,10 @@ import type Konva from 'konva'
 import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
 import { CURRENT_VERSION } from './content/versionHistory'
+import {
+  getAnnotationBoundsMm,
+  getAnnotationSelectionAnchorMm,
+} from './domain/annotations'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
@@ -46,12 +50,14 @@ import {
   getOpticalTableWorldBoundsMm,
   getWorkspacePrimaryBreadboard,
 } from './domain/workspace'
-import type { ScreenPointPx } from './domain/types'
+import type { AnnotationText, ScreenPointPx } from './domain/types'
 import {
   OPTICAL_TABLE_SURFACE_ID,
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
+import { AnnotationTextEditor } from './ui/AnnotationTextEditor'
+import { AnnotationToolbar } from './ui/AnnotationToolbar'
 import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { ExportOptionsModal } from './ui/ExportOptionsModal'
@@ -223,6 +229,12 @@ function App() {
   const duplicateSelectedComponent = useEditorStore(
     (state) => state.duplicateSelectedComponent,
   )
+  const deleteSelectedAnnotation = useEditorStore(
+    (state) => state.deleteSelectedAnnotation,
+  )
+  const duplicateSelectedAnnotation = useEditorStore(
+    (state) => state.duplicateSelectedAnnotation,
+  )
   const clearBreadboardComponents = useEditorStore(
     (state) => state.clearBreadboardComponents,
   )
@@ -245,6 +257,12 @@ function App() {
   )
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
+  )
+  const finishTextAnnotationEditing = useEditorStore(
+    (state) => state.finishTextAnnotationEditing,
+  )
+  const cancelTextAnnotationEditing = useEditorStore(
+    (state) => state.cancelTextAnnotationEditing,
   )
   const viewport = useEditorStore((state) => state.viewport)
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -375,6 +393,25 @@ function App() {
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
       : undefined
+  const selectedAnnotation =
+    selection.type === 'annotation'
+      ? scene.annotations.find((annotation) => annotation.id === selection.annotationId)
+      : undefined
+  const selectedCanvasAnnotation =
+    selectedAnnotation && selectedAnnotation.kind !== 'line'
+      ? selectedAnnotation
+      : undefined
+  const editingTextAnnotation = useMemo(
+    () =>
+      interaction.editingTextAnnotationId
+        ? scene.annotations.find(
+            (annotation): annotation is AnnotationText =>
+              annotation.id === interaction.editingTextAnnotationId &&
+              annotation.kind === 'text',
+          )
+        : undefined,
+    [interaction.editingTextAnnotationId, scene.annotations],
+  )
   const focusedBreadboardInstance = useMemo(
     () =>
       scene.workspace.kind === 'optical-table'
@@ -1074,6 +1111,62 @@ function App() {
     }
   })()
 
+  const annotationToolbarPosition = useMemo(() => {
+    if (!selectedCanvasAnnotation || !stageShellRef.current || editingTextAnnotation) {
+      return undefined
+    }
+
+    const shell = stageShellRef.current
+    const bounds = getAnnotationBoundsMm(selectedCanvasAnnotation)
+    const anchorMm = getAnnotationSelectionAnchorMm(selectedCanvasAnnotation)
+    const anchorPx = worldToScreen(anchorMm, viewport)
+    const toolbarWidthPx = selectedCanvasAnnotation.kind === 'text' ? 420 : 360
+    const preferredTopPx = worldToScreen({ x: anchorMm.x, y: bounds.y }, viewport).y - 62
+    const leftPx = clamp(
+      anchorPx.x - toolbarWidthPx / 2,
+      14,
+      Math.max(14, shell.clientWidth - toolbarWidthPx - 14),
+    )
+
+    return {
+      leftPx,
+      topPx:
+        preferredTopPx < 14
+          ? clamp(
+              worldToScreen(
+                { x: anchorMm.x, y: bounds.y + bounds.height },
+                viewport,
+              ).y + 18,
+              14,
+              Math.max(14, shell.clientHeight - 56),
+            )
+          : clamp(preferredTopPx, 14, Math.max(14, shell.clientHeight - 56)),
+    }
+  }, [editingTextAnnotation, selectedCanvasAnnotation, viewport])
+
+  const textEditorPosition = useMemo(() => {
+    if (!editingTextAnnotation || !stageShellRef.current) {
+      return undefined
+    }
+
+    const anchorPx = worldToScreen(editingTextAnnotation.anchorMm, viewport)
+    const widthPx = Math.max(120, editingTextAnnotation.widthMm * viewport.zoomPxPerMm)
+
+    return {
+      leftPx: clamp(
+        anchorPx.x,
+        12,
+        Math.max(12, stageShellRef.current.clientWidth - widthPx - 12),
+      ),
+      topPx: clamp(
+        anchorPx.y,
+        12,
+        Math.max(12, stageShellRef.current.clientHeight - 56),
+      ),
+      widthPx,
+    }
+  }, [editingTextAnnotation, viewport])
+
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const dragState = bottomToolbarDragRef.current
@@ -1301,7 +1394,11 @@ function App() {
         return
       }
 
-      if (!selectedComponent && !pendingPlacement) {
+      if (interaction.editingTextAnnotationId) {
+        return
+      }
+
+      if (!selectedComponent && !selectedAnnotation && !pendingPlacement) {
         return
       }
 
@@ -1311,13 +1408,25 @@ function App() {
         return
       }
 
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedAnnotation) {
+        event.preventDefault()
+        deleteSelectedAnnotation()
+        return
+      }
+
       if (key === 'd' && selectedComponent) {
         event.preventDefault()
         duplicateSelectedComponent()
         return
       }
 
-      if (key === 'r') {
+      if (key === 'd' && selectedAnnotation) {
+        event.preventDefault()
+        duplicateSelectedAnnotation()
+        return
+      }
+
+      if (key === 'r' && (selectedComponent || pendingPlacement)) {
         event.preventDefault()
         rotateSelectedComponent(1)
       }
@@ -1348,6 +1457,8 @@ function App() {
     canUndo,
     cancelActiveInteraction,
     deleteSelectedComponent,
+    deleteSelectedAnnotation,
+    duplicateSelectedAnnotation,
     duplicateSelectedComponent,
     exportOptionsFormat,
     isClearModalOpen,
@@ -1366,6 +1477,7 @@ function App() {
     redo,
     rotateSelectedComponent,
     selectedComponent,
+    selectedAnnotation,
     setHelpOpen,
     setOpenToolbarMenu,
     setPendingExportRequest,
@@ -1701,6 +1813,27 @@ function App() {
               showPostHolders={showPostHolders}
             />
 
+            {selectedCanvasAnnotation &&
+            annotationToolbarPosition &&
+            !editingTextAnnotation ? (
+              <AnnotationToolbar
+                annotation={selectedCanvasAnnotation}
+                leftPx={annotationToolbarPosition.leftPx}
+                topPx={annotationToolbarPosition.topPx}
+              />
+            ) : null}
+
+            {editingTextAnnotation && textEditorPosition ? (
+              <AnnotationTextEditor
+                annotation={editingTextAnnotation}
+                leftPx={textEditorPosition.leftPx}
+                onCancel={cancelTextAnnotationEditing}
+                onCommit={finishTextAnnotationEditing}
+                topPx={textEditorPosition.topPx}
+                widthPx={textEditorPosition.widthPx}
+              />
+            ) : null}
+
             <div
               aria-label="Canvas controls"
               className="canvas-toolbar"
@@ -1778,6 +1911,12 @@ function App() {
                   ? `${pendingPlacement.draft.label} (pending)`
                 : selectedComponent
                   ? selectedComponent.label
+                  : selectedAnnotation
+                    ? selectedAnnotation.kind === 'text'
+                      ? 'Text Annotation'
+                      : selectedAnnotation.kind === 'shape'
+                        ? `${selectedAnnotation.shapeKind[0]!.toUpperCase()}${selectedAnnotation.shapeKind.slice(1)} Annotation`
+                        : 'Beam Line'
                   : selection.type === 'optical-table'
                     ? scene.workspace.kind === 'optical-table'
                       ? scene.workspace.table.label

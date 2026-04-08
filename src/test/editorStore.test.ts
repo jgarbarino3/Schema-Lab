@@ -369,6 +369,91 @@ describe('editor store optical table placement', () => {
   })
 })
 
+describe('editor store annotations', () => {
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('creates and edits a text annotation', () => {
+    const store = useEditorStore.getState()
+
+    store.addTextAnnotationAt({ x: 42, y: 56 })
+
+    const selectionAfterAdd = useEditorStore.getState().selection
+    const selectedAnnotation =
+      selectionAfterAdd.type === 'annotation'
+        ? useEditorStore
+            .getState()
+            .scene.annotations.find(
+              (annotation) => annotation.id === selectionAfterAdd.annotationId,
+            )
+        : undefined
+
+    expect(selectedAnnotation?.kind).toBe('text')
+    expect(useEditorStore.getState().interaction.editingTextAnnotationId).toBe(
+      selectedAnnotation?.id,
+    )
+
+    store.finishTextAnnotationEditing('Pump arm note')
+
+    const textAnnotation = useEditorStore.getState().scene.annotations[0]
+    expect(textAnnotation).toMatchObject({
+      kind: 'text',
+      text: 'Pump arm note',
+    })
+
+    store.updateSelectedTextStyle({
+      bold: true,
+      underline: true,
+    })
+
+    expect(useEditorStore.getState().scene.annotations[0]).toMatchObject({
+      kind: 'text',
+      style: expect.objectContaining({
+        bold: true,
+        underline: true,
+      }),
+    })
+  })
+
+  it('creates, resizes, duplicates, and deletes a shape annotation', () => {
+    const store = useEditorStore.getState()
+
+    store.setShapeToolKind('ellipse')
+    store.addShapeAnnotationAt({ x: 60, y: 72 })
+
+    expect(useEditorStore.getState().scene.annotations[0]).toMatchObject({
+      kind: 'shape',
+      shapeKind: 'ellipse',
+    })
+
+    store.updateSelectedShapeAnnotation({
+      boundsMm: {
+        width: 64,
+        height: 28,
+      },
+    })
+
+    expect(useEditorStore.getState().scene.annotations[0]).toMatchObject({
+      kind: 'shape',
+      boundsMm: expect.objectContaining({
+        width: 64,
+        height: 28,
+      }),
+    })
+
+    store.duplicateSelectedAnnotation()
+    expect(useEditorStore.getState().scene.annotations).toHaveLength(2)
+
+    store.deleteSelectedAnnotation()
+    expect(useEditorStore.getState().scene.annotations).toHaveLength(1)
+  })
+})
+
 describe('editor store fresh optical table', () => {
   beforeEach(() => {
     useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })

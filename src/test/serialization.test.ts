@@ -89,6 +89,79 @@ describe('scene serialization', () => {
     expect(parseSceneDocument(serializeSceneDocument(scene))).toEqual(scene)
   })
 
+  it('round-trips text, line, and shape annotations through JSON', () => {
+    const scene = createEmptyScene()
+
+    scene.annotations = [
+      {
+        id: 'line-1',
+        kind: 'line',
+        startMm: { x: 25, y: 40 },
+        endMm: { x: 180, y: 40 },
+        color: '#00eeff',
+        strokeWidthMm: 0.8,
+      },
+      {
+        id: 'text-1',
+        kind: 'text',
+        anchorMm: { x: 40, y: 62 },
+        widthMm: 78,
+        text: 'Pump path\nnotes',
+        style: {
+          fontFamily: 'mono',
+          fontSizeMm: 5.2,
+          color: '#ffeeaa',
+          bold: true,
+          italic: false,
+          underline: true,
+          align: 'center',
+        },
+      },
+      {
+        id: 'shape-1',
+        kind: 'shape',
+        shapeKind: 'ellipse',
+        boundsMm: {
+          x: 90,
+          y: 90,
+          width: 46,
+          height: 22,
+        },
+        strokeColor: '#ff00ff',
+        fillColor: 'transparent',
+        strokeWidthMm: 1.2,
+      },
+    ]
+
+    expect(parseSceneDocument(serializeSceneDocument(scene))).toEqual(scene)
+  })
+
+  it('migrates legacy line annotations without explicit kinds', () => {
+    const scene = createEmptyScene()
+    const legacyJson = JSON.stringify({
+      ...scene,
+      version: 7,
+      annotations: [
+        {
+          id: 'legacy-line',
+          startMm: { x: 10, y: 15 },
+          endMm: { x: 90, y: 15 },
+          color: '#ff0000',
+          strokeWidthMm: 0.8,
+        },
+      ],
+    })
+
+    const migrated = parseSceneDocument(legacyJson)
+
+    expect(migrated.version).toBe(8)
+    expect(migrated.annotations[0]).toMatchObject({
+      id: 'legacy-line',
+      kind: 'line',
+      color: '#ff0000',
+    })
+  })
+
   it('migrates a version 1 scene into the version 5 family/variant model', () => {
     const seedScene = createEmptyScene()
     const legacyJson = JSON.stringify({
@@ -112,7 +185,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(7)
+    expect(migrated.version).toBe(8)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -167,7 +240,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(7)
+    expect(migrated.version).toBe(8)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -220,7 +293,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(7)
+    expect(migrated.version).toBe(8)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

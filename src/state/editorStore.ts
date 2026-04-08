@@ -1,4 +1,16 @@
 import { create } from 'zustand'
+import {
+  clampAnnotationFontSizeMm,
+  createDefaultShapeAnnotation,
+  createDefaultTextAnnotation,
+  DEFAULT_ANNOTATION_SHAPE_KIND,
+  getArrowAnnotationBoundsMm,
+  normalizeRectLikeBounds,
+  resizeShapeAnnotationBounds,
+  resizeTextAnnotationWidth,
+  translateAnnotation,
+  updateArrowAnnotationEndpoint,
+} from '../domain/annotations'
 import { getNearestBoardCenterHole } from '../domain/breadboard'
 import {
   createBreadboardFromPreset,
@@ -50,6 +62,9 @@ import {
 import type {
   ActiveTool,
   AnnotationLine,
+  AnnotationShapeKind,
+  AnnotationText,
+  AnnotationTextStyle,
   BeamSplitterConfig,
   BboCrystalConfig,
   BreadboardModel,
@@ -68,9 +83,11 @@ import type {
   PolarizerConfig,
   QuarterTurn,
   RenderMode,
+  SceneAnnotation,
   SceneBeamSettings,
   SceneDocument,
   ScreenPointPx,
+  ShapeAnnotation,
   SnapMode,
   SourceConfig,
   SourceLane,
@@ -86,6 +103,7 @@ import { OPTICAL_TABLE_SURFACE_ID, SINGLE_BREADBOARD_SURFACE_ID } from '../domai
 export type SelectionState =
   | { type: 'breadboard'; surfaceId: string }
   | { type: 'optical-table' }
+  | { type: 'annotation'; annotationId: string }
   | { type: 'component'; componentId: string }
 
 type ComponentUpdate = Partial<
@@ -126,6 +144,7 @@ interface InteractionState {
   breadboardDragPreview?: BreadboardDragPreview
   bottomToolbarOffsetPx?: ScreenPointPx
   dragPreview?: DragPreviewState
+  editingTextAnnotationId?: string
   pendingPlacement?: PendingPlacementState
   pendingBreadboardPlacement?: PendingBreadboardPlacementState
   focusedBreadboardId?: string
@@ -148,6 +167,7 @@ interface InteractionState {
   notice?: string
   lineDrawStartMm?: Vector2Mm
   lineColor: string
+  shapeToolKind: AnnotationShapeKind
   workspaceViewMode: WorkspaceViewMode
 }
 
@@ -195,6 +215,7 @@ interface EditorStore {
   selectBreadboard: (surfaceId?: string) => void
   selectOpticalTable: () => void
   selectComponent: (componentId: string) => void
+  selectAnnotation: (annotationId: string) => void
   setSnapMode: (snapMode: SnapMode) => void
   setActiveTool: (tool: ActiveTool) => void
   setSpacePanning: (isPressed: boolean) => void
@@ -225,6 +246,8 @@ interface EditorStore {
   zoomAtScreenPoint: (pointPx: ScreenPointPx, zoomFactor: number) => void
   resetViewport: () => void
   addComponent: (type: ComponentType) => void
+  addTextAnnotationAt: (anchorMm: Vector2Mm) => void
+  addShapeAnnotationAt: (anchorMm: Vector2Mm) => void
   addBreadboardInstance: (presetId: string) => void
   updatePendingPlacementAnchor: (anchorMm: Vector2Mm) => void
   commitPendingPlacement: (anchorMm?: Vector2Mm) => void
@@ -240,6 +263,8 @@ interface EditorStore {
   cancelActiveInteraction: () => void
   deleteSelectedComponent: () => void
   duplicateSelectedComponent: () => void
+  deleteSelectedAnnotation: () => void
+  duplicateSelectedAnnotation: () => void
   clearBreadboardComponents: (breadboardId?: string) => void
   clearOpticalTableComponents: () => void
   updateSelectedComponent: (update: ComponentUpdate) => void
@@ -263,6 +288,33 @@ interface EditorStore {
     widthMm?: number
     heightMm?: number
   }) => void
+  updateSelectedTextAnnotation: (update: {
+    anchorMm?: Vector2Mm
+    text?: string
+    widthMm?: number
+  }) => void
+  updateSelectedTextStyle: (update: Partial<AnnotationTextStyle>) => void
+  updateSelectedShapeAnnotation: (update: {
+    boundsMm?: {
+      x?: number
+      y?: number
+      width?: number
+      height?: number
+    }
+    endMm?: Vector2Mm
+    startMm?: Vector2Mm
+  }) => void
+  updateSelectedShapeStyle: (update: {
+    fillColor?: string
+    shapeKind?: ShapeAnnotation['shapeKind']
+    strokeColor?: string
+    strokeWidthMm?: number
+  }) => void
+  translateSelectedAnnotation: (deltaMm: Vector2Mm) => void
+  setShapeToolKind: (shapeKind: AnnotationShapeKind) => void
+  startTextAnnotationEditing: (annotationId: string) => void
+  finishTextAnnotationEditing: (text: string) => void
+  cancelTextAnnotationEditing: () => void
   clearSelectedGeometryOverride: () => void
   updateSelectedPostHolderDiameter: (diameterMm: number) => void
   applySupportToType: (type: ComponentType, includeMount: boolean) => void
@@ -574,6 +626,14 @@ function createComponentId(type: ComponentType) {
   return `${type}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function createAnnotationId(kind: SceneAnnotation['kind']) {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${kind}-${crypto.randomUUID().slice(0, 8)}`
+  }
+
+  return `${kind}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function syncBreadboardPresetId(breadboard: BreadboardModel): BreadboardModel {
   return {
     ...breadboard,
@@ -590,6 +650,17 @@ function getSelectedComponent(
   }
 
   return scene.components.find((component) => component.id === selection.componentId)
+}
+
+function getSelectedAnnotation(
+  scene: SceneDocument,
+  selection: SelectionState,
+) {
+  if (selection.type !== 'annotation') {
+    return undefined
+  }
+
+  return scene.annotations.find((annotation) => annotation.id === selection.annotationId)
 }
 
 function getDefaultSelection(scene: SceneDocument): SelectionState {
@@ -612,6 +683,12 @@ function resolveSelectionForScene(
   scene: SceneDocument,
   selection: SelectionState,
 ): SelectionState {
+  if (selection.type === 'annotation') {
+    return scene.annotations.some((annotation) => annotation.id === selection.annotationId)
+      ? selection
+      : getDefaultSelection(scene)
+  }
+
   if (selection.type === 'component') {
     return scene.components.some((component) => component.id === selection.componentId)
       ? selection
@@ -1181,6 +1258,177 @@ function getSourceGuideAdjustedAnchorMm(
   }).anchorMm
 }
 
+function updateAnnotationCollection(
+  annotations: SceneAnnotation[],
+  annotationId: string,
+  updater: (annotation: SceneAnnotation) => SceneAnnotation | undefined,
+) {
+  const nextAnnotations: SceneAnnotation[] = []
+
+  for (const annotation of annotations) {
+    if (annotation.id !== annotationId) {
+      nextAnnotations.push(annotation)
+      continue
+    }
+
+    const nextAnnotation = updater(annotation)
+    if (nextAnnotation) {
+      nextAnnotations.push(nextAnnotation)
+    }
+  }
+
+  return nextAnnotations
+}
+
+function isTextAnnotation(annotation: SceneAnnotation): annotation is AnnotationText {
+  return annotation.kind === 'text'
+}
+
+function isShapeAnnotation(annotation: SceneAnnotation): annotation is ShapeAnnotation {
+  return annotation.kind === 'shape'
+}
+
+function applyTextAnnotationUpdate(
+  annotation: AnnotationText,
+  update: {
+    anchorMm?: Vector2Mm
+    text?: string
+    widthMm?: number
+  },
+) {
+  const nextAnnotation: AnnotationText = {
+    ...annotation,
+    anchorMm: update.anchorMm
+      ? {
+          x: roundMm(update.anchorMm.x),
+          y: roundMm(update.anchorMm.y),
+        }
+      : annotation.anchorMm,
+    text: update.text ?? annotation.text,
+  }
+
+  return update.widthMm !== undefined
+    ? resizeTextAnnotationWidth(nextAnnotation, update.widthMm)
+    : nextAnnotation
+}
+
+function applyTextAnnotationStyle(
+  annotation: AnnotationText,
+  update: Partial<AnnotationTextStyle>,
+) {
+  return {
+    ...annotation,
+    style: {
+      ...annotation.style,
+      ...update,
+      fontSizeMm:
+        update.fontSizeMm !== undefined
+          ? clampAnnotationFontSizeMm(update.fontSizeMm)
+          : annotation.style.fontSizeMm,
+    },
+  } satisfies AnnotationText
+}
+
+function convertShapeKind(
+  annotation: ShapeAnnotation,
+  shapeKind: ShapeAnnotation['shapeKind'],
+): ShapeAnnotation {
+  if (annotation.shapeKind === shapeKind) {
+    return annotation
+  }
+
+  if (shapeKind === 'arrow') {
+    const bounds =
+      annotation.shapeKind === 'arrow'
+        ? getArrowAnnotationBoundsMm(annotation)
+        : annotation.boundsMm
+
+    return {
+      id: annotation.id,
+      kind: 'shape',
+      shapeKind,
+      startMm: {
+        x: roundMm(bounds.x),
+        y: roundMm(bounds.y),
+      },
+      endMm: {
+        x: roundMm(bounds.x + bounds.width),
+        y: roundMm(bounds.y + bounds.height),
+      },
+      strokeColor: annotation.strokeColor,
+      fillColor: annotation.fillColor,
+      strokeWidthMm: annotation.strokeWidthMm,
+    }
+  }
+
+  const bounds =
+    annotation.shapeKind === 'arrow'
+      ? normalizeRectLikeBounds({
+          x: Math.min(annotation.startMm.x, annotation.endMm.x),
+          y: Math.min(annotation.startMm.y, annotation.endMm.y),
+          width: Math.abs(annotation.endMm.x - annotation.startMm.x),
+          height: Math.abs(annotation.endMm.y - annotation.startMm.y),
+        })
+      : annotation.boundsMm
+
+  return {
+    id: annotation.id,
+    kind: 'shape',
+    shapeKind,
+    boundsMm: bounds,
+    strokeColor: annotation.strokeColor,
+    fillColor: annotation.fillColor,
+    strokeWidthMm: annotation.strokeWidthMm,
+  }
+}
+
+function applyShapeAnnotationUpdate(
+  annotation: ShapeAnnotation,
+  update: {
+    boundsMm?: {
+      x?: number
+      y?: number
+      width?: number
+      height?: number
+    }
+    endMm?: Vector2Mm
+    startMm?: Vector2Mm
+  },
+) {
+  if (annotation.shapeKind === 'arrow') {
+    let nextAnnotation: ShapeAnnotation = annotation
+
+    if (update.startMm) {
+      nextAnnotation = updateArrowAnnotationEndpoint(
+        nextAnnotation,
+        'start',
+        update.startMm,
+      )
+    }
+
+    if (update.endMm) {
+      nextAnnotation = updateArrowAnnotationEndpoint(
+        nextAnnotation,
+        'end',
+        update.endMm,
+      )
+    }
+
+    return nextAnnotation
+  }
+
+  if (!update.boundsMm) {
+    return annotation
+  }
+
+  return resizeShapeAnnotationBounds(annotation, {
+    x: update.boundsMm.x ?? annotation.boundsMm.x,
+    y: update.boundsMm.y ?? annotation.boundsMm.y,
+    width: update.boundsMm.width ?? annotation.boundsMm.width,
+    height: update.boundsMm.height ?? annotation.boundsMm.height,
+  })
+}
+
 function translateBreadboardHostedComponents(
   components: ComponentInstance[],
   breadboardId: string,
@@ -1327,7 +1575,9 @@ function createInteractionForScene(args: {
   return {
     ...initialInteraction,
     bottomToolbarOffsetPx: args.previousInteraction?.bottomToolbarOffsetPx,
+    editingTextAnnotationId: undefined,
     focusedBreadboardId,
+    shapeToolKind: args.previousInteraction?.shapeToolKind ?? DEFAULT_ANNOTATION_SHAPE_KIND,
     workspaceViewMode,
     activeHostSurfaceId: resolvedActiveHostSurfaceId,
   } satisfies InteractionState
@@ -1354,6 +1604,7 @@ function restoreSceneHistorySnapshot(
       dragPreview: undefined,
       hoveredBeamSegmentId: undefined,
       hoveredComponentId: undefined,
+      editingTextAnnotationId: undefined,
       notice: undefined,
       pendingBreadboardPlacement: undefined,
       pendingPlacement: undefined,
@@ -1375,6 +1626,7 @@ const initialInteraction: InteractionState = {
   isPointerPanning: false,
   isWarningsOpen: false,
   lineColor: '#ff0000',
+  shapeToolKind: DEFAULT_ANNOTATION_SHAPE_KIND,
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
@@ -1425,6 +1677,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: nextSurfaceId,
+          editingTextAnnotationId: undefined,
           focusedBreadboardId,
           notice: undefined,
           pendingPlacement: undefined,
@@ -1440,6 +1693,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+        editingTextAnnotationId: undefined,
         notice: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
@@ -1474,6 +1728,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeHostSurfaceId:
             component?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
+          editingTextAnnotationId: undefined,
           focusedBreadboardId,
           notice: undefined,
           pendingPlacement: undefined,
@@ -1481,6 +1736,21 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
       }
     })
+  },
+
+  selectAnnotation: (annotationId) => {
+    set((state) => ({
+      selection: { type: 'annotation', annotationId },
+      interaction: {
+        ...state.interaction,
+        activeDragComponentId: undefined,
+        dragPreview: undefined,
+        editingTextAnnotationId: undefined,
+        notice: undefined,
+        pendingPlacement: undefined,
+        pendingBreadboardPlacement: undefined,
+      },
+    }))
   },
 
   setSnapMode: (snapMode) => {
@@ -1492,6 +1762,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         activeTool: tool,
+        editingTextAnnotationId:
+          tool === 'text' ? state.interaction.editingTextAnnotationId : undefined,
         lineDrawStartMm: tool === 'line' ? state.interaction.lineDrawStartMm : undefined,
       },
     }))
@@ -1730,6 +2002,59 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: undefined,
         },
       }
+    })
+  },
+
+  addTextAnnotationAt: (anchorMm) => {
+    set((state) => {
+      const nextAnnotation = createDefaultTextAnnotation(
+        createAnnotationId('text'),
+        anchorMm,
+      )
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: [...state.scene.annotations, nextAnnotation],
+        },
+        selection: { type: 'annotation', annotationId: nextAnnotation.id },
+        interaction: {
+          ...state.interaction,
+          activeTool: 'text',
+          editingTextAnnotationId: nextAnnotation.id,
+          lineDrawStartMm: undefined,
+          notice: undefined,
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+        },
+      })
+    })
+  },
+
+  addShapeAnnotationAt: (anchorMm) => {
+    set((state) => {
+      const nextAnnotation = createDefaultShapeAnnotation(
+        createAnnotationId('shape'),
+        anchorMm,
+        state.interaction.shapeToolKind,
+      )
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: [...state.scene.annotations, nextAnnotation],
+        },
+        selection: { type: 'annotation', annotationId: nextAnnotation.id },
+        interaction: {
+          ...state.interaction,
+          activeTool: 'shape',
+          editingTextAnnotationId: undefined,
+          lineDrawStartMm: undefined,
+          notice: undefined,
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+        },
+      })
     })
   },
 
@@ -2229,6 +2554,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         activeDragComponentId: undefined,
         breadboardDragPreview: undefined,
         dragPreview: undefined,
+        editingTextAnnotationId: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
         hoveredBeamSegmentId: undefined,
@@ -2401,6 +2727,66 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           notice: describePlacementReason(placement.reason),
+        },
+      })
+    })
+  },
+
+  deleteSelectedAnnotation: () => {
+    set((state) => {
+      if (state.selection.type !== 'annotation') {
+        return state
+      }
+
+      const selectedAnnotationId = state.selection.annotationId
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: state.scene.annotations.filter(
+            (annotation) => annotation.id !== selectedAnnotationId,
+          ),
+        },
+        selection: getDefaultSelection(state.scene),
+        interaction: {
+          ...state.interaction,
+          editingTextAnnotationId:
+            state.interaction.editingTextAnnotationId === selectedAnnotationId
+              ? undefined
+              : state.interaction.editingTextAnnotationId,
+          notice: undefined,
+        },
+      })
+    })
+  },
+
+  duplicateSelectedAnnotation: () => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      const duplicate = translateAnnotation(
+        {
+          ...selectedAnnotation,
+          id: createAnnotationId(selectedAnnotation.kind),
+        } as SceneAnnotation,
+        { x: 14, y: 14 },
+      )
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: [...state.scene.annotations, duplicate],
+        },
+        selection: { type: 'annotation', annotationId: duplicate.id },
+        interaction: {
+          ...state.interaction,
+          editingTextAnnotationId:
+            duplicate.kind === 'text' ? duplicate.id : undefined,
+          notice: undefined,
         },
       })
     })
@@ -3479,6 +3865,249 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  updateSelectedTextAnnotation: (update) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation || !isTextAnnotation(selectedAnnotation)) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) =>
+              isTextAnnotation(annotation)
+                ? applyTextAnnotationUpdate(annotation, update)
+                : annotation,
+          ),
+        },
+      }, {
+        mergeKey: `annotation-text:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
+  updateSelectedTextStyle: (update) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation || !isTextAnnotation(selectedAnnotation)) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) =>
+              isTextAnnotation(annotation)
+                ? applyTextAnnotationStyle(annotation, update)
+                : annotation,
+          ),
+        },
+      }, {
+        mergeKey: `annotation-style:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
+  updateSelectedShapeAnnotation: (update) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation || !isShapeAnnotation(selectedAnnotation)) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) =>
+              isShapeAnnotation(annotation)
+                ? applyShapeAnnotationUpdate(annotation, update)
+                : annotation,
+          ),
+        },
+      }, {
+        mergeKey: `annotation-shape:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
+  updateSelectedShapeStyle: (update) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation || !isShapeAnnotation(selectedAnnotation)) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) => {
+              if (!isShapeAnnotation(annotation)) {
+                return annotation
+              }
+
+              const reshaped = update.shapeKind
+                ? convertShapeKind(annotation, update.shapeKind)
+                : annotation
+
+              return {
+                ...reshaped,
+                strokeColor: update.strokeColor ?? reshaped.strokeColor,
+                fillColor: update.fillColor ?? reshaped.fillColor,
+                strokeWidthMm:
+                  update.strokeWidthMm !== undefined
+                    ? Math.max(0.2, roundMm(update.strokeWidthMm))
+                    : reshaped.strokeWidthMm,
+              }
+            },
+          ),
+        },
+      }, {
+        mergeKey: `annotation-shape-style:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
+  translateSelectedAnnotation: (deltaMm) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) => translateAnnotation(annotation, deltaMm),
+          ),
+        },
+      }, {
+        mergeKey: `annotation-translate:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
+  setShapeToolKind: (shapeToolKind) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        shapeToolKind,
+      },
+    }))
+  },
+
+  startTextAnnotationEditing: (annotationId) => {
+    set((state) => {
+      const annotation = state.scene.annotations.find((item) => item.id === annotationId)
+
+      if (!annotation || annotation.kind !== 'text') {
+        return state
+      }
+
+      return {
+        selection: { type: 'annotation', annotationId },
+        interaction: {
+          ...state.interaction,
+          activeTool: 'select',
+          editingTextAnnotationId: annotationId,
+          notice: undefined,
+        },
+      }
+    })
+  },
+
+  finishTextAnnotationEditing: (text) => {
+    set((state) => {
+      const annotationId = state.interaction.editingTextAnnotationId
+
+      if (!annotationId) {
+        return state
+      }
+
+      const selectedAnnotation = state.scene.annotations.find(
+        (annotation) => annotation.id === annotationId,
+      )
+
+      if (!selectedAnnotation || !isTextAnnotation(selectedAnnotation)) {
+        return {
+          interaction: {
+            ...state.interaction,
+            editingTextAnnotationId: undefined,
+          },
+        }
+      }
+
+      if (!text.trim()) {
+        return withCommittedScene(state, {
+          scene: {
+            ...state.scene,
+            annotations: state.scene.annotations.filter(
+              (annotation) => annotation.id !== annotationId,
+            ),
+          },
+          selection: getDefaultSelection(state.scene),
+          interaction: {
+            ...state.interaction,
+            editingTextAnnotationId: undefined,
+            notice: undefined,
+          },
+        })
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            annotationId,
+            (annotation) =>
+              isTextAnnotation(annotation)
+                ? {
+                    ...annotation,
+                    text,
+                  }
+                : annotation,
+          ),
+        },
+        interaction: {
+          ...state.interaction,
+          editingTextAnnotationId: undefined,
+        },
+      }, {
+        mergeKey: `annotation-text:${annotationId}`,
+      })
+    })
+  },
+
+  cancelTextAnnotationEditing: () => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        editingTextAnnotationId: undefined,
+      },
+    }))
+  },
+
   clearSelectedGeometryOverride: () => {
     set((state) => {
       const selectedComponent = getSelectedComponent(state.scene, state.selection)
@@ -4202,6 +4831,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       const newLine: AnnotationLine = {
         id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        kind: 'line',
         startMm,
         endMm,
         color: state.interaction.lineColor,
@@ -4235,7 +4865,9 @@ export const useEditorStore = create<EditorStore>((set) => ({
       withCommittedScene(state, {
         scene: {
           ...state.scene,
-          annotations: state.scene.annotations.filter((a) => a.id !== lineId),
+          annotations: state.scene.annotations.filter(
+            (annotation) => annotation.id !== lineId,
+          ),
         },
       }),
     )

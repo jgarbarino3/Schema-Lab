@@ -77,7 +77,7 @@ export function BreadboardLayer({
     (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a')
   const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch`
   const boardAccentStroke = isSelected
-    ? '#a9e8ff'
+    ? '#7ec5d9'
     : isFocused
       ? '#62c8eb'
       : boardStroke
@@ -138,11 +138,11 @@ export function BreadboardLayer({
           fill={boardFill}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 14 : isFocused ? 10 : 6}
+          shadowBlur={isSelected ? 11 : isFocused ? 10 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.28 : isFocused ? 0.2 : 0.22}
+          shadowOpacity={isSelected ? 0.2 : isFocused ? 0.2 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.7 : isFocused ? 1.2 : 0.8}
+          strokeWidth={isSelected ? 1.35 : isFocused ? 1.2 : 0.8}
           width={breadboard.widthMm}
         />
       ) : (
@@ -153,11 +153,11 @@ export function BreadboardLayer({
           fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 14 : isFocused ? 10 : 6}
+          shadowBlur={isSelected ? 11 : isFocused ? 10 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.28 : isFocused ? 0.2 : 0.22}
+          shadowOpacity={isSelected ? 0.2 : isFocused ? 0.2 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.7 : isFocused ? 1.2 : 0.8}
+          strokeWidth={isSelected ? 1.35 : isFocused ? 1.2 : 0.8}
           width={breadboard.widthMm}
         />
       )}

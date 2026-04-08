@@ -1,3 +1,11 @@
+import {
+  getAnnotationFontStack,
+  getAnnotationLineHeightMm,
+  getTextLineStartX,
+  getUnderlineOffsetMm,
+  measureTextLineWidthMm,
+  wrapAnnotationText,
+} from './annotations'
 import { getBeamColor } from './beamTracing'
 import {
   getBreadboardHoleAxesMm,
@@ -25,6 +33,7 @@ import {
   getWorkspacePrimaryBreadboard,
 } from './workspace'
 import type {
+  AnnotationText,
   BeamSegment,
   BeamTraceResult,
   BreadboardModel,
@@ -36,6 +45,7 @@ import type {
   QuarterTurn,
   RenderMode,
   SceneDocument,
+  ShapeAnnotation,
   Vector2Mm,
 } from './types'
 
@@ -59,6 +69,7 @@ export interface VectorNodeStyle {
   fillOpacity?: number
   fontFamily?: string
   fontSizeMm?: number
+  fontStyle?: string
   fontWeight?: number | string
   lineCap?: VectorLineCap
   lineJoin?: VectorLineJoin
@@ -207,6 +218,20 @@ function pushLayerNode(
   target.push(node)
 }
 
+function getTextAnchorForAlignment(
+  align: AnnotationText['style']['align'],
+): VectorTextAnchor {
+  switch (align) {
+    case 'center':
+      return 'middle'
+    case 'right':
+      return 'end'
+    case 'left':
+    default:
+      return 'start'
+  }
+}
+
 function rectToPoints(boundsMm: BoundsMm): Vector2Mm[] {
   return [
     { x: boundsMm.x, y: boundsMm.y },
@@ -262,6 +287,151 @@ function localCircleToWorld(
     radiusMm: roundMm(radiusMm),
     style,
   }
+}
+
+function createTextAnnotationNodes(annotation: AnnotationText): VectorNode[] {
+  const lines = wrapAnnotationText(
+    annotation.text,
+    annotation.style,
+    annotation.widthMm,
+  )
+  const lineHeightMm = getAnnotationLineHeightMm(annotation.style)
+  const nodes: VectorNode[] = []
+
+  lines.forEach((line, index) => {
+    const lineWidthMm = Math.min(
+      annotation.widthMm,
+      measureTextLineWidthMm(line, annotation.style),
+    )
+    const lineStartX = getTextLineStartX(annotation, lineWidthMm)
+    const anchorX =
+      annotation.style.align === 'center'
+        ? lineStartX + lineWidthMm / 2
+        : annotation.style.align === 'right'
+          ? lineStartX + lineWidthMm
+          : lineStartX
+    const lineY = annotation.anchorMm.y + index * lineHeightMm
+
+    nodes.push({
+      kind: 'text',
+      id: `${annotation.id}-line-${index}`,
+      positionMm: {
+        x: roundMm(anchorX),
+        y: roundMm(lineY),
+      },
+      style: defaultStyle({
+        fill: annotation.style.color,
+        fontFamily: getAnnotationFontStack(annotation.style.fontFamily),
+        fontSizeMm: annotation.style.fontSizeMm,
+        fontStyle: annotation.style.italic ? 'italic' : 'normal',
+        fontWeight: annotation.style.bold ? 700 : 400,
+        textAnchor: getTextAnchorForAlignment(annotation.style.align),
+      }),
+      text: line,
+    })
+
+    if (annotation.style.underline && line) {
+      const underlineY = roundMm(lineY + getUnderlineOffsetMm(annotation.style))
+      nodes.push({
+        kind: 'line',
+        id: `${annotation.id}-underline-${index}`,
+        x1Mm: roundMm(lineStartX),
+        y1Mm: underlineY,
+        x2Mm: roundMm(lineStartX + lineWidthMm),
+        y2Mm: underlineY,
+        style: defaultStyle({
+          stroke: annotation.style.color,
+          strokeWidthMm: Math.max(0.25, annotation.style.fontSizeMm * 0.08),
+        }),
+      })
+    }
+  })
+
+  return nodes
+}
+
+function createShapeAnnotationNodes(annotation: ShapeAnnotation): VectorNode[] {
+  if (annotation.shapeKind === 'rectangle') {
+    return [{
+      kind: 'polyline',
+      closed: true,
+      id: annotation.id,
+      pointsMm: rectToPoints(annotation.boundsMm),
+      style: defaultStyle({
+        fill: annotation.fillColor === 'transparent' ? undefined : annotation.fillColor,
+        stroke: annotation.strokeColor,
+        strokeWidthMm: annotation.strokeWidthMm,
+      }),
+    }]
+  }
+
+  if (annotation.shapeKind === 'ellipse') {
+    return [{
+      kind: 'ellipse',
+      id: annotation.id,
+      centerMm: {
+        x: roundMm(annotation.boundsMm.x + annotation.boundsMm.width / 2),
+        y: roundMm(annotation.boundsMm.y + annotation.boundsMm.height / 2),
+      },
+      radiusXMm: roundMm(annotation.boundsMm.width / 2),
+      radiusYMm: roundMm(annotation.boundsMm.height / 2),
+      style: defaultStyle({
+        fill: annotation.fillColor === 'transparent' ? undefined : annotation.fillColor,
+        stroke: annotation.strokeColor,
+        strokeWidthMm: annotation.strokeWidthMm,
+      }),
+    }]
+  }
+
+  const dx = annotation.endMm.x - annotation.startMm.x
+  const dy = annotation.endMm.y - annotation.startMm.y
+  const lengthMm = Math.hypot(dx, dy) || 1
+  const unitX = dx / lengthMm
+  const unitY = dy / lengthMm
+  const headLengthMm = Math.max(4, annotation.strokeWidthMm * 5)
+  const headHalfWidthMm = Math.max(2.2, annotation.strokeWidthMm * 3)
+  const baseX = annotation.endMm.x - unitX * headLengthMm
+  const baseY = annotation.endMm.y - unitY * headLengthMm
+  const normalX = -unitY
+  const normalY = unitX
+
+  return [
+    {
+      kind: 'line',
+      id: `${annotation.id}-shaft`,
+      x1Mm: annotation.startMm.x,
+      y1Mm: annotation.startMm.y,
+      x2Mm: baseX,
+      y2Mm: baseY,
+      style: defaultStyle({
+        lineCap: 'round',
+        stroke: annotation.strokeColor,
+        strokeWidthMm: annotation.strokeWidthMm,
+      }),
+    },
+    {
+      kind: 'polyline',
+      closed: true,
+      id: `${annotation.id}-head`,
+      pointsMm: [
+        { x: annotation.endMm.x, y: annotation.endMm.y },
+        {
+          x: roundMm(baseX + normalX * headHalfWidthMm),
+          y: roundMm(baseY + normalY * headHalfWidthMm),
+        },
+        {
+          x: roundMm(baseX - normalX * headHalfWidthMm),
+          y: roundMm(baseY - normalY * headHalfWidthMm),
+        },
+      ],
+      style: defaultStyle({
+        fill: annotation.fillColor === 'transparent' ? undefined : annotation.fillColor,
+        lineJoin: 'round',
+        stroke: annotation.strokeColor,
+        strokeWidthMm: Math.max(0.2, annotation.strokeWidthMm * 0.6),
+      }),
+    },
+  ]
 }
 
 function localEllipseToWorld(
@@ -1445,20 +1615,32 @@ export function createVectorExportSceneGraph({
   }
 
   for (const annotation of scene.annotations) {
-    pushLayerNode(layerMap, 'beams', {
-      kind: 'line',
-      id: `annotation-${annotation.id}`,
-      x1Mm: annotation.startMm.x,
-      y1Mm: annotation.startMm.y,
-      x2Mm: annotation.endMm.x,
-      y2Mm: annotation.endMm.y,
-      style: defaultStyle({
-        lineCap: 'round',
-        opacity: 1,
-        stroke: annotation.color,
-        strokeWidthMm: annotation.strokeWidthMm,
-      }),
-    })
+    if (annotation.kind === 'line') {
+      pushLayerNode(layerMap, 'beams', {
+        kind: 'line',
+        id: `annotation-${annotation.id}`,
+        x1Mm: annotation.startMm.x,
+        y1Mm: annotation.startMm.y,
+        x2Mm: annotation.endMm.x,
+        y2Mm: annotation.endMm.y,
+        style: defaultStyle({
+          lineCap: 'round',
+          opacity: 1,
+          stroke: annotation.color,
+          strokeWidthMm: annotation.strokeWidthMm,
+        }),
+      })
+      continue
+    }
+
+    const nodes =
+      annotation.kind === 'text'
+        ? createTextAnnotationNodes(annotation)
+        : createShapeAnnotationNodes(annotation)
+
+    for (const node of nodes) {
+      pushLayerNode(layerMap, 'labels', node)
+    }
   }
 
   if (showGaussianEnvelope) {

@@ -88,6 +88,10 @@ function renderStyle(style?: VectorNodeStyle) {
     parts.push(`font-weight="${style.fontWeight}"`)
   }
 
+  if (style.fontStyle) {
+    parts.push(`font-style="${style.fontStyle}"`)
+  }
+
   if (style.textAnchor) {
     parts.push(`text-anchor="${style.textAnchor}"`)
   }
@@ -120,7 +124,7 @@ function renderNode(node: VectorNode, offsetX: number, offsetY: number): string 
       return `<ellipse${node.id ? ` id="${escapeXml(node.id)}"` : ''} cx="${centerX}" cy="${centerY}" rx="${node.radiusXMm}" ry="${node.radiusYMm}"${rotation} ${renderStyle(node.style)} />`
     }
     case 'text':
-      return `<text${node.id ? ` id="${escapeXml(node.id)}"` : ''} x="${normalizePoint(node.positionMm.x, offsetX)}" y="${normalizePoint(node.positionMm.y, offsetY)}" dominant-baseline="hanging" ${renderStyle(node.style)}>${escapeXml(node.text)}</text>`
+      return `<text${node.id ? ` id="${escapeXml(node.id)}"` : ''} x="${normalizePoint(node.positionMm.x, offsetX)}" y="${normalizePoint(node.positionMm.y, offsetY)}" dominant-baseline="hanging" xml:space="preserve" ${renderStyle(node.style)}>${escapeXml(node.text)}</text>`
   }
 }
 

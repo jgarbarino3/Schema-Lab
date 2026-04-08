@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react'
 import type Konva from 'konva'
-import { Layer, Rect, Stage } from 'react-konva'
+import { Layer, Line, Rect, Stage } from 'react-konva'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
   RenderMode,
+  SceneAnnotation,
   SceneDocument,
   ViewportState,
 } from '../domain/types'
+import { AnnotationsLayer } from './AnnotationsLayer'
+import { worldToScreen } from '../domain/geometry'
 import { BeamLayer } from './BeamLayer'
 import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
@@ -177,6 +180,34 @@ export function ExportStage({
           viewport={viewport}
         />
 
+        {scene.annotations.some((annotation) => annotation.kind === 'line') ? (
+          <Layer>
+            {scene.annotations
+              .filter(
+                (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
+                  annotation.kind === 'line',
+              )
+              .map((line) => {
+                const startPx = worldToScreen(line.startMm, viewport)
+                const endPx = worldToScreen(line.endMm, viewport)
+
+                return (
+                  <Line
+                    key={line.id}
+                    lineCap="round"
+                    listening={false}
+                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                    shadowBlur={4}
+                    shadowColor={line.color}
+                    shadowOpacity={0.3}
+                    stroke={line.color}
+                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
+                  />
+                )
+              })}
+          </Layer>
+        ) : null}
+
         <ComponentsLayer
           components={componentsToRender}
           highlightedComponentIds={[]}
@@ -191,6 +222,17 @@ export function ExportStage({
           scene={scene}
           showLabels={showLabels}
           snapMode="none"
+          viewport={viewport}
+        />
+
+        <AnnotationsLayer
+          activeTool="select"
+          annotations={scene.annotations}
+          onResizeSelectedShape={() => undefined}
+          onResizeSelectedText={() => undefined}
+          onSelectAnnotation={() => undefined}
+          onStartTextEditing={() => undefined}
+          onTranslateAnnotation={() => undefined}
           viewport={viewport}
         />
       </Stage>

@@ -2,10 +2,16 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
+import { AnnotationsLayer } from './AnnotationsLayer'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
 import { getSourceGuideSnapshot } from '../domain/placement'
 import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
-import type { BeamTraceResult, GaussianTraceResult, ScreenPointPx } from '../domain/types'
+import type {
+  BeamTraceResult,
+  GaussianTraceResult,
+  SceneAnnotation,
+  ScreenPointPx,
+} from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 import {
   getBreadboardInstances,
@@ -72,7 +78,10 @@ export function SchemaStage({
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
   const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
   const selectComponent = useEditorStore((state) => state.selectComponent)
+  const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
   const beginComponentDrag = useEditorStore((state) => state.beginComponentDrag)
+  const addShapeAnnotationAt = useEditorStore((state) => state.addShapeAnnotationAt)
+  const addTextAnnotationAt = useEditorStore((state) => state.addTextAnnotationAt)
   const updatePendingPlacementAnchor = useEditorStore(
     (state) => state.updatePendingPlacementAnchor,
   )
@@ -89,6 +98,18 @@ export function SchemaStage({
   const commitComponentDrag = useEditorStore((state) => state.commitComponentDrag)
   const updateSelectedGeometryOverride = useEditorStore(
     (state) => state.updateSelectedGeometryOverride,
+  )
+  const updateSelectedShapeAnnotation = useEditorStore(
+    (state) => state.updateSelectedShapeAnnotation,
+  )
+  const updateSelectedTextAnnotation = useEditorStore(
+    (state) => state.updateSelectedTextAnnotation,
+  )
+  const translateSelectedAnnotation = useEditorStore(
+    (state) => state.translateSelectedAnnotation,
+  )
+  const startTextAnnotationEditing = useEditorStore(
+    (state) => state.startTextAnnotationEditing,
   )
   const setHoveredComponentId = useEditorStore(
     (state) => state.setHoveredComponentId,
@@ -152,6 +173,9 @@ export function SchemaStage({
 
   const isPanMode = interaction.activeTool === 'pan' || interaction.isSpacePanning
   const isLineTool = interaction.activeTool === 'line' && !interaction.isSpacePanning
+  const isTextTool = interaction.activeTool === 'text' && !interaction.isSpacePanning
+  const isShapeTool = interaction.activeTool === 'shape' && !interaction.isSpacePanning
+  const isAnnotationPlacementTool = isLineTool || isTextTool || isShapeTool
   const sourceGuide = useMemo(() => {
     if (interaction.pendingPlacement?.draft.config.source) {
       return getSourceGuideSnapshot({
@@ -212,8 +236,8 @@ export function SchemaStage({
       return 'grab'
     }
 
-    return isLineTool ? 'crosshair' : 'crosshair'
-  }, [interaction.isPointerPanning, isPanMode, isLineTool])
+    return 'crosshair'
+  }, [interaction.isPointerPanning, isPanMode])
 
   const preventNativeTouchDefault = (event: TouchEvent) => {
     if (event.cancelable) {
@@ -570,7 +594,7 @@ export function SchemaStage({
     stopPointerPan()
   }
 
-  const handleLineToolClick = (
+  const handleAnnotationToolClick = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
     const pointerMm = getStagePointerWorldMm(event)
@@ -579,10 +603,22 @@ export function SchemaStage({
       return
     }
 
-    if (interaction.lineDrawStartMm) {
-      commitLineDraw(pointerMm)
-    } else {
-      startLineDrawAt(pointerMm)
+    if (isLineTool) {
+      if (interaction.lineDrawStartMm) {
+        commitLineDraw(pointerMm)
+      } else {
+        startLineDrawAt(pointerMm)
+      }
+      return
+    }
+
+    if (isTextTool) {
+      addTextAnnotationAt(pointerMm)
+      return
+    }
+
+    if (isShapeTool) {
+      addShapeAnnotationAt(pointerMm)
     }
   }
 
@@ -598,8 +634,8 @@ export function SchemaStage({
       return
     }
 
-    if (isLineTool) {
-      handleLineToolClick(event)
+    if (isAnnotationPlacementTool) {
+      handleAnnotationToolClick(event)
       return
     }
 
@@ -632,8 +668,8 @@ export function SchemaStage({
       return
     }
 
-    if (isLineTool) {
-      handleLineToolClick(event)
+    if (isAnnotationPlacementTool) {
+      handleAnnotationToolClick(event)
       return
     }
 
@@ -662,8 +698,8 @@ export function SchemaStage({
       return
     }
 
-    if (isLineTool) {
-      handleLineToolClick(event)
+    if (isAnnotationPlacementTool) {
+      handleAnnotationToolClick(event)
       return
     }
 
@@ -782,7 +818,7 @@ export function SchemaStage({
                   ...breadboard.model,
                   label: breadboard.label,
                 }}
-                draggable={!isPanMode && !isLineTool}
+                draggable={!isPanMode && !isAnnotationPlacementTool}
                 isFocused={interaction.focusedBreadboardId === breadboard.id}
                 isSelected={
                   selection.type === 'breadboard' &&
@@ -853,9 +889,12 @@ export function SchemaStage({
             viewport={viewport}
           />
 
-          {scene.annotations.length > 0 || interaction.lineDrawStartMm ? (
+          {scene.annotations.some((annotation) => annotation.kind === 'line') ||
+          interaction.lineDrawStartMm ? (
             <Layer>
-              {scene.annotations.map((line) => {
+              {scene.annotations
+                .filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
+                .map((line) => {
                 const startPx = worldToScreen(line.startMm, viewport)
                 const endPx = worldToScreen(line.endMm, viewport)
 
@@ -920,12 +959,12 @@ export function SchemaStage({
             dragPreview={interaction.dragPreview}
             hoveredComponentId={interaction.hoveredComponentId}
             highlightedComponentIds={highlightedComponentIds}
-            isLineTool={isLineTool}
+            isLineTool={isAnnotationPlacementTool}
             isPanMode={isPanMode}
             onBeginComponentDrag={beginComponentDrag}
             onCommitComponentDrag={commitComponentDrag}
             onHoverComponent={setHoveredComponentId}
-            onLineToolClick={handleLineToolClick}
+            onLineToolClick={handleAnnotationToolClick}
             onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
             onSelectComponent={selectComponent}
             onUpdateComponentDrag={updateComponentDrag}
@@ -938,6 +977,32 @@ export function SchemaStage({
               selection.type === 'component' ? selection.componentId : undefined
             }
             snapMode={snapMode}
+            viewport={viewport}
+          />
+
+          <AnnotationsLayer
+            activeTool={interaction.activeTool}
+            annotations={scene.annotations}
+            editingTextAnnotationId={interaction.editingTextAnnotationId}
+            onAnnotationToolClick={handleAnnotationToolClick}
+            onResizeSelectedShape={updateSelectedShapeAnnotation}
+            onResizeSelectedText={(widthMm) =>
+              updateSelectedTextAnnotation({ widthMm })
+            }
+            onSelectAnnotation={selectAnnotation}
+            onStartTextEditing={startTextAnnotationEditing}
+            onTranslateAnnotation={(annotationId, deltaMm) => {
+              const selectedAnnotationId =
+                selection.type === 'annotation' ? selection.annotationId : undefined
+
+              if (selectedAnnotationId !== annotationId) {
+                selectAnnotation(annotationId)
+              }
+              translateSelectedAnnotation(deltaMm)
+            }}
+            selectedAnnotationId={
+              selection.type === 'annotation' ? selection.annotationId : undefined
+            }
             viewport={viewport}
           />
 
