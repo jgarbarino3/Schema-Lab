@@ -1,6 +1,6 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 8 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 7 as const
+export const SCENE_DOCUMENT_VERSION = 9 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 8 as const
 export const WORKSPACE_SCENE_DOCUMENT_VERSION = 6 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
@@ -62,7 +62,18 @@ export type ActiveTool = 'select' | 'pan' | 'line' | 'text' | 'shape'
 export type AnnotationKind = 'line' | 'text' | 'shape'
 export type AnnotationFontFamily = 'clean-sans' | 'serif' | 'mono' | 'soft-display'
 export type AnnotationTextAlign = 'left' | 'center' | 'right'
-export type AnnotationShapeKind = 'rectangle' | 'ellipse' | 'arrow'
+export type AnnotationTextVariant =
+  | 'plain'
+  | 'sticky-note'
+  | 'note-card'
+  | 'callout-bubble'
+export type AnnotationShapeKind =
+  | 'rectangle'
+  | 'rounded-rectangle'
+  | 'ellipse'
+  | 'diamond'
+  | 'arrow'
+export type AnnotationLayerBand = 'below-components' | 'above-components'
 
 export interface AnnotationTextStyle {
   fontFamily: AnnotationFontFamily
@@ -74,8 +85,15 @@ export interface AnnotationTextStyle {
   align: AnnotationTextAlign
 }
 
-export interface AnnotationLine {
+export interface AnnotationBase {
   id: string
+  hidden: boolean
+  layerBand: AnnotationLayerBand
+  locked: boolean
+  zIndex: number
+}
+
+export interface AnnotationLine extends AnnotationBase {
   kind: 'line'
   startMm: Vector2Mm
   endMm: Vector2Mm
@@ -83,17 +101,20 @@ export interface AnnotationLine {
   strokeWidthMm: number
 }
 
-export interface AnnotationText {
+export interface AnnotationText extends AnnotationBase {
   id: string
   kind: 'text'
   anchorMm: Vector2Mm
+  backgroundColor: string
+  borderColor: string
+  tailMm?: Vector2Mm
   widthMm: number
   text: string
+  variant: AnnotationTextVariant
   style: AnnotationTextStyle
 }
 
-export interface RectangleShapeAnnotation {
-  id: string
+export interface RectangleShapeAnnotation extends AnnotationBase {
   kind: 'shape'
   shapeKind: 'rectangle'
   boundsMm: BoundsMm
@@ -102,8 +123,16 @@ export interface RectangleShapeAnnotation {
   strokeWidthMm: number
 }
 
-export interface EllipseShapeAnnotation {
-  id: string
+export interface RoundedRectangleShapeAnnotation extends AnnotationBase {
+  kind: 'shape'
+  shapeKind: 'rounded-rectangle'
+  boundsMm: BoundsMm
+  strokeColor: string
+  fillColor: string
+  strokeWidthMm: number
+}
+
+export interface EllipseShapeAnnotation extends AnnotationBase {
   kind: 'shape'
   shapeKind: 'ellipse'
   boundsMm: BoundsMm
@@ -112,8 +141,16 @@ export interface EllipseShapeAnnotation {
   strokeWidthMm: number
 }
 
-export interface ArrowShapeAnnotation {
-  id: string
+export interface DiamondShapeAnnotation extends AnnotationBase {
+  kind: 'shape'
+  shapeKind: 'diamond'
+  boundsMm: BoundsMm
+  strokeColor: string
+  fillColor: string
+  strokeWidthMm: number
+}
+
+export interface ArrowShapeAnnotation extends AnnotationBase {
   kind: 'shape'
   shapeKind: 'arrow'
   startMm: Vector2Mm
@@ -125,7 +162,9 @@ export interface ArrowShapeAnnotation {
 
 export type ShapeAnnotation =
   | RectangleShapeAnnotation
+  | RoundedRectangleShapeAnnotation
   | EllipseShapeAnnotation
+  | DiamondShapeAnnotation
   | ArrowShapeAnnotation
 export type SceneAnnotation = AnnotationLine | AnnotationText | ShapeAnnotation
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'

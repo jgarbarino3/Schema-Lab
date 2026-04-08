@@ -1,16 +1,24 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
 import { AnnotationsLayer } from './AnnotationsLayer'
+import {
+  ANNOTATION_DRAG_GUIDE_THRESHOLD_MM,
+  getAnnotationBoundsMm,
+  getAnnotationOriginMm,
+  translateAnnotation,
+} from '../domain/annotations'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
-import { getSourceGuideSnapshot } from '../domain/placement'
+import { sortAnnotationsByZIndex } from '../domain/annotations'
+import { getSourceGuideSnapshot, inspectSceneComponentPlacement } from '../domain/placement'
 import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
   SceneAnnotation,
   ScreenPointPx,
+  Vector2Mm,
 } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 import {
@@ -23,6 +31,118 @@ import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
 import { GaussianEnvelopeLayer } from './GaussianEnvelopeLayer'
 import { RulerLayer } from './RulerLayer'
+
+interface AlignmentReference {
+  axis: 'horizontal' | 'vertical'
+  ownerId?: string
+  rangeEnd: number
+  rangeStart: number
+  value: number
+}
+
+interface AlignmentResolution {
+  guide?: { fromMm: Vector2Mm; toMm: Vector2Mm }
+  offsetMm: number
+}
+
+function getBoundsAlignmentAnchors(bounds: {
+  height: number
+  width: number
+  x: number
+  y: number
+}) {
+  return {
+    horizontal: [
+      { value: bounds.y, spanStart: bounds.x, spanEnd: bounds.x + bounds.width },
+      {
+        value: bounds.y + bounds.height / 2,
+        spanStart: bounds.x,
+        spanEnd: bounds.x + bounds.width,
+      },
+      {
+        value: bounds.y + bounds.height,
+        spanStart: bounds.x,
+        spanEnd: bounds.x + bounds.width,
+      },
+    ],
+    vertical: [
+      { value: bounds.x, spanStart: bounds.y, spanEnd: bounds.y + bounds.height },
+      {
+        value: bounds.x + bounds.width / 2,
+        spanStart: bounds.y,
+        spanEnd: bounds.y + bounds.height,
+      },
+      {
+        value: bounds.x + bounds.width,
+        spanStart: bounds.y,
+        spanEnd: bounds.y + bounds.height,
+      },
+    ],
+  }
+}
+
+function resolveAlignmentForAxis(
+  anchors: Array<{ spanEnd: number; spanStart: number; value: number }>,
+  references: AlignmentReference[],
+  axis: 'horizontal' | 'vertical',
+) {
+  let bestMatch: {
+    anchor: { spanEnd: number; spanStart: number; value: number }
+    deltaMm: number
+    reference: AlignmentReference
+  } | null = null
+
+  for (const anchor of anchors) {
+    for (const reference of references) {
+      if (reference.axis !== axis) {
+        continue
+      }
+
+      const deltaMm = reference.value - anchor.value
+      const distanceMm = Math.abs(deltaMm)
+
+      if (distanceMm > ANNOTATION_DRAG_GUIDE_THRESHOLD_MM) {
+        continue
+      }
+
+      if (!bestMatch || distanceMm < Math.abs(bestMatch.deltaMm)) {
+        bestMatch = {
+          anchor,
+          deltaMm,
+          reference,
+        }
+      }
+    }
+  }
+
+  if (!bestMatch) {
+    return { offsetMm: 0 } satisfies AlignmentResolution
+  }
+
+  const dampedOffsetMm = bestMatch.deltaMm * 0.55
+  const lineStart = Math.min(
+    bestMatch.anchor.spanStart + dampedOffsetMm,
+    bestMatch.reference.rangeStart,
+  )
+  const lineEnd = Math.max(
+    bestMatch.anchor.spanEnd + dampedOffsetMm,
+    bestMatch.reference.rangeEnd,
+  )
+
+  return {
+    offsetMm: dampedOffsetMm,
+    guide:
+      axis === 'vertical'
+        ? {
+            fromMm: { x: bestMatch.reference.value, y: lineStart },
+            toMm: { x: bestMatch.reference.value, y: lineEnd },
+          }
+        : {
+            fromMm: { x: lineStart, y: bestMatch.reference.value },
+            toMm: { x: lineEnd, y: bestMatch.reference.value },
+          },
+  } satisfies AlignmentResolution
+}
 
 interface SchemaStageProps {
   beamTrace: BeamTraceResult
@@ -128,6 +248,9 @@ export function SchemaStage({
   const beginBreadboardDrag = useEditorStore((state) => state.beginBreadboardDrag)
   const updateBreadboardDrag = useEditorStore((state) => state.updateBreadboardDrag)
   const commitBreadboardDrag = useEditorStore((state) => state.commitBreadboardDrag)
+  const [annotationGuideLines, setAnnotationGuideLines] = useState<
+    Array<{ fromMm: Vector2Mm; toMm: Vector2Mm }>
+  >([])
 
   const getStagePointerWorldMm = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
@@ -238,6 +361,231 @@ export function SchemaStage({
 
     return 'crosshair'
   }, [interaction.isPointerPanning, isPanMode])
+  const belowBandAnnotations = useMemo(
+    () =>
+      sortAnnotationsByZIndex(
+        scene.annotations.filter(
+          (annotation) => !annotation.hidden && annotation.layerBand === 'below-components',
+        ),
+      ),
+    [scene.annotations],
+  )
+  const aboveBandAnnotations = useMemo(
+    () =>
+      sortAnnotationsByZIndex(
+        scene.annotations.filter(
+          (annotation) => !annotation.hidden && annotation.layerBand === 'above-components',
+        ),
+      ),
+    [scene.annotations],
+  )
+  const annotationAlignmentReferences = useMemo(() => {
+    const references: AlignmentReference[] = []
+
+    if (scene.workspace.kind === 'single-breadboard') {
+      const bounds = {
+        x: 0,
+        y: 0,
+        width: primaryBreadboard.widthMm,
+        height: primaryBreadboard.heightMm,
+      }
+      const anchors = getBoundsAlignmentAnchors(bounds)
+
+      references.push(
+        ...anchors.vertical.map((anchor) => ({
+          axis: 'vertical' as const,
+          ownerId: SINGLE_BREADBOARD_SURFACE_ID,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+        ...anchors.horizontal.map((anchor) => ({
+          axis: 'horizontal' as const,
+          ownerId: SINGLE_BREADBOARD_SURFACE_ID,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+      )
+    }
+
+    if (opticalTable) {
+      const tableBounds = {
+        x: 0,
+        y: 0,
+        width: opticalTable.widthMm,
+        height: opticalTable.heightMm,
+      }
+      const anchors = getBoundsAlignmentAnchors(tableBounds)
+      references.push(
+        ...anchors.vertical.map((anchor) => ({
+          axis: 'vertical' as const,
+          ownerId: 'optical-table',
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+        ...anchors.horizontal.map((anchor) => ({
+          axis: 'horizontal' as const,
+          ownerId: 'optical-table',
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+      )
+    }
+
+    for (const breadboard of breadboardInstances) {
+      const bounds = {
+        x: breadboard.anchorMm.x,
+        y: breadboard.anchorMm.y,
+        width: breadboard.model.widthMm,
+        height: breadboard.model.heightMm,
+      }
+      const anchors = getBoundsAlignmentAnchors(bounds)
+      references.push(
+        ...anchors.vertical.map((anchor) => ({
+          axis: 'vertical' as const,
+          ownerId: breadboard.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+        ...anchors.horizontal.map((anchor) => ({
+          axis: 'horizontal' as const,
+          ownerId: breadboard.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+      )
+    }
+
+    for (const component of scene.components) {
+      const bounds = inspectSceneComponentPlacement(scene, component).supportBoundsMm
+      const anchors = getBoundsAlignmentAnchors(bounds)
+      references.push(
+        ...anchors.vertical.map((anchor) => ({
+          axis: 'vertical' as const,
+          ownerId: component.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+        ...anchors.horizontal.map((anchor) => ({
+          axis: 'horizontal' as const,
+          ownerId: component.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+      )
+    }
+
+    for (const annotation of scene.annotations) {
+      if (annotation.hidden) {
+        continue
+      }
+
+      const bounds = getAnnotationBoundsMm(annotation)
+      const anchors = getBoundsAlignmentAnchors(bounds)
+      references.push(
+        ...anchors.vertical.map((anchor) => ({
+          axis: 'vertical' as const,
+          ownerId: annotation.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+        ...anchors.horizontal.map((anchor) => ({
+          axis: 'horizontal' as const,
+          ownerId: annotation.id,
+          value: anchor.value,
+          rangeStart: anchor.spanStart,
+          rangeEnd: anchor.spanEnd,
+        })),
+      )
+    }
+
+    for (const segment of beamTrace.segments) {
+      if (Math.abs(segment.startMm.y - segment.endMm.y) <= 0.8) {
+        references.push({
+          axis: 'horizontal',
+          ownerId: `beam:${segment.id}`,
+          value: (segment.startMm.y + segment.endMm.y) / 2,
+          rangeStart: Math.min(segment.startMm.x, segment.endMm.x),
+          rangeEnd: Math.max(segment.startMm.x, segment.endMm.x),
+        })
+      }
+
+      if (Math.abs(segment.startMm.x - segment.endMm.x) <= 0.8) {
+        references.push({
+          axis: 'vertical',
+          ownerId: `beam:${segment.id}`,
+          value: (segment.startMm.x + segment.endMm.x) / 2,
+          rangeStart: Math.min(segment.startMm.y, segment.endMm.y),
+          rangeEnd: Math.max(segment.startMm.y, segment.endMm.y),
+        })
+      }
+    }
+
+    return references
+  }, [beamTrace.segments, breadboardInstances, opticalTable, primaryBreadboard, scene])
+
+  const clearAnnotationGuides = useCallback(() => {
+    setAnnotationGuideLines([])
+  }, [])
+
+  const resolveAnnotationDragPositionPx = useCallback(
+    (annotationId: string, screenPointPx: ScreenPointPx) => {
+      const baseAnnotation = scene.annotations.find(
+        (annotation) =>
+          annotation.id === annotationId &&
+          annotation.kind !== 'line' &&
+          !annotation.hidden,
+      )
+
+      if (!baseAnnotation || baseAnnotation.locked) {
+        return screenPointPx
+      }
+
+      const candidateOriginMm = screenToWorld(screenPointPx, viewport)
+      const baseOriginMm = getAnnotationOriginMm(baseAnnotation)
+      const candidateAnnotation = translateAnnotation(baseAnnotation, {
+        x: candidateOriginMm.x - baseOriginMm.x,
+        y: candidateOriginMm.y - baseOriginMm.y,
+      })
+      const candidateBounds = getAnnotationBoundsMm(candidateAnnotation)
+      const anchors = getBoundsAlignmentAnchors(candidateBounds)
+      const relevantReferences = annotationAlignmentReferences.filter(
+        (reference) => reference.ownerId !== annotationId,
+      )
+      const xResolution = resolveAlignmentForAxis(
+        anchors.vertical,
+        relevantReferences,
+        'vertical',
+      )
+      const yResolution = resolveAlignmentForAxis(
+        anchors.horizontal,
+        relevantReferences,
+        'horizontal',
+      )
+
+      setAnnotationGuideLines(
+        [xResolution.guide, yResolution.guide].filter(
+          (guide): guide is { fromMm: Vector2Mm; toMm: Vector2Mm } => Boolean(guide),
+        ),
+      )
+
+      const adjustedAnnotation = translateAnnotation(candidateAnnotation, {
+        x: xResolution.offsetMm,
+        y: yResolution.offsetMm,
+      })
+
+      return worldToScreen(getAnnotationOriginMm(adjustedAnnotation), viewport)
+    },
+    [annotationAlignmentReferences, scene.annotations, viewport],
+  )
 
   const preventNativeTouchDefault = (event: TouchEvent) => {
     if (event.cancelable) {
@@ -592,6 +940,7 @@ export function SchemaStage({
     }
 
     stopPointerPan()
+    clearAnnotationGuides()
   }
 
   const handleAnnotationToolClick = (
@@ -654,9 +1003,11 @@ export function SchemaStage({
     clearBeamInspectionSelection()
     if (scene.workspace.kind === 'optical-table') {
       selectOpticalTable()
+      clearAnnotationGuides()
       return
     }
 
+    clearAnnotationGuides()
     selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
   }
 
@@ -686,6 +1037,7 @@ export function SchemaStage({
     }
 
     clearBeamInspectionSelection()
+    clearAnnotationGuides()
     selectOpticalTable()
   }
 
@@ -710,6 +1062,7 @@ export function SchemaStage({
     }
 
     clearBeamInspectionSelection()
+    clearAnnotationGuides()
     selectBreadboard(surfaceId)
   }
 
@@ -889,10 +1242,10 @@ export function SchemaStage({
             viewport={viewport}
           />
 
-          {scene.annotations.some((annotation) => annotation.kind === 'line') ||
+          {belowBandAnnotations.some((annotation) => annotation.kind === 'line') ||
           interaction.lineDrawStartMm ? (
             <Layer>
-              {scene.annotations
+              {belowBandAnnotations
                 .filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
                 .map((line) => {
                 const startPx = worldToScreen(line.startMm, viewport)
@@ -953,6 +1306,29 @@ export function SchemaStage({
             </Layer>
           ) : null}
 
+          {annotationGuideLines.length > 0 ? (
+            <Layer listening={false}>
+              {annotationGuideLines.map((guide, index) => {
+                const startPx = worldToScreen(guide.fromMm, viewport)
+                const endPx = worldToScreen(guide.toMm, viewport)
+
+                return (
+                  <Line
+                    dash={[9, 5]}
+                    key={`${guide.fromMm.x}-${guide.fromMm.y}-${guide.toMm.x}-${guide.toMm.y}-${index}`}
+                    lineCap="round"
+                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                    shadowBlur={10}
+                    shadowColor="#7ad2ff"
+                    shadowOpacity={0.26}
+                    stroke="#8fe3ff"
+                    strokeWidth={1.8}
+                  />
+                )
+              })}
+            </Layer>
+          ) : null}
+
           <ComponentsLayer
             breadboardDragPreview={interaction.breadboardDragPreview}
             components={scene.components}
@@ -982,12 +1358,12 @@ export function SchemaStage({
 
           <AnnotationsLayer
             activeTool={interaction.activeTool}
-            annotations={scene.annotations}
+            annotations={belowBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
             editingTextAnnotationId={interaction.editingTextAnnotationId}
             onAnnotationToolClick={handleAnnotationToolClick}
             onResizeSelectedShape={updateSelectedShapeAnnotation}
-            onResizeSelectedText={(widthMm) =>
-              updateSelectedTextAnnotation({ widthMm })
+            onUpdateSelectedText={(update) =>
+              updateSelectedTextAnnotation(update)
             }
             onSelectAnnotation={selectAnnotation}
             onStartTextEditing={startTextAnnotationEditing}
@@ -1000,6 +1376,61 @@ export function SchemaStage({
               }
               translateSelectedAnnotation(deltaMm)
             }}
+            onClearGuides={clearAnnotationGuides}
+            resolveDragPositionPx={resolveAnnotationDragPositionPx}
+            selectedAnnotationId={
+              selection.type === 'annotation' ? selection.annotationId : undefined
+            }
+            viewport={viewport}
+          />
+
+          {aboveBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
+            <Layer>
+              {aboveBandAnnotations
+                .filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
+                .map((line) => {
+                  const startPx = worldToScreen(line.startMm, viewport)
+                  const endPx = worldToScreen(line.endMm, viewport)
+
+                  return (
+                    <Line
+                      key={line.id}
+                      lineCap="round"
+                      listening={false}
+                      points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                      shadowBlur={4}
+                      shadowColor={line.color}
+                      shadowOpacity={0.3}
+                      stroke={line.color}
+                      strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
+                    />
+                  )
+                })}
+            </Layer>
+          ) : null}
+
+          <AnnotationsLayer
+            activeTool={interaction.activeTool}
+            annotations={aboveBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
+            editingTextAnnotationId={interaction.editingTextAnnotationId}
+            onAnnotationToolClick={handleAnnotationToolClick}
+            onResizeSelectedShape={updateSelectedShapeAnnotation}
+            onUpdateSelectedText={(update) =>
+              updateSelectedTextAnnotation(update)
+            }
+            onSelectAnnotation={selectAnnotation}
+            onStartTextEditing={startTextAnnotationEditing}
+            onTranslateAnnotation={(annotationId, deltaMm) => {
+              const selectedAnnotationId =
+                selection.type === 'annotation' ? selection.annotationId : undefined
+
+              if (selectedAnnotationId !== annotationId) {
+                selectAnnotation(annotationId)
+              }
+              translateSelectedAnnotation(deltaMm)
+            }}
+            onClearGuides={clearAnnotationGuides}
+            resolveDragPositionPx={resolveAnnotationDragPositionPx}
             selectedAnnotationId={
               selection.type === 'annotation' ? selection.annotationId : undefined
             }

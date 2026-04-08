@@ -317,7 +317,7 @@ export function Toolbar({
             <section>
               <h3>Annotations</h3>
               <p>
-                Line, Text, and Shape tools now place free annotations anywhere on the canvas. Text opens an inline editor immediately, and selected notes or shapes expose a floating style bar plus inspector controls for typography, color, and sizing.
+                Line, Text, and Shape tools now place free annotations anywhere on the canvas. Text opens an inline editor immediately, and selected notes or shapes expose a header-docked style bar plus inspector controls for typography, color, ordering, and sizing.
               </p>
             </section>
             <section>

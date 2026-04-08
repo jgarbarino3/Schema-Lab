@@ -1,6 +1,9 @@
 import {
   clampAnnotationFontSizeMm,
+  DEFAULT_ANNOTATION_LAYER_BAND,
   DEFAULT_ANNOTATION_TEXT_STYLE,
+  DEFAULT_ANNOTATION_TEXT_VARIANT,
+  createDefaultTextAnnotation,
   normalizeRectLikeBounds,
 } from './annotations'
 import { findBreadboardPresetId } from './breadboardPresets'
@@ -16,8 +19,10 @@ import {
 import type {
   AnnotationLine,
   AnnotationShapeKind,
+  AnnotationTextVariant,
   AnnotationText,
   AnnotationTextStyle,
+  AnnotationLayerBand,
   SceneAnnotation,
   ShapeAnnotation,
   BreadboardFinish,
@@ -83,9 +88,21 @@ const ANNOTATION_FONT_FAMILY_VALUES = [
   'soft-display',
 ] as const
 const ANNOTATION_TEXT_ALIGN_VALUES = ['left', 'center', 'right'] as const
+const ANNOTATION_TEXT_VARIANT_VALUES: AnnotationTextVariant[] = [
+  'plain',
+  'sticky-note',
+  'note-card',
+  'callout-bubble',
+]
+const ANNOTATION_LAYER_BAND_VALUES: AnnotationLayerBand[] = [
+  'below-components',
+  'above-components',
+]
 const ANNOTATION_SHAPE_KIND_VALUES: AnnotationShapeKind[] = [
   'rectangle',
+  'rounded-rectangle',
   'ellipse',
+  'diamond',
   'arrow',
 ]
 const DEFAULT_BEAM_SETTINGS: SceneBeamSettings = {
@@ -705,6 +722,13 @@ function parseAnnotationLine(value: Record<string, unknown>): AnnotationLine | u
   return {
     id: expectString(value, 'id'),
     kind: 'line',
+    hidden: typeof value.hidden === 'boolean' ? value.hidden : false,
+    layerBand:
+      typeof value.layerBand === 'string'
+        ? expectEnum(value, 'layerBand', ANNOTATION_LAYER_BAND_VALUES)
+        : 'below-components',
+    locked: typeof value.locked === 'boolean' ? value.locked : false,
+    zIndex: typeof value.zIndex === 'number' ? expectNumber(value, 'zIndex') : 0,
     startMm: {
       x: expectNumber(startMm, 'x'),
       y: expectNumber(startMm, 'y'),
@@ -753,12 +777,35 @@ function parseAnnotationTextStyle(value: unknown): AnnotationTextStyle {
 }
 
 function parseAnnotationText(value: Record<string, unknown>): AnnotationText | undefined {
+  const variant =
+    typeof value.variant === 'string'
+      ? expectEnum(value, 'variant', ANNOTATION_TEXT_VARIANT_VALUES)
+      : DEFAULT_ANNOTATION_TEXT_VARIANT
+  const defaults = createDefaultTextAnnotation('__default__', { x: 0, y: 0 }, variant)
+
   return {
     id: expectString(value, 'id'),
     kind: 'text',
+    hidden: typeof value.hidden === 'boolean' ? value.hidden : false,
+    layerBand:
+      typeof value.layerBand === 'string'
+        ? expectEnum(value, 'layerBand', ANNOTATION_LAYER_BAND_VALUES)
+        : DEFAULT_ANNOTATION_LAYER_BAND,
+    locked: typeof value.locked === 'boolean' ? value.locked : false,
+    zIndex: typeof value.zIndex === 'number' ? expectNumber(value, 'zIndex') : 0,
     anchorMm: expectVector2(value, 'anchorMm'),
+    backgroundColor:
+      typeof value.backgroundColor === 'string'
+        ? expectString(value, 'backgroundColor')
+        : defaults.backgroundColor,
+    borderColor:
+      typeof value.borderColor === 'string'
+        ? expectString(value, 'borderColor')
+        : defaults.borderColor,
+    tailMm: isRecord(value.tailMm) ? expectVector2(value, 'tailMm') : defaults.tailMm,
     widthMm: expectNumber(value, 'widthMm'),
     text: expectString(value, 'text'),
+    variant,
     style: parseAnnotationTextStyle(value.style),
   }
 }
@@ -770,6 +817,13 @@ function parseShapeAnnotation(value: Record<string, unknown>): ShapeAnnotation |
     return {
       id: expectString(value, 'id'),
       kind: 'shape',
+      hidden: typeof value.hidden === 'boolean' ? value.hidden : false,
+      layerBand:
+        typeof value.layerBand === 'string'
+          ? expectEnum(value, 'layerBand', ANNOTATION_LAYER_BAND_VALUES)
+          : DEFAULT_ANNOTATION_LAYER_BAND,
+      locked: typeof value.locked === 'boolean' ? value.locked : false,
+      zIndex: typeof value.zIndex === 'number' ? expectNumber(value, 'zIndex') : 0,
       shapeKind,
       startMm: expectVector2(value, 'startMm'),
       endMm: expectVector2(value, 'endMm'),
@@ -787,6 +841,13 @@ function parseShapeAnnotation(value: Record<string, unknown>): ShapeAnnotation |
   return {
     id: expectString(value, 'id'),
     kind: 'shape',
+    hidden: typeof value.hidden === 'boolean' ? value.hidden : false,
+    layerBand:
+      typeof value.layerBand === 'string'
+        ? expectEnum(value, 'layerBand', ANNOTATION_LAYER_BAND_VALUES)
+        : DEFAULT_ANNOTATION_LAYER_BAND,
+    locked: typeof value.locked === 'boolean' ? value.locked : false,
+    zIndex: typeof value.zIndex === 'number' ? expectNumber(value, 'zIndex') : 0,
     shapeKind,
     boundsMm: normalizeRectLikeBounds({
       x: expectNumber(boundsMm, 'x'),

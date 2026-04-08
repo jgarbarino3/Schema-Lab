@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
+import { sortAnnotationsByZIndex } from '../domain/annotations'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
@@ -71,6 +72,15 @@ export function ExportStage({
             getHostSurfaceIdForComponent(scene, component) === exportBreadboardInstance.id,
         )
       : scene.components
+  const visibleAnnotations = sortAnnotationsByZIndex(
+    scene.annotations.filter((annotation) => !annotation.hidden),
+  )
+  const belowBandAnnotations = visibleAnnotations.filter(
+    (annotation) => annotation.layerBand === 'below-components',
+  )
+  const aboveBandAnnotations = visibleAnnotations.filter(
+    (annotation) => annotation.layerBand === 'above-components',
+  )
   const opticalTableBoard =
     opticalTable
       ? {
@@ -180,9 +190,9 @@ export function ExportStage({
           viewport={viewport}
         />
 
-        {scene.annotations.some((annotation) => annotation.kind === 'line') ? (
+        {belowBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
           <Layer>
-            {scene.annotations
+            {belowBandAnnotations
               .filter(
                 (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
                   annotation.kind === 'line',
@@ -227,9 +237,48 @@ export function ExportStage({
 
         <AnnotationsLayer
           activeTool="select"
-          annotations={scene.annotations}
+          annotations={belowBandAnnotations}
           onResizeSelectedShape={() => undefined}
-          onResizeSelectedText={() => undefined}
+          onUpdateSelectedText={() => undefined}
+          onSelectAnnotation={() => undefined}
+          onStartTextEditing={() => undefined}
+          onTranslateAnnotation={() => undefined}
+          viewport={viewport}
+        />
+
+        {aboveBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
+          <Layer>
+            {aboveBandAnnotations
+              .filter(
+                (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
+                  annotation.kind === 'line',
+              )
+              .map((line) => {
+                const startPx = worldToScreen(line.startMm, viewport)
+                const endPx = worldToScreen(line.endMm, viewport)
+
+                return (
+                  <Line
+                    key={line.id}
+                    lineCap="round"
+                    listening={false}
+                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+                    shadowBlur={4}
+                    shadowColor={line.color}
+                    shadowOpacity={0.3}
+                    stroke={line.color}
+                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
+                  />
+                )
+              })}
+          </Layer>
+        ) : null}
+
+        <AnnotationsLayer
+          activeTool="select"
+          annotations={aboveBandAnnotations}
+          onResizeSelectedShape={() => undefined}
+          onUpdateSelectedText={() => undefined}
           onSelectAnnotation={() => undefined}
           onStartTextEditing={() => undefined}
           onTranslateAnnotation={() => undefined}

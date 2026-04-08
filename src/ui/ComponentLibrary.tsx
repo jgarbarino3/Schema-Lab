@@ -1,5 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
+  ANNOTATION_SHAPE_OPTIONS,
+  ANNOTATION_TEXT_VARIANT_OPTIONS,
+} from '../domain/annotations'
+import {
   COMPONENT_DEFINITIONS,
 } from '../domain/componentCatalog'
 import type { ComponentCategory, ComponentDefinition } from '../domain/types'
@@ -61,9 +65,11 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const activeTool = useEditorStore((state) => state.interaction.activeTool)
   const lineColor = useEditorStore((state) => state.interaction.lineColor)
   const shapeToolKind = useEditorStore((state) => state.interaction.shapeToolKind)
+  const textToolVariant = useEditorStore((state) => state.interaction.textToolVariant)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setLineColor = useEditorStore((state) => state.setLineColor)
   const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
+  const setTextToolVariant = useEditorStore((state) => state.setTextToolVariant)
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
   )
@@ -231,10 +237,12 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
               >
                 <span className="component-library__item-title">Text Tool</span>
                 <span className="component-library__item-meta">
-                  Click anywhere to place editable text directly on the canvas
+                  Click anywhere to place text, sticky notes, note cards, or callouts
                 </span>
                 {activeTool === 'text' ? (
-                  <span className="component-library__item-state">Active</span>
+                  <span className="component-library__item-state">
+                    {ANNOTATION_TEXT_VARIANT_OPTIONS.find((option) => option.id === textToolVariant)?.label ?? 'Active'}
+                  </span>
                 ) : null}
               </button>
 
@@ -245,7 +253,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
               >
                 <span className="component-library__item-title">Shape Tool</span>
                 <span className="component-library__item-meta">
-                  Drop arrows, rectangles, or ellipses for callouts and framing
+                  Drop arrows, rectangles, rounded rectangles, ellipses, and diamonds
                 </span>
                 {activeTool === 'shape' ? (
                   <span className="component-library__item-state">
@@ -274,22 +282,36 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                 </div>
               ) : null}
 
+              {activeTool === 'text' ? (
+                <div className="component-library__line-colors">
+                  <span className="component-library__color-label">Text type</span>
+                  <div className="inspector__button-row">
+                    {ANNOTATION_TEXT_VARIANT_OPTIONS.map((option) => (
+                      <button
+                        className={textToolVariant === option.id ? 'is-active' : undefined}
+                        key={option.id}
+                        onClick={() => setTextToolVariant(option.id)}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {activeTool === 'shape' ? (
                 <div className="component-library__line-colors">
                   <span className="component-library__color-label">Shape kind</span>
                   <div className="inspector__button-row">
-                    {(['rectangle', 'ellipse', 'arrow'] as const).map((kind) => (
+                    {ANNOTATION_SHAPE_OPTIONS.map((option) => (
                       <button
-                        className={shapeToolKind === kind ? 'is-active' : undefined}
-                        key={kind}
-                        onClick={() => setShapeToolKind(kind)}
+                        className={shapeToolKind === option.id ? 'is-active' : undefined}
+                        key={option.id}
+                        onClick={() => setShapeToolKind(option.id)}
                         type="button"
                       >
-                        {kind === 'rectangle'
-                          ? 'Rectangle'
-                          : kind === 'ellipse'
-                            ? 'Ellipse'
-                            : 'Arrow'}
+                        {option.label}
                       </button>
                     ))}
                   </div>

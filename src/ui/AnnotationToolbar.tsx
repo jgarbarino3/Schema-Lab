@@ -1,14 +1,15 @@
+import { useEffect, useRef } from 'react'
 import {
   ANNOTATION_FONT_OPTIONS,
   ANNOTATION_SHAPE_OPTIONS,
+  ANNOTATION_TEXT_VARIANT_OPTIONS,
 } from '../domain/annotations'
 import type { AnnotationText, ShapeAnnotation } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 
 interface AnnotationToolbarProps {
   annotation: AnnotationText | ShapeAnnotation
-  leftPx: number
-  topPx: number
+  onDone: () => void
 }
 
 function ToggleButton({
@@ -31,28 +32,101 @@ function ToggleButton({
   )
 }
 
+function StepperButton({
+  direction,
+  label,
+  onStep,
+}: {
+  direction: 1 | -1
+  label: string
+  onStep: (direction: 1 | -1) => void
+}) {
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        window.clearInterval(timerRef.current)
+      }
+    }
+  }, [])
+
+  const stop = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      window.clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  const start = () => {
+    onStep(direction)
+    stop()
+
+    const timeout = window.setTimeout(() => {
+      timerRef.current = window.setInterval(() => {
+        onStep(direction)
+      }, 80)
+    }, 360)
+
+    timerRef.current = timeout
+  }
+
+  return (
+    <button
+      className="annotation-toolbar__stepper"
+      onMouseDown={start}
+      onMouseLeave={stop}
+      onMouseUp={stop}
+      onTouchEnd={stop}
+      onTouchStart={start}
+      type="button"
+    >
+      {label}
+    </button>
+  )
+}
+
 export function AnnotationToolbar({
   annotation,
-  leftPx,
-  topPx,
+  onDone,
 }: AnnotationToolbarProps) {
   const updateSelectedShapeStyle = useEditorStore(
     (state) => state.updateSelectedShapeStyle,
   )
+  const updateSelectedTextAnnotation = useEditorStore(
+    (state) => state.updateSelectedTextAnnotation,
+  )
   const updateSelectedTextStyle = useEditorStore(
     (state) => state.updateSelectedTextStyle,
   )
+  const stepSelectedAnnotationSize = useEditorStore(
+    (state) => state.stepSelectedAnnotationSize,
+  )
 
   return (
-    <div
-      className="annotation-toolbar"
-      style={{
-        left: leftPx,
-        top: topPx,
-      }}
-    >
+    <div className="annotation-toolbar annotation-toolbar--dock">
       {annotation.kind === 'text' ? (
         <>
+          <label className="annotation-toolbar__field">
+            <span>Type</span>
+            <select
+              onChange={(event) =>
+                updateSelectedTextAnnotation({
+                  variant: event.target.value as AnnotationText['variant'],
+                })
+              }
+              value={annotation.variant}
+            >
+              {ANNOTATION_TEXT_VARIANT_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="annotation-toolbar__field">
             <span>Font</span>
             <select
@@ -72,6 +146,36 @@ export function AnnotationToolbar({
           </label>
 
           <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+            <span>Text</span>
+            <input
+              onChange={(event) =>
+                updateSelectedTextStyle({ color: event.target.value })
+              }
+              type="color"
+              value={annotation.style.color}
+            />
+          </label>
+
+          {annotation.variant !== 'plain' ? (
+            <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+              <span>Paper</span>
+              <input
+                onChange={(event) =>
+                  updateSelectedTextAnnotation({
+                    backgroundColor: event.target.value,
+                  })
+                }
+                type="color"
+                value={
+                  annotation.backgroundColor.startsWith('#')
+                    ? annotation.backgroundColor
+                    : '#1f3c4d'
+                }
+              />
+            </label>
+          ) : null}
+
+          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
             <span>Size</span>
             <input
               min={3.2}
@@ -86,16 +190,13 @@ export function AnnotationToolbar({
             />
           </label>
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
-            <span>Color</span>
-            <input
-              onChange={(event) =>
-                updateSelectedTextStyle({ color: event.target.value })
-              }
-              type="color"
-              value={annotation.style.color}
-            />
-          </label>
+          <div className="annotation-toolbar__field annotation-toolbar__field--compact">
+            <span>Box</span>
+            <div className="annotation-toolbar__stepper-row">
+              <StepperButton direction={-1} label="-" onStep={stepSelectedAnnotationSize} />
+              <StepperButton direction={1} label="+" onStep={stepSelectedAnnotationSize} />
+            </div>
+          </div>
 
           <div className="annotation-toolbar__button-row">
             <ToggleButton
@@ -206,6 +307,14 @@ export function AnnotationToolbar({
             />
           </label>
 
+          <div className="annotation-toolbar__field annotation-toolbar__field--compact">
+            <span>Size</span>
+            <div className="annotation-toolbar__stepper-row">
+              <StepperButton direction={-1} label="-" onStep={stepSelectedAnnotationSize} />
+              <StepperButton direction={1} label="+" onStep={stepSelectedAnnotationSize} />
+            </div>
+          </div>
+
           <button
             className="annotation-toolbar__ghost"
             onClick={() => updateSelectedShapeStyle({ fillColor: 'transparent' })}
@@ -215,6 +324,14 @@ export function AnnotationToolbar({
           </button>
         </>
       )}
+
+      <button
+        className="annotation-toolbar__done"
+        onClick={onDone}
+        type="button"
+      >
+        Done
+      </button>
     </div>
   )
 }

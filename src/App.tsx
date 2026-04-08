@@ -12,8 +12,8 @@ import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
 import { CURRENT_VERSION } from './content/versionHistory'
 import {
-  getAnnotationBoundsMm,
-  getAnnotationSelectionAnchorMm,
+  getTextAnnotationBodyWidthMm,
+  getTextAnnotationTextOriginMm,
 } from './domain/annotations'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
@@ -235,12 +235,9 @@ function App() {
   const duplicateSelectedAnnotation = useEditorStore(
     (state) => state.duplicateSelectedAnnotation,
   )
-  const clearBreadboardComponents = useEditorStore(
-    (state) => state.clearBreadboardComponents,
-  )
-  const clearOpticalTableComponents = useEditorStore(
-    (state) => state.clearOpticalTableComponents,
-  )
+  const clearSurfaceContent = useEditorStore((state) => state.clearSurfaceContent)
+  const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
+  const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
@@ -955,6 +952,10 @@ function App() {
     if (scene.workspace.kind === 'optical-table') {
       setClearModalState({
         mode: 'select-breadboard',
+        title: 'Clear Breadboard',
+        description:
+          'Choose a breadboard, then pick which content types to remove from that board only. You can undo afterwards if needed.',
+        confirmLabel: 'Clear selected content',
         breadboards: breadboardInstances.map((breadboard) => ({
           id: breadboard.id,
           label: breadboard.label,
@@ -962,21 +963,42 @@ function App() {
         })),
       })
     } else {
-      setClearModalState({ mode: 'confirm-clear-breadboard' })
+      setClearModalState({
+        mode: 'single-breadboard',
+        surfaceId: SINGLE_BREADBOARD_SURFACE_ID,
+        title: 'Clear Breadboard',
+        description:
+          'Pick which content types to remove from the current breadboard. You can undo afterwards if needed.',
+        confirmLabel: 'Clear selected content',
+      })
     }
   }
 
   const handleRequestClearTable = () => {
-    setClearModalState({ mode: 'confirm-clear-table' })
+    setClearModalState({
+      mode: 'optical-table',
+      surfaceId: OPTICAL_TABLE_SURFACE_ID,
+      title: 'Clear Optical Table',
+      description:
+        'Pick which content types to remove from the optical table surface. Breadboard-hosted content stays untouched.',
+      confirmLabel: 'Clear selected content',
+    })
   }
 
-  const handleConfirmClearBreadboard = (breadboardId?: string) => {
-    clearBreadboardComponents(breadboardId)
-    setClearModalState(undefined)
-  }
-
-  const handleConfirmClearTable = () => {
-    clearOpticalTableComponents()
+  const handleConfirmClearSurface = (args: {
+    surfaceId: string
+    clearComponents: boolean
+    clearLines: boolean
+    clearShapes: boolean
+    clearText: boolean
+  }) => {
+    clearSurfaceContent({
+      surfaceId: args.surfaceId,
+      clearComponents: args.clearComponents,
+      clearLines: args.clearLines,
+      clearShapes: args.clearShapes,
+      clearText: args.clearText,
+    })
     setClearModalState(undefined)
   }
 
@@ -1111,55 +1133,53 @@ function App() {
     }
   })()
 
-  const annotationToolbarPosition = useMemo(() => {
-    if (!selectedCanvasAnnotation || !stageShellRef.current || editingTextAnnotation) {
-      return undefined
+  const handleClearCanvasSelection = useCallback(() => {
+    if (scene.workspace.kind === 'optical-table') {
+      if (interaction.workspaceViewMode === 'table-view') {
+        selectOpticalTable()
+        return
+      }
+
+      if (interaction.focusedBreadboardId) {
+        selectBreadboard(interaction.focusedBreadboardId)
+        return
+      }
+
+      selectOpticalTable()
+      return
     }
 
-    const shell = stageShellRef.current
-    const bounds = getAnnotationBoundsMm(selectedCanvasAnnotation)
-    const anchorMm = getAnnotationSelectionAnchorMm(selectedCanvasAnnotation)
-    const anchorPx = worldToScreen(anchorMm, viewport)
-    const toolbarWidthPx = selectedCanvasAnnotation.kind === 'text' ? 420 : 360
-    const preferredTopPx = worldToScreen({ x: anchorMm.x, y: bounds.y }, viewport).y - 62
-    const leftPx = clamp(
-      anchorPx.x - toolbarWidthPx / 2,
-      14,
-      Math.max(14, shell.clientWidth - toolbarWidthPx - 14),
-    )
-
-    return {
-      leftPx,
-      topPx:
-        preferredTopPx < 14
-          ? clamp(
-              worldToScreen(
-                { x: anchorMm.x, y: bounds.y + bounds.height },
-                viewport,
-              ).y + 18,
-              14,
-              Math.max(14, shell.clientHeight - 56),
-            )
-          : clamp(preferredTopPx, 14, Math.max(14, shell.clientHeight - 56)),
-    }
-  }, [editingTextAnnotation, selectedCanvasAnnotation, viewport])
+    selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
+  }, [
+    interaction.focusedBreadboardId,
+    interaction.workspaceViewMode,
+    scene.workspace.kind,
+    selectBreadboard,
+    selectOpticalTable,
+  ])
 
   const textEditorPosition = useMemo(() => {
     if (!editingTextAnnotation || !stageShellRef.current) {
       return undefined
     }
 
-    const anchorPx = worldToScreen(editingTextAnnotation.anchorMm, viewport)
-    const widthPx = Math.max(120, editingTextAnnotation.widthMm * viewport.zoomPxPerMm)
+    const textOriginPx = worldToScreen(
+      getTextAnnotationTextOriginMm(editingTextAnnotation),
+      viewport,
+    )
+    const widthPx = Math.max(
+      120,
+      getTextAnnotationBodyWidthMm(editingTextAnnotation) * viewport.zoomPxPerMm,
+    )
 
     return {
       leftPx: clamp(
-        anchorPx.x,
+        textOriginPx.x,
         12,
         Math.max(12, stageShellRef.current.clientWidth - widthPx - 12),
       ),
       topPx: clamp(
-        anchorPx.y,
+        textOriginPx.y,
         12,
         Math.max(12, stageShellRef.current.clientHeight - 56),
       ),
@@ -1356,6 +1376,13 @@ function App() {
           return
         }
 
+        if (selectedComponent || selectedAnnotation) {
+          event.preventDefault()
+          cancelActiveInteraction()
+          handleClearCanvasSelection()
+          return
+        }
+
         event.preventDefault()
         cancelActiveInteraction()
         return
@@ -1461,6 +1488,7 @@ function App() {
     duplicateSelectedAnnotation,
     duplicateSelectedComponent,
     exportOptionsFormat,
+    handleClearCanvasSelection,
     isClearModalOpen,
     interaction.isHelpOpen,
     isOnboardingOpen,
@@ -1739,7 +1767,7 @@ function App() {
 
         <section className="canvas-panel workspace__canvas" data-tour="canvas-panel">
           <div className="canvas-panel__header">
-            <div>
+            <div className="canvas-panel__branding">
               <h1>Schema-Lab</h1>
               <p>
                 Millimeter-first optical breadboard layout editor with beam tracing,
@@ -1755,6 +1783,14 @@ function App() {
               >
                 {CURRENT_VERSION}
               </button>
+            </div>
+            <div className="canvas-panel__annotation-dock">
+              {selectedCanvasAnnotation && !editingTextAnnotation ? (
+                <AnnotationToolbar
+                  annotation={selectedCanvasAnnotation}
+                  onDone={handleClearCanvasSelection}
+                />
+              ) : null}
             </div>
             <div className="canvas-panel__hint">
               <span>Scroll to pan</span>
@@ -1812,16 +1848,6 @@ function App() {
               showLabels={showComponentLabels}
               showPostHolders={showPostHolders}
             />
-
-            {selectedCanvasAnnotation &&
-            annotationToolbarPosition &&
-            !editingTextAnnotation ? (
-              <AnnotationToolbar
-                annotation={selectedCanvasAnnotation}
-                leftPx={annotationToolbarPosition.leftPx}
-                topPx={annotationToolbarPosition.topPx}
-              />
-            ) : null}
 
             {editingTextAnnotation && textEditorPosition ? (
               <AnnotationTextEditor
@@ -2115,8 +2141,7 @@ function App() {
       <ClearConfirmModal
         isOpen={isClearModalOpen}
         onCancel={() => setClearModalState(undefined)}
-        onClearBreadboard={handleConfirmClearBreadboard}
-        onClearTable={handleConfirmClearTable}
+        onConfirm={handleConfirmClearSurface}
         state={clearModalState}
       />
 

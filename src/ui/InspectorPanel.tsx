@@ -1,5 +1,11 @@
 import { useState, useMemo, type ReactNode } from 'react'
-import { ANNOTATION_FONT_OPTIONS, ANNOTATION_SHAPE_OPTIONS } from '../domain/annotations'
+import {
+  ANNOTATION_FONT_OPTIONS,
+  ANNOTATION_SHAPE_OPTIONS,
+  ANNOTATION_TEXT_VARIANT_OPTIONS,
+  getAnnotationKindLabel,
+  sortAnnotationsByZIndex,
+} from '../domain/annotations'
 import {
   getBreadboardHoleCounts,
   getEffectiveHolePitchMm,
@@ -40,11 +46,13 @@ import {
   getWorkspacePrimaryBreadboard,
 } from '../domain/workspace'
 import type {
+  AnnotationLayerBand,
   AnnotationText,
   BeamInteractionEvent,
   BeamTraceResult,
   FilterTransmissionClass,
   GaussianTraceResult,
+  SceneAnnotation,
   ShapeAnnotation,
   PolarizationConfig,
   QuarterTurn,
@@ -142,6 +150,133 @@ function CollapsibleSection({ children, defaultOpen = false, title }: Collapsibl
       </button>
       {isOpen ? <div className="inspector__section-body">{children}</div> : null}
     </div>
+  )
+}
+
+function StepperButton({
+  label,
+  onClick,
+}: {
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button className="inspector__stepper" onClick={onClick} type="button">
+      {label}
+    </button>
+  )
+}
+
+function AnnotationStackSection({
+  annotations,
+  onMove,
+  onSelect,
+  onSetHidden,
+  onSetLayerBand,
+  onSetLocked,
+  selectedAnnotationId,
+}: {
+  annotations: SceneAnnotation[]
+  onMove: (direction: 'forward' | 'backward' | 'front' | 'back') => void
+  onSelect: (annotationId: string) => void
+  onSetHidden: (hidden: boolean) => void
+  onSetLayerBand: (layerBand: AnnotationLayerBand) => void
+  onSetLocked: (locked: boolean) => void
+  selectedAnnotationId?: string
+}) {
+  const orderedAnnotations = useMemo(
+    () => [...sortAnnotationsByZIndex(annotations)].reverse(),
+    [annotations],
+  )
+
+  if (orderedAnnotations.length === 0) {
+    return (
+      <CollapsibleSection defaultOpen title="Annotation Stack">
+        <p className="inspector__empty">No annotations on the canvas yet.</p>
+      </CollapsibleSection>
+    )
+  }
+
+  return (
+    <CollapsibleSection defaultOpen title="Annotation Stack">
+      <div className="inspector__stack">
+        {orderedAnnotations.map((annotation) => {
+          const isSelected = annotation.id === selectedAnnotationId
+          return (
+            <div
+              className={`inspector__stack-row${isSelected ? ' is-selected' : ''}`}
+              key={annotation.id}
+            >
+              <button
+                className="inspector__stack-select"
+                onClick={() => onSelect(annotation.id)}
+                type="button"
+              >
+                <strong>{getAnnotationKindLabel(annotation)}</strong>
+                <span>{annotation.id}</span>
+              </button>
+              <div className="inspector__stack-actions">
+                <button
+                  className={annotation.hidden ? 'is-active' : undefined}
+                  onClick={() => {
+                    if (isSelected) {
+                      onSetHidden(!annotation.hidden)
+                    } else {
+                      onSelect(annotation.id)
+                    }
+                  }}
+                  title={annotation.hidden ? 'Show' : 'Hide'}
+                  type="button"
+                >
+                  {annotation.hidden ? 'Show' : 'Hide'}
+                </button>
+                <button
+                  className={annotation.locked ? 'is-active' : undefined}
+                  onClick={() => {
+                    if (isSelected) {
+                      onSetLocked(!annotation.locked)
+                    } else {
+                      onSelect(annotation.id)
+                    }
+                  }}
+                  title={annotation.locked ? 'Unlock' : 'Lock'}
+                  type="button"
+                >
+                  {annotation.locked ? 'Unlock' : 'Lock'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {selectedAnnotationId ? (
+        <div className="inspector__annotation-controls">
+          <div className="inspector__button-row">
+            <button onClick={() => onMove('back')} type="button">
+              Send to Back
+            </button>
+            <button onClick={() => onMove('backward')} type="button">
+              Backward
+            </button>
+            <button onClick={() => onMove('forward')} type="button">
+              Forward
+            </button>
+            <button onClick={() => onMove('front')} type="button">
+              Bring to Front
+            </button>
+          </div>
+          <div className="inspector__button-row">
+            <button onClick={() => onSetLayerBand('below-components')} type="button">
+              Below Components
+            </button>
+            <button onClick={() => onSetLayerBand('above-components')} type="button">
+              Above Components
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </CollapsibleSection>
   )
 }
 
@@ -694,12 +829,28 @@ export function InspectorPanel({
   const updateSelectedShapeStyle = useEditorStore(
     (state) => state.updateSelectedShapeStyle,
   )
+  const updateSelectedAnnotationVisibility = useEditorStore(
+    (state) => state.updateSelectedAnnotationVisibility,
+  )
+  const updateSelectedAnnotationLock = useEditorStore(
+    (state) => state.updateSelectedAnnotationLock,
+  )
+  const updateSelectedAnnotationLayerBand = useEditorStore(
+    (state) => state.updateSelectedAnnotationLayerBand,
+  )
+  const moveSelectedAnnotationInStack = useEditorStore(
+    (state) => state.moveSelectedAnnotationInStack,
+  )
+  const stepSelectedAnnotationSize = useEditorStore(
+    (state) => state.stepSelectedAnnotationSize,
+  )
   const clearSelectedGeometryOverride = useEditorStore(
     (state) => state.clearSelectedGeometryOverride,
   )
   const updateSelectedPostHolderDiameter = useEditorStore(
     (state) => state.updateSelectedPostHolderDiameter,
   )
+  const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
   const applySupportToType = useEditorStore((state) => state.applySupportToType)
   const setMountDefaultForType = useEditorStore(
     (state) => state.setMountDefaultForType,
@@ -793,78 +944,162 @@ export function InspectorPanel({
         </div>
 
         <div className="inspector__content">
+          <div className="inspector__subsection">
+            <h3>Selection</h3>
+            <div className="inspector__button-row">
+              <button
+                className={selectedAnnotation.hidden ? 'is-active' : undefined}
+                onClick={() =>
+                  updateSelectedAnnotationVisibility(!selectedAnnotation.hidden)
+                }
+                type="button"
+              >
+                {selectedAnnotation.hidden ? 'Hidden' : 'Visible'}
+              </button>
+              <button
+                className={selectedAnnotation.locked ? 'is-active' : undefined}
+                onClick={() =>
+                  updateSelectedAnnotationLock(!selectedAnnotation.locked)
+                }
+                type="button"
+              >
+                {selectedAnnotation.locked ? 'Locked' : 'Unlocked'}
+              </button>
+            </div>
+            <div className="inspector__button-row">
+              <button
+                className={
+                  selectedAnnotation.layerBand === 'below-components'
+                    ? 'is-active'
+                    : undefined
+                }
+                onClick={() => updateSelectedAnnotationLayerBand('below-components')}
+                type="button"
+              >
+                Below Components
+              </button>
+              <button
+                className={
+                  selectedAnnotation.layerBand === 'above-components'
+                    ? 'is-active'
+                    : undefined
+                }
+                onClick={() => updateSelectedAnnotationLayerBand('above-components')}
+                type="button"
+              >
+                Above Components
+              </button>
+            </div>
+          </div>
+
+          <AnnotationStackSection
+            annotations={scene.annotations}
+            onMove={moveSelectedAnnotationInStack}
+            onSelect={selectAnnotation}
+            onSetHidden={updateSelectedAnnotationVisibility}
+            onSetLayerBand={updateSelectedAnnotationLayerBand}
+            onSetLocked={updateSelectedAnnotationLock}
+            selectedAnnotationId={selectedAnnotation.id}
+          />
+
           {selectedAnnotation.kind === 'text' ? (
-            <>
-              <div className="inspector__subsection">
-                <h3>Text</h3>
-                <Field label="Content">
-                  <textarea
-                    className="inspector__textarea"
-                    onChange={(event) =>
-                      updateSelectedTextAnnotation({ text: event.target.value })
-                    }
-                    rows={5}
-                    value={selectedAnnotation.text}
-                  />
-                </Field>
+            <div className="inspector__subsection">
+              <h3>Text</h3>
+              <Field label="Variant">
+                <select
+                  onChange={(event) =>
+                    updateSelectedTextAnnotation({
+                      variant: event.target.value as AnnotationText['variant'],
+                    })
+                  }
+                  value={selectedAnnotation.variant}
+                >
+                  {ANNOTATION_TEXT_VARIANT_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
 
-                <div className="inspector__grid">
-                  <NumberField
-                    label="X position"
-                    onChange={(x) =>
-                      updateSelectedTextAnnotation({
-                        anchorMm: { x, y: selectedAnnotation.anchorMm.y },
-                      })
-                    }
-                    suffix="mm"
-                    value={selectedAnnotation.anchorMm.x}
-                  />
-                  <NumberField
-                    label="Y position"
-                    onChange={(y) =>
-                      updateSelectedTextAnnotation({
-                        anchorMm: { x: selectedAnnotation.anchorMm.x, y },
-                      })
-                    }
-                    suffix="mm"
-                    value={selectedAnnotation.anchorMm.y}
-                  />
-                  <NumberField
-                    label="Width"
-                    onChange={(widthMm) =>
-                      updateSelectedTextAnnotation({ widthMm })
-                    }
-                    suffix="mm"
-                    value={selectedAnnotation.widthMm}
-                  />
-                  <NumberField
-                    label="Font size"
-                    onChange={(fontSizeMm) =>
-                      updateSelectedTextStyle({ fontSizeMm })
-                    }
-                    suffix="mm"
-                    value={selectedAnnotation.style.fontSizeMm}
-                  />
-                </div>
+              <Field label="Content">
+                <textarea
+                  className="inspector__textarea"
+                  onChange={(event) =>
+                    updateSelectedTextAnnotation({ text: event.target.value })
+                  }
+                  rows={5}
+                  value={selectedAnnotation.text}
+                />
+              </Field>
 
-                <Field label="Font">
-                  <select
-                    onChange={(event) =>
-                      updateSelectedTextStyle({
-                        fontFamily: event.target.value as AnnotationText['style']['fontFamily'],
-                      })
-                    }
-                    value={selectedAnnotation.style.fontFamily}
-                  >
-                    {ANNOTATION_FONT_OPTIONS.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+              <div className="inspector__grid">
+                <NumberField
+                  label="X position"
+                  onChange={(x) =>
+                    updateSelectedTextAnnotation({
+                      anchorMm: { x, y: selectedAnnotation.anchorMm.y },
+                    })
+                  }
+                  suffix="mm"
+                  value={selectedAnnotation.anchorMm.x}
+                />
+                <NumberField
+                  label="Y position"
+                  onChange={(y) =>
+                    updateSelectedTextAnnotation({
+                      anchorMm: { x: selectedAnnotation.anchorMm.x, y },
+                    })
+                  }
+                  suffix="mm"
+                  value={selectedAnnotation.anchorMm.y}
+                />
+                <NumberField
+                  label="Width"
+                  onChange={(widthMm) => updateSelectedTextAnnotation({ widthMm })}
+                  suffix="mm"
+                  value={selectedAnnotation.widthMm}
+                />
+                <NumberField
+                  label="Font size"
+                  onChange={(fontSizeMm) =>
+                    updateSelectedTextStyle({ fontSizeMm })
+                  }
+                  suffix="mm"
+                  value={selectedAnnotation.style.fontSizeMm}
+                />
+              </div>
 
-                <Field label="Color">
+              <div className="inspector__button-row inspector__button-row--compact">
+                <StepperButton
+                  label="-"
+                  onClick={() => stepSelectedAnnotationSize(-1)}
+                />
+                <StepperButton
+                  label="+"
+                  onClick={() => stepSelectedAnnotationSize(1)}
+                />
+              </div>
+
+              <Field label="Font">
+                <select
+                  onChange={(event) =>
+                    updateSelectedTextStyle({
+                      fontFamily: event.target.value as AnnotationText['style']['fontFamily'],
+                    })
+                  }
+                  value={selectedAnnotation.style.fontFamily}
+                >
+                  {ANNOTATION_FONT_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <div className="inspector__grid">
+                <Field label="Text color">
                   <input
                     onChange={(event) =>
                       updateSelectedTextStyle({ color: event.target.value })
@@ -873,68 +1108,154 @@ export function InspectorPanel({
                     value={selectedAnnotation.style.color}
                   />
                 </Field>
-
-                <div className="inspector__button-row">
-                  <button
-                    className={selectedAnnotation.style.bold ? 'is-active' : undefined}
-                    onClick={() =>
-                      updateSelectedTextStyle({
-                        bold: !selectedAnnotation.style.bold,
+                <Field label="Paper">
+                  <input
+                    disabled={selectedAnnotation.variant === 'plain'}
+                    onChange={(event) =>
+                      updateSelectedTextAnnotation({
+                        backgroundColor: event.target.value,
                       })
                     }
-                    type="button"
-                  >
-                    Bold
-                  </button>
-                  <button
-                    className={selectedAnnotation.style.italic ? 'is-active' : undefined}
-                    onClick={() =>
-                      updateSelectedTextStyle({
-                        italic: !selectedAnnotation.style.italic,
-                      })
+                    type="color"
+                    value={
+                      selectedAnnotation.backgroundColor.startsWith('#')
+                        ? selectedAnnotation.backgroundColor
+                        : '#1f3c4d'
                     }
-                    type="button"
-                  >
-                    Italic
-                  </button>
-                  <button
-                    className={selectedAnnotation.style.underline ? 'is-active' : undefined}
-                    onClick={() =>
-                      updateSelectedTextStyle({
-                        underline: !selectedAnnotation.style.underline,
-                      })
-                    }
-                    type="button"
-                  >
-                    Underline
-                  </button>
-                </div>
-
-                <div className="inspector__button-row">
-                  <button
-                    className={selectedAnnotation.style.align === 'left' ? 'is-active' : undefined}
-                    onClick={() => updateSelectedTextStyle({ align: 'left' })}
-                    type="button"
-                  >
-                    Left
-                  </button>
-                  <button
-                    className={selectedAnnotation.style.align === 'center' ? 'is-active' : undefined}
-                    onClick={() => updateSelectedTextStyle({ align: 'center' })}
-                    type="button"
-                  >
-                    Center
-                  </button>
-                  <button
-                    className={selectedAnnotation.style.align === 'right' ? 'is-active' : undefined}
-                    onClick={() => updateSelectedTextStyle({ align: 'right' })}
-                    type="button"
-                  >
-                    Right
-                  </button>
-                </div>
+                  />
+                </Field>
               </div>
-            </>
+
+              <div className="inspector__grid">
+                <Field label="Border">
+                  <input
+                    disabled={selectedAnnotation.variant === 'plain'}
+                    onChange={(event) =>
+                      updateSelectedTextAnnotation({
+                        borderColor: event.target.value,
+                      })
+                    }
+                    type="color"
+                    value={
+                      selectedAnnotation.borderColor.startsWith('#')
+                        ? selectedAnnotation.borderColor
+                        : '#75abc5'
+                    }
+                  />
+                </Field>
+                {selectedAnnotation.variant === 'callout-bubble' ? (
+                  <NumberField
+                    label="Tail X"
+                    onChange={(x) =>
+                      updateSelectedTextAnnotation({
+                        tailMm: {
+                          x,
+                          y:
+                            selectedAnnotation.tailMm?.y ??
+                            selectedAnnotation.anchorMm.y + 46,
+                        },
+                      })
+                    }
+                    suffix="mm"
+                    value={
+                      selectedAnnotation.tailMm?.x ??
+                      selectedAnnotation.anchorMm.x + 26
+                    }
+                  />
+                ) : (
+                  <div />
+                )}
+              </div>
+
+              {selectedAnnotation.variant === 'callout-bubble' ? (
+                <NumberField
+                  label="Tail Y"
+                  onChange={(y) =>
+                    updateSelectedTextAnnotation({
+                      tailMm: {
+                        x:
+                          selectedAnnotation.tailMm?.x ??
+                          selectedAnnotation.anchorMm.x + 26,
+                        y,
+                      },
+                    })
+                  }
+                  suffix="mm"
+                  value={
+                    selectedAnnotation.tailMm?.y ??
+                    selectedAnnotation.anchorMm.y + 46
+                  }
+                />
+              ) : null}
+
+              <div className="inspector__button-row">
+                <button
+                  className={selectedAnnotation.style.bold ? 'is-active' : undefined}
+                  onClick={() =>
+                    updateSelectedTextStyle({
+                      bold: !selectedAnnotation.style.bold,
+                    })
+                  }
+                  type="button"
+                >
+                  Bold
+                </button>
+                <button
+                  className={selectedAnnotation.style.italic ? 'is-active' : undefined}
+                  onClick={() =>
+                    updateSelectedTextStyle({
+                      italic: !selectedAnnotation.style.italic,
+                    })
+                  }
+                  type="button"
+                >
+                  Italic
+                </button>
+                <button
+                  className={selectedAnnotation.style.underline ? 'is-active' : undefined}
+                  onClick={() =>
+                    updateSelectedTextStyle({
+                      underline: !selectedAnnotation.style.underline,
+                    })
+                  }
+                  type="button"
+                >
+                  Underline
+                </button>
+              </div>
+
+              <div className="inspector__button-row">
+                <button
+                  className={
+                    selectedAnnotation.style.align === 'left' ? 'is-active' : undefined
+                  }
+                  onClick={() => updateSelectedTextStyle({ align: 'left' })}
+                  type="button"
+                >
+                  Left
+                </button>
+                <button
+                  className={
+                    selectedAnnotation.style.align === 'center'
+                      ? 'is-active'
+                      : undefined
+                  }
+                  onClick={() => updateSelectedTextStyle({ align: 'center' })}
+                  type="button"
+                >
+                  Center
+                </button>
+                <button
+                  className={
+                    selectedAnnotation.style.align === 'right' ? 'is-active' : undefined
+                  }
+                  onClick={() => updateSelectedTextStyle({ align: 'right' })}
+                  type="button"
+                >
+                  Right
+                </button>
+              </div>
+            </div>
           ) : selectedAnnotation.kind === 'shape' ? (
             <div className="inspector__subsection">
               <h3>Shape</h3>
@@ -1043,6 +1364,17 @@ export function InspectorPanel({
                 </div>
               )}
 
+              <div className="inspector__button-row inspector__button-row--compact">
+                <StepperButton
+                  label="-"
+                  onClick={() => stepSelectedAnnotationSize(-1)}
+                />
+                <StepperButton
+                  label="+"
+                  onClick={() => stepSelectedAnnotationSize(1)}
+                />
+              </div>
+
               <div className="inspector__grid">
                 <Field label="Stroke">
                   <input
@@ -1088,7 +1420,41 @@ export function InspectorPanel({
                 </button>
               </div>
             </div>
-          ) : null}
+          ) : (
+            <div className="inspector__subsection">
+              <h3>Line</h3>
+              <div className="inspector__grid">
+                <NumberField
+                  label="Start X"
+                  onChange={() => undefined}
+                  suffix="mm"
+                  value={selectedAnnotation.startMm.x}
+                />
+                <NumberField
+                  label="Start Y"
+                  onChange={() => undefined}
+                  suffix="mm"
+                  value={selectedAnnotation.startMm.y}
+                />
+                <NumberField
+                  label="End X"
+                  onChange={() => undefined}
+                  suffix="mm"
+                  value={selectedAnnotation.endMm.x}
+                />
+                <NumberField
+                  label="End Y"
+                  onChange={() => undefined}
+                  suffix="mm"
+                  value={selectedAnnotation.endMm.y}
+                />
+              </div>
+              <p className="inspector__hint">
+                Beam lines can be selected from the stack for visibility, locking, and
+                ordering. Geometry remains controlled directly by drawing and line tools.
+              </p>
+            </div>
+          )}
 
           <p className="inspector__hint">
             Annotation objects live in world-space, so they stay free on the canvas

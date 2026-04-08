@@ -77,9 +77,9 @@ export function BreadboardLayer({
     (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a')
   const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch`
   const boardAccentStroke = isSelected
-    ? '#7ec5d9'
+    ? '#7aaebf'
     : isFocused
-      ? '#62c8eb'
+      ? '#41616d'
       : boardStroke
 
   const content = (
@@ -138,11 +138,11 @@ export function BreadboardLayer({
           fill={boardFill}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 11 : isFocused ? 10 : 6}
+          shadowBlur={isSelected ? 8 : isFocused ? 5 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.2 : isFocused ? 0.2 : 0.22}
+          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.11 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.35 : isFocused ? 1.2 : 0.8}
+          strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}
         />
       ) : (
@@ -153,11 +153,11 @@ export function BreadboardLayer({
           fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 11 : isFocused ? 10 : 6}
+          shadowBlur={isSelected ? 8 : isFocused ? 5 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.2 : isFocused ? 0.2 : 0.22}
+          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.11 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.35 : isFocused ? 1.2 : 0.8}
+          strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}
         />
       )}

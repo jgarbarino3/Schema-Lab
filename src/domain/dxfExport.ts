@@ -22,7 +22,9 @@ const DXF_LAYER_NAMES = {
   breadboards: 'BREADBOARD',
   holes: 'HOLES',
   mounts: 'MOUNTS',
+  'annotations-below': 'ANNOTATIONS_BELOW',
   components: 'COMPONENTS',
+  'annotations-above': 'ANNOTATIONS_ABOVE',
   labels: 'LABELS',
 } as const
 

@@ -113,14 +113,24 @@ describe('scene serialization', () => {
         startMm: { x: 25, y: 40 },
         endMm: { x: 180, y: 40 },
         color: '#00eeff',
+        hidden: false,
+        layerBand: 'below-components',
+        locked: false,
         strokeWidthMm: 0.8,
+        zIndex: 0,
       },
       {
         id: 'text-1',
         kind: 'text',
         anchorMm: { x: 40, y: 62 },
+        backgroundColor: 'transparent',
+        borderColor: 'transparent',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
         widthMm: 78,
         text: 'Pump path\nnotes',
+        variant: 'plain',
         style: {
           fontFamily: 'mono',
           fontSizeMm: 5.2,
@@ -130,6 +140,7 @@ describe('scene serialization', () => {
           underline: true,
           align: 'center',
         },
+        zIndex: 1,
       },
       {
         id: 'shape-1',
@@ -143,7 +154,11 @@ describe('scene serialization', () => {
         },
         strokeColor: '#ff00ff',
         fillColor: 'transparent',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
         strokeWidthMm: 1.2,
+        zIndex: 2,
       },
     ]
 
@@ -154,7 +169,7 @@ describe('scene serialization', () => {
     const scene = createEmptyScene()
     const legacyJson = JSON.stringify({
       ...scene,
-      version: 7,
+      version: 8,
       annotations: [
         {
           id: 'legacy-line',
@@ -168,7 +183,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(migrated.annotations[0]).toMatchObject({
       id: 'legacy-line',
       kind: 'line',
@@ -199,7 +214,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -254,7 +269,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -307,7 +322,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(8)
+    expect(migrated.version).toBe(9)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

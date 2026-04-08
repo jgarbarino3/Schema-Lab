@@ -903,19 +903,23 @@ textarea {
 }
 
 .annotation-toolbar {
-  position: absolute;
-  z-index: 6;
   display: flex;
   flex-wrap: wrap;
   gap: 0.48rem;
   align-items: end;
-  max-width: min(100%, 460px);
+  max-width: min(100%, 640px);
   padding: 0.55rem 0.65rem;
   border: 1px solid rgba(145, 202, 222, 0.26);
   border-radius: 16px;
   background: rgba(9, 13, 17, 0.84);
   backdrop-filter: blur(18px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.annotation-toolbar--dock {
+  position: relative;
+  justify-content: center;
+  width: 100%;
 }
 
 .annotation-toolbar__field {
@@ -951,6 +955,17 @@ textarea {
   padding: 0.18rem;
 }
 
+.annotation-toolbar__stepper-row {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.annotation-toolbar__stepper {
+  min-width: 2rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 10px;
+}
+
 .annotation-toolbar__button-row {
   display: flex;
   gap: 0.35rem;
@@ -964,6 +979,16 @@ textarea {
 .annotation-toolbar__toggle.is-active,
 .annotation-toolbar__ghost:hover {
   border-color: rgba(145, 202, 222, 0.42);
+  color: var(--accent-strong);
+}
+
+.annotation-toolbar__ghost,
+.annotation-toolbar__done {
+  min-width: 4.8rem;
+}
+
+.annotation-toolbar__done {
+  border-color: rgba(112, 195, 241, 0.26);
   color: var(--accent-strong);
 }
 
@@ -989,6 +1014,76 @@ textarea {
 .inspector__textarea {
   min-height: 7rem;
   resize: vertical;
+}
+
+.inspector__button-row--compact {
+  justify-content: flex-start;
+}
+
+.inspector__stepper {
+  min-width: 2rem;
+  padding: 0.35rem 0.58rem;
+  border-radius: 10px;
+}
+
+.inspector__stack {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.inspector__stack-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.52rem 0.58rem;
+  border: 1px solid rgba(136, 160, 174, 0.12);
+  border-radius: 12px;
+  background: rgba(8, 12, 16, 0.28);
+}
+
+.inspector__stack-row.is-selected {
+  border-color: rgba(140, 207, 223, 0.34);
+  background: rgba(21, 34, 42, 0.52);
+}
+
+.inspector__stack-select {
+  display: grid;
+  justify-items: flex-start;
+  gap: 0.12rem;
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+}
+
+.inspector__stack-select strong {
+  font-size: 0.85rem;
+}
+
+.inspector__stack-select span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.inspector__stack-actions {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.inspector__stack-actions button {
+  padding: 0.34rem 0.55rem;
+  font-size: 0.74rem;
+}
+
+.inspector__annotation-controls {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
 }
 
 .inspector__action-row {
@@ -1019,10 +1114,22 @@ textarea {
 }
 
 .canvas-panel__header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) minmax(280px, 1.55fr) minmax(220px, 0.9fr);
   gap: 1rem;
   align-items: flex-start;
+}
+
+.canvas-panel__branding {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.canvas-panel__annotation-dock {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
 }
 
 .canvas-panel__hint {
@@ -1524,6 +1631,43 @@ textarea {
   font-size: 0.8rem;
 }
 
+.modal-shell__subsection {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.modal-shell__subsection-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.modal-shell__toggle-row,
+.modal-shell__toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.modal-shell__toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.modal-shell__toggle,
+.modal-shell__ghost {
+  height: 2.35rem;
+  border-radius: 12px;
+}
+
+.modal-shell__toggle.is-active {
+  border-color: rgba(145, 202, 222, 0.44);
+  background: linear-gradient(180deg, rgba(31, 56, 66, 0.96), rgba(19, 34, 40, 0.96));
+  color: var(--accent-strong);
+}
+
 .modal-shell__actions {
   display: flex;
   justify-content: flex-end;
@@ -1863,14 +2007,18 @@ textarea {
     min-height: 220px;
   }
 
-  .toolbar__row,
-  .canvas-panel__header {
+  .toolbar__row {
     flex-direction: column;
     align-items: stretch;
   }
 
+  .canvas-panel__header {
+    grid-template-columns: 1fr;
+  }
+
   .toolbar__controls,
-  .canvas-panel__hint {
+  .canvas-panel__hint,
+  .canvas-panel__annotation-dock {
     justify-content: flex-start;
     align-items: flex-start;
     text-align: left;

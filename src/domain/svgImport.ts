@@ -2000,7 +2000,11 @@ export function applySvgImportToScene(args: {
       startMm,
       endMm,
       color: segment.color || DEFAULT_ANNOTATION_COLOR,
+      hidden: false,
+      layerBand: 'below-components',
+      locked: false,
       strokeWidthMm: roundMm(strokeWidthMm),
+      zIndex: baseScene.annotations.length,
     })
   }
 

@@ -81,8 +81,14 @@ describe('export helpers', () => {
         id: 'text-1',
         kind: 'text',
         anchorMm: { x: 38, y: 42 },
+        backgroundColor: 'rgba(18, 27, 35, 0.94)',
+        borderColor: '#75abc5',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
         widthMm: 64,
         text: 'Pump note',
+        variant: 'note-card',
         style: {
           fontFamily: 'clean-sans',
           fontSizeMm: 5.4,
@@ -92,6 +98,7 @@ describe('export helpers', () => {
           underline: true,
           align: 'left',
         },
+        zIndex: 0,
       },
       {
         id: 'shape-1',
@@ -105,7 +112,11 @@ describe('export helpers', () => {
         },
         strokeColor: '#00eeff',
         fillColor: 'transparent',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
         strokeWidthMm: 1,
+        zIndex: 1,
       },
       {
         id: 'shape-2',
@@ -115,7 +126,11 @@ describe('export helpers', () => {
         endMm: { x: 170, y: 120 },
         strokeColor: '#ff00ff',
         fillColor: '#ff00ff',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
         strokeWidthMm: 1,
+        zIndex: 2,
       },
     ]
 

@@ -1,6 +1,9 @@
 import {
   getAnnotationFontStack,
   getAnnotationLineHeightMm,
+  getDiamondPointsMm,
+  getTextAnnotationBodyBoundsMm,
+  getTextAnnotationTailPointsMm,
   getTextLineStartX,
   getUnderlineOffsetMm,
   measureTextLineWidthMm,
@@ -58,7 +61,9 @@ export type VectorExportLayerId =
   | 'breadboards'
   | 'holes'
   | 'mounts'
+  | 'annotations-below'
   | 'components'
+  | 'annotations-above'
   | 'beams'
   | 'gaussian'
   | 'labels'
@@ -184,8 +189,10 @@ const LAYER_ORDER: Array<{ id: VectorExportLayerId; label: string }> = [
   { id: 'breadboards', label: 'Breadboards' },
   { id: 'holes', label: 'Hole Field' },
   { id: 'mounts', label: 'Mounts and Supports' },
-  { id: 'components', label: 'Components' },
   { id: 'beams', label: 'Beams' },
+  { id: 'annotations-below', label: 'Annotations Below Components' },
+  { id: 'components', label: 'Components' },
+  { id: 'annotations-above', label: 'Annotations Above Components' },
   { id: 'gaussian', label: 'Gaussian Envelope' },
   { id: 'labels', label: 'Labels' },
 ]
@@ -297,10 +304,79 @@ function createTextAnnotationNodes(annotation: AnnotationText): VectorNode[] {
   )
   const lineHeightMm = getAnnotationLineHeightMm(annotation.style)
   const nodes: VectorNode[] = []
+  const bodyBounds = getTextAnnotationBodyBoundsMm(annotation)
+
+  if (annotation.variant !== 'plain') {
+    nodes.push({
+      kind: 'polyline',
+      closed: true,
+      id: `${annotation.id}-body`,
+      pointsMm: rectToPoints(bodyBounds),
+      style: defaultStyle({
+        fill: annotation.backgroundColor,
+        stroke: annotation.borderColor,
+        strokeWidthMm: 0.7,
+      }),
+    })
+
+    if (annotation.variant === 'sticky-note') {
+      nodes.push({
+        kind: 'polyline',
+        closed: true,
+        id: `${annotation.id}-fold`,
+        pointsMm: [
+          { x: roundMm(bodyBounds.x + bodyBounds.width - 10), y: bodyBounds.y },
+          { x: roundMm(bodyBounds.x + bodyBounds.width), y: bodyBounds.y },
+          {
+            x: roundMm(bodyBounds.x + bodyBounds.width),
+            y: roundMm(bodyBounds.y + 10),
+          },
+        ],
+        style: defaultStyle({
+          fill: 'rgba(255,255,255,0.16)',
+          stroke: 'rgba(0,0,0,0.08)',
+          strokeWidthMm: 0.45,
+        }),
+      })
+    }
+
+    if (annotation.variant === 'note-card') {
+      nodes.push({
+        kind: 'polyline',
+        closed: true,
+        id: `${annotation.id}-header`,
+        pointsMm: rectToPoints({
+          x: bodyBounds.x,
+          y: bodyBounds.y,
+          width: bodyBounds.width,
+          height: 4.2,
+        }),
+        style: defaultStyle({
+          fill: 'rgba(255,255,255,0.03)',
+          strokeWidthMm: 0,
+        }),
+      })
+    }
+
+    const tailPoints = getTextAnnotationTailPointsMm(annotation)
+    if (tailPoints) {
+      nodes.push({
+        kind: 'polyline',
+        closed: true,
+        id: `${annotation.id}-tail`,
+        pointsMm: tailPoints,
+        style: defaultStyle({
+          fill: annotation.backgroundColor,
+          stroke: annotation.borderColor,
+          strokeWidthMm: 0.7,
+        }),
+      })
+    }
+  }
 
   lines.forEach((line, index) => {
     const lineWidthMm = Math.min(
-      annotation.widthMm,
+      bodyBounds.width,
       measureTextLineWidthMm(line, annotation.style),
     )
     const lineStartX = getTextLineStartX(annotation, lineWidthMm)
@@ -351,7 +427,10 @@ function createTextAnnotationNodes(annotation: AnnotationText): VectorNode[] {
 }
 
 function createShapeAnnotationNodes(annotation: ShapeAnnotation): VectorNode[] {
-  if (annotation.shapeKind === 'rectangle') {
+  if (
+    annotation.shapeKind === 'rectangle' ||
+    annotation.shapeKind === 'rounded-rectangle'
+  ) {
     return [{
       kind: 'polyline',
       closed: true,
@@ -375,6 +454,20 @@ function createShapeAnnotationNodes(annotation: ShapeAnnotation): VectorNode[] {
       },
       radiusXMm: roundMm(annotation.boundsMm.width / 2),
       radiusYMm: roundMm(annotation.boundsMm.height / 2),
+      style: defaultStyle({
+        fill: annotation.fillColor === 'transparent' ? undefined : annotation.fillColor,
+        stroke: annotation.strokeColor,
+        strokeWidthMm: annotation.strokeWidthMm,
+      }),
+    }]
+  }
+
+  if (annotation.shapeKind === 'diamond') {
+    return [{
+      kind: 'polyline',
+      closed: true,
+      id: annotation.id,
+      pointsMm: getDiamondPointsMm(annotation),
       style: defaultStyle({
         fill: annotation.fillColor === 'transparent' ? undefined : annotation.fillColor,
         stroke: annotation.strokeColor,
@@ -1615,8 +1708,17 @@ export function createVectorExportSceneGraph({
   }
 
   for (const annotation of scene.annotations) {
+    if (annotation.hidden) {
+      continue
+    }
+
+    const annotationLayer: VectorExportLayerId =
+      annotation.layerBand === 'below-components'
+        ? 'annotations-below'
+        : 'annotations-above'
+
     if (annotation.kind === 'line') {
-      pushLayerNode(layerMap, 'beams', {
+      pushLayerNode(layerMap, annotationLayer, {
         kind: 'line',
         id: `annotation-${annotation.id}`,
         x1Mm: annotation.startMm.x,
@@ -1639,7 +1741,7 @@ export function createVectorExportSceneGraph({
         : createShapeAnnotationNodes(annotation)
 
     for (const node of nodes) {
-      pushLayerNode(layerMap, 'labels', node)
+      pushLayerNode(layerMap, annotationLayer, node)
     }
   }
 

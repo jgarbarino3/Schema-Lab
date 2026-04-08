@@ -3,12 +3,21 @@ import {
   clampAnnotationFontSizeMm,
   createDefaultShapeAnnotation,
   createDefaultTextAnnotation,
+  DEFAULT_ANNOTATION_TEXT_VARIANT,
   DEFAULT_ANNOTATION_SHAPE_KIND,
+  getAnnotationBoundsMm,
+  moveAnnotationInStack,
+  reindexAnnotations,
   getArrowAnnotationBoundsMm,
   normalizeRectLikeBounds,
   resizeShapeAnnotationBounds,
   resizeTextAnnotationWidth,
+  stepShapeAnnotationSize,
+  stepTextAnnotationWidth,
   translateAnnotation,
+  updateAnnotationLayerBand,
+  updateAnnotationLock,
+  updateAnnotationVisibility,
   updateArrowAnnotationEndpoint,
 } from '../domain/annotations'
 import { getNearestBoardCenterHole } from '../domain/breadboard'
@@ -61,12 +70,15 @@ import {
 } from '../domain/workspace'
 import type {
   ActiveTool,
+  AnnotationLayerBand,
   AnnotationLine,
   AnnotationShapeKind,
   AnnotationText,
   AnnotationTextStyle,
+  AnnotationTextVariant,
   BeamSplitterConfig,
   BboCrystalConfig,
+  BoundsMm,
   BreadboardModel,
   CanvasSizePx,
   ComponentConfig,
@@ -170,6 +182,7 @@ interface InteractionState {
   lineDrawStartMm?: Vector2Mm
   lineColor: string
   shapeToolKind: AnnotationShapeKind
+  textToolVariant: AnnotationTextVariant
   workspaceViewMode: WorkspaceViewMode
 }
 
@@ -267,8 +280,13 @@ interface EditorStore {
   duplicateSelectedComponent: () => void
   deleteSelectedAnnotation: () => void
   duplicateSelectedAnnotation: () => void
-  clearBreadboardComponents: (breadboardId?: string) => void
-  clearOpticalTableComponents: () => void
+  clearSurfaceContent: (args: {
+    surfaceId: string
+    clearComponents: boolean
+    clearShapes: boolean
+    clearText: boolean
+    clearLines: boolean
+  }) => void
   updateSelectedComponent: (update: ComponentUpdate) => void
   updateSelectedVariant: (variantId: string) => void
   updateSelectedSource: (update: Partial<SourceConfig>) => void
@@ -293,7 +311,11 @@ interface EditorStore {
   }) => void
   updateSelectedTextAnnotation: (update: {
     anchorMm?: Vector2Mm
+    backgroundColor?: string
+    borderColor?: string
+    tailMm?: Vector2Mm
     text?: string
+    variant?: AnnotationTextVariant
     widthMm?: number
   }) => void
   updateSelectedTextStyle: (update: Partial<AnnotationTextStyle>) => void
@@ -313,8 +335,16 @@ interface EditorStore {
     strokeColor?: string
     strokeWidthMm?: number
   }) => void
+  updateSelectedAnnotationVisibility: (hidden: boolean) => void
+  updateSelectedAnnotationLock: (locked: boolean) => void
+  updateSelectedAnnotationLayerBand: (layerBand: AnnotationLayerBand) => void
+  moveSelectedAnnotationInStack: (
+    direction: 'forward' | 'backward' | 'front' | 'back',
+  ) => void
+  stepSelectedAnnotationSize: (direction: 1 | -1) => void
   translateSelectedAnnotation: (deltaMm: Vector2Mm) => void
   setShapeToolKind: (shapeKind: AnnotationShapeKind) => void
+  setTextToolVariant: (variant: AnnotationTextVariant) => void
   startTextAnnotationEditing: (annotationId: string) => void
   finishTextAnnotationEditing: (text: string) => void
   cancelTextAnnotationEditing: () => void
@@ -637,6 +667,13 @@ function createAnnotationId(kind: SceneAnnotation['kind']) {
   return `${kind}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+function getNextAnnotationZIndex(scene: SceneDocument) {
+  return scene.annotations.reduce(
+    (maximum, annotation) => Math.max(maximum, annotation.zIndex),
+    -1,
+  ) + 1
+}
+
 function syncBreadboardPresetId(breadboard: BreadboardModel): BreadboardModel {
   return {
     ...breadboard,
@@ -664,6 +701,48 @@ function getSelectedAnnotation(
   }
 
   return scene.annotations.find((annotation) => annotation.id === selection.annotationId)
+}
+
+function getSurfaceBoundsForClear(
+  scene: SceneDocument,
+  surfaceId: string,
+): BoundsMm | undefined {
+  if (scene.workspace.kind === 'single-breadboard') {
+    return getBreadboardWorldBoundsMm(scene.workspace.breadboard)
+  }
+
+  if (surfaceId === OPTICAL_TABLE_SURFACE_ID) {
+    return getBreadboardWorldBoundsMm({
+      label: scene.workspace.table.label,
+      widthMm: scene.workspace.table.widthMm,
+      heightMm: scene.workspace.table.heightMm,
+      holeSpacingMm: scene.workspace.table.holeSpacingMm,
+      edgeMarginMm: scene.workspace.table.edgeMarginMm,
+      thicknessMm: scene.workspace.table.thicknessMm,
+      finish: 'clear-anodized',
+      holeDensity: scene.workspace.table.holeDensity,
+      counterborePattern: scene.workspace.table.counterborePattern,
+    })
+  }
+
+  const breadboard = scene.workspace.breadboards.find((item) => item.id === surfaceId)
+
+  return breadboard
+    ? getBreadboardWorldBoundsMm(
+        breadboard.model,
+        breadboard.anchorMm,
+        breadboard.rotationQuarterTurns,
+      )
+    : undefined
+}
+
+function doBoundsIntersect(left: BoundsMm, right: BoundsMm) {
+  return !(
+    left.x + left.width < right.x ||
+    right.x + right.width < left.x ||
+    left.y + left.height < right.y ||
+    right.y + right.height < left.y
+  )
 }
 
 function getDefaultSelection(scene: SceneDocument): SelectionState {
@@ -1303,7 +1382,11 @@ function applyTextAnnotationUpdate(
   annotation: AnnotationText,
   update: {
     anchorMm?: Vector2Mm
+    backgroundColor?: string
+    borderColor?: string
+    tailMm?: Vector2Mm
     text?: string
+    variant?: AnnotationTextVariant
     widthMm?: number
   },
 ) {
@@ -1315,7 +1398,17 @@ function applyTextAnnotationUpdate(
           y: roundMm(update.anchorMm.y),
         }
       : annotation.anchorMm,
+    backgroundColor: update.backgroundColor ?? annotation.backgroundColor,
+    borderColor: update.borderColor ?? annotation.borderColor,
+    tailMm:
+      update.tailMm !== undefined
+        ? {
+            x: roundMm(update.tailMm.x),
+            y: roundMm(update.tailMm.y),
+          }
+        : annotation.tailMm,
     text: update.text ?? annotation.text,
+    variant: update.variant ?? annotation.variant,
   }
 
   return update.widthMm !== undefined
@@ -1355,7 +1448,7 @@ function convertShapeKind(
         : annotation.boundsMm
 
     return {
-      id: annotation.id,
+      ...annotation,
       kind: 'shape',
       shapeKind,
       startMm: {
@@ -1383,7 +1476,7 @@ function convertShapeKind(
       : annotation.boundsMm
 
   return {
-    id: annotation.id,
+    ...annotation,
     kind: 'shape',
     shapeKind,
     boundsMm: bounds,
@@ -1589,6 +1682,8 @@ function createInteractionForScene(args: {
     editingTextAnnotationId: undefined,
     focusedBreadboardId,
     shapeToolKind: args.previousInteraction?.shapeToolKind ?? DEFAULT_ANNOTATION_SHAPE_KIND,
+    textToolVariant:
+      args.previousInteraction?.textToolVariant ?? DEFAULT_ANNOTATION_TEXT_VARIANT,
     workspaceViewMode,
     activeHostSurfaceId: resolvedActiveHostSurfaceId,
   } satisfies InteractionState
@@ -1638,6 +1733,7 @@ const initialInteraction: InteractionState = {
   isWarningsOpen: false,
   lineColor: '#ff0000',
   shapeToolKind: DEFAULT_ANNOTATION_SHAPE_KIND,
+  textToolVariant: DEFAULT_ANNOTATION_TEXT_VARIANT,
   showBeamDetails: true,
   showGaussianEnvelope: false,
 }
@@ -2021,6 +2117,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const nextAnnotation = createDefaultTextAnnotation(
         createAnnotationId('text'),
         anchorMm,
+        state.interaction.textToolVariant,
+        getNextAnnotationZIndex(state.scene),
       )
 
       return withCommittedScene(state, {
@@ -2048,6 +2146,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         createAnnotationId('shape'),
         anchorMm,
         state.interaction.shapeToolKind,
+        getNextAnnotationZIndex(state.scene),
       )
 
       return withCommittedScene(state, {
@@ -2607,64 +2706,68 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
-  clearBreadboardComponents: (breadboardId) => {
+  clearSurfaceContent: ({
+    surfaceId,
+    clearComponents,
+    clearShapes,
+    clearText,
+    clearLines,
+  }) => {
     set((state) => {
-      const surfaceId =
+      const targetSurfaceId =
         state.scene.workspace.kind === 'single-breadboard'
           ? SINGLE_BREADBOARD_SURFACE_ID
-          : breadboardId
+          : surfaceId
+      const surfaceBounds = getSurfaceBoundsForClear(state.scene, targetSurfaceId)
 
-      if (!surfaceId) {
+      if (!surfaceBounds) {
         return state
       }
 
-      const remaining = state.scene.components.filter((c) => {
-        const cSurface =
-          c.hostSurfaceId ??
-          (state.scene.workspace.kind === 'single-breadboard'
-            ? SINGLE_BREADBOARD_SURFACE_ID
-            : undefined)
-        return cSurface !== surfaceId
+      const nextComponents = clearComponents
+        ? state.scene.components.filter((component) => {
+            const componentSurfaceId =
+              component.hostSurfaceId ??
+              (state.scene.workspace.kind === 'single-breadboard'
+                ? SINGLE_BREADBOARD_SURFACE_ID
+                : undefined)
+            return componentSurfaceId !== targetSurfaceId
+          })
+        : state.scene.components
+
+      const nextAnnotations = state.scene.annotations.filter((annotation) => {
+        if (
+          (annotation.kind === 'line' && !clearLines) ||
+          (annotation.kind === 'text' && !clearText) ||
+          (annotation.kind === 'shape' && !clearShapes)
+        ) {
+          return true
+        }
+
+        return !doBoundsIntersect(getAnnotationBoundsMm(annotation), surfaceBounds)
       })
 
-      if (remaining.length === state.scene.components.length) {
+      if (
+        nextComponents.length === state.scene.components.length &&
+        nextAnnotations.length === state.scene.annotations.length
+      ) {
         return state
+      }
+
+      const nextScene = {
+        ...state.scene,
+        components: nextComponents,
+        annotations: reindexAnnotations(nextAnnotations),
       }
 
       return withCommittedScene(state, {
-        scene: { ...state.scene, components: remaining },
-        selection: getDefaultSelection({ ...state.scene, components: remaining }),
+        scene: nextScene,
+        selection: getDefaultSelection(nextScene),
         interaction: {
           ...state.interaction,
           activeDragComponentId: undefined,
           dragPreview: undefined,
-          notice: undefined,
-        },
-      })
-    })
-  },
-
-  clearOpticalTableComponents: () => {
-    set((state) => {
-      if (state.scene.workspace.kind !== 'optical-table') {
-        return state
-      }
-
-      const remaining = state.scene.components.filter(
-        (c) => c.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID,
-      )
-
-      if (remaining.length === state.scene.components.length) {
-        return state
-      }
-
-      return withCommittedScene(state, {
-        scene: { ...state.scene, components: remaining },
-        selection: getDefaultSelection({ ...state.scene, components: remaining }),
-        interaction: {
-          ...state.interaction,
-          activeDragComponentId: undefined,
-          dragPreview: undefined,
+          editingTextAnnotationId: undefined,
           notice: undefined,
         },
       })
@@ -2783,6 +2886,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         {
           ...selectedAnnotation,
           id: createAnnotationId(selectedAnnotation.kind),
+          zIndex: getNextAnnotationZIndex(state.scene),
         } as SceneAnnotation,
         { x: 14, y: 14 },
       )
@@ -2790,13 +2894,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
-          annotations: [...state.scene.annotations, duplicate],
+          annotations: reindexAnnotations([...state.scene.annotations, duplicate]),
         },
         selection: { type: 'annotation', annotationId: duplicate.id },
         interaction: {
           ...state.interaction,
-          editingTextAnnotationId:
-            duplicate.kind === 'text' ? duplicate.id : undefined,
+          editingTextAnnotationId: undefined,
           notice: undefined,
         },
       })
@@ -3944,6 +4047,28 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const nextVariant = update.variant ?? selectedAnnotation.variant
+      const normalizedUpdate =
+        update.variant && update.variant !== selectedAnnotation.variant
+          ? {
+              ...update,
+              backgroundColor:
+                update.backgroundColor ??
+                createDefaultTextAnnotation('__variant__', selectedAnnotation.anchorMm, nextVariant)
+                  .backgroundColor,
+              borderColor:
+                update.borderColor ??
+                createDefaultTextAnnotation('__variant__', selectedAnnotation.anchorMm, nextVariant)
+                  .borderColor,
+              tailMm:
+                nextVariant === 'callout-bubble'
+                  ? update.tailMm ??
+                    createDefaultTextAnnotation('__variant__', selectedAnnotation.anchorMm, nextVariant)
+                      .tailMm
+                  : undefined,
+            }
+          : update
+
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
@@ -3952,7 +4077,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
             selectedAnnotation.id,
             (annotation) =>
               isTextAnnotation(annotation)
-                ? applyTextAnnotationUpdate(annotation, update)
+                ? applyTextAnnotationUpdate(annotation, normalizedUpdate)
                 : annotation,
           ),
         },
@@ -4055,6 +4180,118 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  updateSelectedAnnotationVisibility: (hidden) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) => updateAnnotationVisibility(annotation, hidden),
+          ),
+        },
+      })
+    })
+  },
+
+  updateSelectedAnnotationLock: (locked) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) => updateAnnotationLock(annotation, locked),
+          ),
+        },
+      })
+    })
+  },
+
+  updateSelectedAnnotationLayerBand: (layerBand) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) => updateAnnotationLayerBand(annotation, layerBand),
+          ),
+        },
+      })
+    })
+  },
+
+  moveSelectedAnnotationInStack: (direction) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: moveAnnotationInStack(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            direction,
+          ),
+        },
+      })
+    })
+  },
+
+  stepSelectedAnnotationSize: (direction) => {
+    set((state) => {
+      const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
+
+      if (!selectedAnnotation) {
+        return state
+      }
+
+      return withCommittedScene(state, {
+        scene: {
+          ...state.scene,
+          annotations: updateAnnotationCollection(
+            state.scene.annotations,
+            selectedAnnotation.id,
+            (annotation) =>
+              annotation.kind === 'text'
+                ? stepTextAnnotationWidth(annotation, direction)
+                : annotation.kind === 'shape'
+                  ? stepShapeAnnotationSize(annotation, direction)
+                  : annotation,
+          ),
+        },
+      }, {
+        mergeKey: `annotation-size:${selectedAnnotation.id}`,
+      })
+    })
+  },
+
   translateSelectedAnnotation: (deltaMm) => {
     set((state) => {
       const selectedAnnotation = getSelectedAnnotation(state.scene, state.selection)
@@ -4083,6 +4320,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         shapeToolKind,
+      },
+    }))
+  },
+
+  setTextToolVariant: (textToolVariant) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        textToolVariant,
       },
     }))
   },
@@ -4903,16 +5149,20 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const newLine: AnnotationLine = {
         id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         kind: 'line',
+        hidden: false,
+        layerBand: 'below-components',
+        locked: false,
         startMm,
         endMm,
         color: state.interaction.lineColor,
         strokeWidthMm: 0.8,
+        zIndex: getNextAnnotationZIndex(state.scene),
       }
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
-          annotations: [...state.scene.annotations, newLine],
+          annotations: reindexAnnotations([...state.scene.annotations, newLine]),
         },
         interaction: {
           ...state.interaction,
