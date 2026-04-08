@@ -1768,13 +1768,6 @@ function App() {
         <section className="canvas-panel workspace__canvas" data-tour="canvas-panel">
           <div className="canvas-panel__header">
             <div className="canvas-panel__branding">
-              <h1>Schema-Lab</h1>
-              <p>
-                Millimeter-first optical breadboard layout editor with beam tracing,
-                power bookkeeping, and workspace-scale planning. Use Board Focus for
-                close-up breadboard work or Table View to place multiple breadboards
-                and design a full optical stack.
-              </p>
               <button
                 aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
                 className="canvas-panel__version-link"
@@ -1783,6 +1776,15 @@ function App() {
               >
                 {CURRENT_VERSION}
               </button>
+              <p className="canvas-panel__usage">
+                Use Board Focus for close-up breadboard work or Table View to
+                place multiple breadboards and design a full optical stack.
+              </p>
+              <p className="canvas-panel__usage canvas-panel__usage--shortcuts">
+                Scroll to pan • Ctrl/Cmd + scroll to zoom • Space or Hand tool to
+                drag-pan • Board Focus keeps a breadboard framed • R rotate • D
+                duplicate
+              </p>
             </div>
             <div className="canvas-panel__annotation-dock">
               {selectedCanvasAnnotation && !editingTextAnnotation ? (
@@ -1791,12 +1793,6 @@ function App() {
                   onDone={handleClearCanvasSelection}
                 />
               ) : null}
-            </div>
-            <div className="canvas-panel__hint">
-              <span>Scroll to pan</span>
-              <span>Ctrl/Cmd + scroll to zoom</span>
-              <span>Space or Hand tool to drag-pan</span>
-              <span>Board Focus keeps a breadboard framed • R rotate • D duplicate</span>
             </div>
           </div>
 

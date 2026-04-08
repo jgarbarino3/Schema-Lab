@@ -22,4 +22,5 @@ Schema-Lab release history is maintained manually and should reflect milestone u
 - When a bump seems justified, propose the next version number and a short summary first.
 - Treat `src/content/versionHistory.ts` as the source of truth for the app UI.
 - When the user approves a milestone bump, update `src/content/versionHistory.ts` in the same pass so the manual history stays current.
+- If a pushed pass noticeably improves workflow clarity or day-to-day usability, it can justify a small version bump even when it is mostly UX polish.
 - Summaries should emphasize notable additions and user-facing improvements; avoid calling out removals unless the user specifically wants them highlighted.

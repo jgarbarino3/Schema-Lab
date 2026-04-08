@@ -653,7 +653,7 @@ export function Toolbar({
             <span className="toolbar__kicker">Optical Breadboard Layout Editor</span>
             <strong>Schema-Lab</strong>
             <span className="toolbar__subtitle">
-              Design optical breadboards, trace beams, and jump between Board Focus and full-table planning
+              Millimeter-first optical breadboard layout editor with beam tracing, power bookkeeping, and workspace-scale planning.
             </span>
           </div>
 

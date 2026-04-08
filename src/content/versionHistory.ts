@@ -4,9 +4,19 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v1.7'
+export const CURRENT_VERSION = 'v1.8'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v1.8',
+    summary:
+      'Canvas annotations feel much more polished with compact controls, cleaner header space, and one-click placement that behaves like the rest of the workspace.',
+    highlights: [
+      'Smaller header-docked text and shape tools',
+      'One-shot text and shape placement',
+      'Cleaner workspace header and softer board focus styling',
+    ],
+  },
   {
     version: 'v1.7',
     summary:

@@ -79,7 +79,7 @@ export function BreadboardLayer({
   const boardAccentStroke = isSelected
     ? '#7aaebf'
     : isFocused
-      ? '#41616d'
+      ? '#334d58'
       : boardStroke
 
   const content = (
@@ -138,9 +138,9 @@ export function BreadboardLayer({
           fill={boardFill}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 8 : isFocused ? 5 : 6}
+          shadowBlur={isSelected ? 8 : isFocused ? 4 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.11 : 0.22}
+          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
           stroke={boardAccentStroke}
           strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}
@@ -153,9 +153,9 @@ export function BreadboardLayer({
           fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 8 : isFocused ? 5 : 6}
+          shadowBlur={isSelected ? 8 : isFocused ? 4 : 6}
           shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.11 : 0.22}
+          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
           stroke={boardAccentStroke}
           strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}

@@ -616,16 +616,18 @@ textarea {
 }
 
 .canvas-panel__version-link {
-  margin-top: 0.55rem;
-  padding: 0.22rem 0.52rem;
+  margin-top: 0;
+  align-self: flex-start;
+  width: fit-content;
+  padding: 0.18rem 0.46rem;
   border: 1px solid rgba(112, 195, 241, 0.22);
   border-radius: 999px;
   background: rgba(28, 46, 60, 0.34);
   color: rgba(157, 198, 222, 0.92);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
   transition:
@@ -905,74 +907,94 @@ textarea {
 .annotation-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.48rem;
+  gap: 0.34rem;
   align-items: end;
-  max-width: min(100%, 640px);
-  padding: 0.55rem 0.65rem;
+  max-width: min(100%, 860px);
+  padding: 0.42rem 0.52rem;
   border: 1px solid rgba(145, 202, 222, 0.26);
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(9, 13, 17, 0.84);
   backdrop-filter: blur(18px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
 }
 
 .annotation-toolbar--dock {
   position: relative;
-  justify-content: center;
+  justify-content: flex-end;
   width: 100%;
 }
 
 .annotation-toolbar__field {
   display: flex;
   flex-direction: column;
-  gap: 0.32rem;
-  min-width: 5.8rem;
+  gap: 0.22rem;
+  min-width: 0;
 }
 
-.annotation-toolbar__field--compact {
-  min-width: 4.3rem;
+.annotation-toolbar__field--select {
+  min-width: 6.6rem;
+}
+
+.annotation-toolbar__field--swatch {
+  width: 2.9rem;
+}
+
+.annotation-toolbar__field--number {
+  width: 4.6rem;
+}
+
+.annotation-toolbar__field--stepper {
+  min-width: 4.2rem;
 }
 
 .annotation-toolbar__field span {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
+  line-height: 1.1;
 }
 
 .annotation-toolbar__field select,
 .annotation-toolbar__field input,
 .annotation-toolbar__ghost,
 .annotation-toolbar__toggle {
-  height: 2.2rem;
-  padding: 0.35rem 0.55rem;
+  height: 2rem;
+  padding: 0.28rem 0.46rem;
   border: 1px solid rgba(145, 202, 222, 0.16);
-  border-radius: 10px;
+  border-radius: 9px;
   background: rgba(14, 20, 25, 0.86);
   color: var(--text);
+  font-size: 0.82rem;
+}
+
+.annotation-toolbar__field input[type='number'] {
+  width: 100%;
 }
 
 .annotation-toolbar__field input[type="color"] {
-  width: 3rem;
-  padding: 0.18rem;
+  width: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0.12rem;
 }
 
 .annotation-toolbar__stepper-row {
   display: inline-flex;
-  gap: 0.3rem;
+  gap: 0.22rem;
 }
 
 .annotation-toolbar__stepper {
-  min-width: 2rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: 10px;
+  min-width: 1.8rem;
+  padding: 0.28rem 0.42rem;
+  border-radius: 9px;
 }
 
 .annotation-toolbar__button-row {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.26rem;
 }
 
 .annotation-toolbar__toggle {
-  min-width: 2.5rem;
+  min-width: 2rem;
+  padding-inline: 0.42rem;
   font-weight: 600;
 }
 
@@ -984,12 +1006,14 @@ textarea {
 
 .annotation-toolbar__ghost,
 .annotation-toolbar__done {
-  min-width: 4.8rem;
+  min-width: auto;
+  white-space: nowrap;
 }
 
 .annotation-toolbar__done {
   border-color: rgba(112, 195, 241, 0.26);
   color: var(--accent-strong);
+  padding-inline: 0.7rem;
 }
 
 .annotation-text-editor {
@@ -1115,20 +1139,34 @@ textarea {
 
 .canvas-panel__header {
   display: grid;
-  grid-template-columns: minmax(260px, 1.1fr) minmax(280px, 1.55fr) minmax(220px, 0.9fr);
-  gap: 1rem;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  gap: 0.85rem 1.1rem;
   align-items: flex-start;
 }
 
 .canvas-panel__branding {
   display: grid;
-  gap: 0.1rem;
+  gap: 0.22rem;
   min-width: 0;
+}
+
+.canvas-panel__usage {
+  margin-top: 0.02rem;
+  max-width: 20rem;
+  color: rgba(208, 223, 232, 0.84);
+  font-size: 0.8rem;
+  line-height: 1.38;
+}
+
+.canvas-panel__usage--shortcuts {
+  color: rgba(170, 192, 204, 0.84);
+  font-size: 0.76rem;
 }
 
 .canvas-panel__annotation-dock {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
+  align-items: flex-start;
   min-width: 0;
 }
 
@@ -2017,7 +2055,6 @@ textarea {
   }
 
   .toolbar__controls,
-  .canvas-panel__hint,
   .canvas-panel__annotation-dock {
     justify-content: flex-start;
     align-items: flex-start;

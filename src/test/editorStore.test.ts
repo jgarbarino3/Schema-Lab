@@ -394,6 +394,7 @@ describe('editor store annotations', () => {
         : undefined
 
     expect(selectedAnnotation?.kind).toBe('text')
+    expect(useEditorStore.getState().interaction.activeTool).toBe('select')
     expect(useEditorStore.getState().interaction.editingTextAnnotationId).toBe(
       selectedAnnotation?.id,
     )
@@ -430,6 +431,7 @@ describe('editor store annotations', () => {
       kind: 'shape',
       shapeKind: 'ellipse',
     })
+    expect(useEditorStore.getState().interaction.activeTool).toBe('select')
 
     store.updateSelectedShapeAnnotation({
       boundsMm: {

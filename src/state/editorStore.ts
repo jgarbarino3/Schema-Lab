@@ -2129,7 +2129,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: { type: 'annotation', annotationId: nextAnnotation.id },
         interaction: {
           ...state.interaction,
-          activeTool: 'text',
+          activeTool: 'select',
           editingTextAnnotationId: nextAnnotation.id,
           lineDrawStartMm: undefined,
           notice: undefined,
@@ -2157,7 +2157,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selection: { type: 'annotation', annotationId: nextAnnotation.id },
         interaction: {
           ...state.interaction,
-          activeTool: 'shape',
+          activeTool: 'select',
           editingTextAnnotationId: undefined,
           lineDrawStartMm: undefined,
           notice: undefined,

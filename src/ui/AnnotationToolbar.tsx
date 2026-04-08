@@ -15,16 +15,20 @@ interface AnnotationToolbarProps {
 function ToggleButton({
   isActive,
   label,
+  title,
   onClick,
 }: {
   isActive: boolean
   label: string
+  title?: string
   onClick: () => void
 }) {
   return (
     <button
+      aria-label={title ?? label}
       className={`annotation-toolbar__toggle${isActive ? ' is-active' : ''}`}
       onClick={onClick}
+      title={title}
       type="button"
     >
       {label}
@@ -109,7 +113,7 @@ export function AnnotationToolbar({
     <div className="annotation-toolbar annotation-toolbar--dock">
       {annotation.kind === 'text' ? (
         <>
-          <label className="annotation-toolbar__field">
+          <label className="annotation-toolbar__field annotation-toolbar__field--select">
             <span>Type</span>
             <select
               onChange={(event) =>
@@ -127,7 +131,7 @@ export function AnnotationToolbar({
             </select>
           </label>
 
-          <label className="annotation-toolbar__field">
+          <label className="annotation-toolbar__field annotation-toolbar__field--select">
             <span>Font</span>
             <select
               onChange={(event) =>
@@ -145,7 +149,7 @@ export function AnnotationToolbar({
             </select>
           </label>
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <label className="annotation-toolbar__field annotation-toolbar__field--swatch">
             <span>Text</span>
             <input
               onChange={(event) =>
@@ -157,7 +161,7 @@ export function AnnotationToolbar({
           </label>
 
           {annotation.variant !== 'plain' ? (
-            <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+            <label className="annotation-toolbar__field annotation-toolbar__field--swatch">
               <span>Paper</span>
               <input
                 onChange={(event) =>
@@ -175,7 +179,7 @@ export function AnnotationToolbar({
             </label>
           ) : null}
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <label className="annotation-toolbar__field annotation-toolbar__field--number">
             <span>Size</span>
             <input
               min={3.2}
@@ -190,7 +194,7 @@ export function AnnotationToolbar({
             />
           </label>
 
-          <div className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <div className="annotation-toolbar__field annotation-toolbar__field--stepper">
             <span>Box</span>
             <div className="annotation-toolbar__stepper-row">
               <StepperButton direction={-1} label="-" onStep={stepSelectedAnnotationSize} />
@@ -202,6 +206,7 @@ export function AnnotationToolbar({
             <ToggleButton
               isActive={annotation.style.bold}
               label="B"
+              title="Bold"
               onClick={() =>
                 updateSelectedTextStyle({ bold: !annotation.style.bold })
               }
@@ -209,6 +214,7 @@ export function AnnotationToolbar({
             <ToggleButton
               isActive={annotation.style.italic}
               label="I"
+              title="Italic"
               onClick={() =>
                 updateSelectedTextStyle({ italic: !annotation.style.italic })
               }
@@ -216,6 +222,7 @@ export function AnnotationToolbar({
             <ToggleButton
               isActive={annotation.style.underline}
               label="U"
+              title="Underline"
               onClick={() =>
                 updateSelectedTextStyle({
                   underline: !annotation.style.underline,
@@ -227,24 +234,27 @@ export function AnnotationToolbar({
           <div className="annotation-toolbar__button-row">
             <ToggleButton
               isActive={annotation.style.align === 'left'}
-              label="Left"
+              label="L"
+              title="Align left"
               onClick={() => updateSelectedTextStyle({ align: 'left' })}
             />
             <ToggleButton
               isActive={annotation.style.align === 'center'}
-              label="Center"
+              label="C"
+              title="Align center"
               onClick={() => updateSelectedTextStyle({ align: 'center' })}
             />
             <ToggleButton
               isActive={annotation.style.align === 'right'}
-              label="Right"
+              label="R"
+              title="Align right"
               onClick={() => updateSelectedTextStyle({ align: 'right' })}
             />
           </div>
         </>
       ) : (
         <>
-          <label className="annotation-toolbar__field">
+          <label className="annotation-toolbar__field annotation-toolbar__field--select">
             <span>Shape</span>
             <select
               onChange={(event) =>
@@ -262,7 +272,7 @@ export function AnnotationToolbar({
             </select>
           </label>
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <label className="annotation-toolbar__field annotation-toolbar__field--swatch">
             <span>Stroke</span>
             <input
               onChange={(event) =>
@@ -275,7 +285,7 @@ export function AnnotationToolbar({
             />
           </label>
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <label className="annotation-toolbar__field annotation-toolbar__field--swatch">
             <span>Fill</span>
             <input
               onChange={(event) =>
@@ -292,7 +302,7 @@ export function AnnotationToolbar({
             />
           </label>
 
-          <label className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <label className="annotation-toolbar__field annotation-toolbar__field--number">
             <span>Width</span>
             <input
               min={0.2}
@@ -307,7 +317,7 @@ export function AnnotationToolbar({
             />
           </label>
 
-          <div className="annotation-toolbar__field annotation-toolbar__field--compact">
+          <div className="annotation-toolbar__field annotation-toolbar__field--stepper">
             <span>Size</span>
             <div className="annotation-toolbar__stepper-row">
               <StepperButton direction={-1} label="-" onStep={stepSelectedAnnotationSize} />
