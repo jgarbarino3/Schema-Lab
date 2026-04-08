@@ -4,9 +4,19 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v1.5'
+export const CURRENT_VERSION = 'v1.7'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v1.7',
+    summary:
+      'Board Focus, guided laser setup, and smoother table interactions make multi-breadboard planning much easier to control.',
+    highlights: [
+      'Board Focus and Table View workflow',
+      'Guided first-target laser placement',
+      'Breadboard-aware dragging and viewport polish',
+    ],
+  },
   {
     version: 'v1.5',
     summary:
