@@ -225,11 +225,11 @@ function describePlacementReason(reason: string) {
     case 'support-outside-board':
       return 'mount support extends outside the allowed placement region'
     case 'footprint-overhang':
-      return 'component footprint extends outside the breadboard or source lane'
+      return 'component footprint extends outside the breadboard or launch edge'
     case 'occupied':
       return 'mount envelope overlaps another component'
     case 'outside-source-lane':
-      return 'external sources must stay on the source lane'
+      return 'external sources must stay on the chosen launch edge'
     case 'snap-preview':
       return 'drop here to capture the highlighted snap location'
     default:
@@ -761,7 +761,7 @@ export function InspectorPanel({
               <p>
                 {pendingBreadboardPlacement
                   ? 'Adjust the breadboard preset or dimensions before you place it on the optical table.'
-                  : 'Board geometry, source-lane defaults, and deterministic beam-scene settings.'}
+                  : 'Board geometry, launch-edge defaults, and deterministic beam-scene settings.'}
               </p>
             </div>
             <button
@@ -1406,7 +1406,7 @@ export function InspectorPanel({
                 <input
                   readOnly
                   type="text"
-                  value={`${inspectedComponent.config.source?.lane ?? 'left'} lane`}
+                  value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
                 />
               </Field>
             )}
@@ -1586,21 +1586,23 @@ export function InspectorPanel({
                 </select>
               </Field>
 
-              <Field label="Source lane">
-                <select
-                  onChange={(event) =>
-                    updateSelectedSource({
-                      lane: event.target.value as typeof inspectedComponent.config.source.lane,
-                    })
-                  }
-                  value={inspectedComponent.config.source.lane}
-                >
-                  <option value="left">Left</option>
-                  <option value="top">Top</option>
-                  <option value="right">Right</option>
-                  <option value="bottom">Bottom</option>
-                </select>
-              </Field>
+              {spec.mount.mode === 'external-source' ? (
+                <Field label="Launch edge">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedSource({
+                        lane: event.target.value as typeof inspectedComponent.config.source.lane,
+                      })
+                    }
+                    value={inspectedComponent.config.source.lane}
+                  >
+                    <option value="left">Left</option>
+                    <option value="top">Top</option>
+                    <option value="right">Right</option>
+                    <option value="bottom">Bottom</option>
+                  </select>
+                </Field>
+              ) : null}
 
               <Field label="First target">
                 <select

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Group, Line, Rect, Text } from 'react-konva'
 import {
   DEFAULT_POST_HOLDER_DIAMETER_MM,
@@ -36,7 +37,10 @@ interface ComponentNodeProps {
     componentId: string,
     update: { widthMm?: number; heightMm?: number },
   ) => void
-  onSelect?: (componentId: string) => void
+  onSelect?: (
+    componentId: string,
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => void
   placementStatus?: PlacementStatus
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
@@ -131,8 +135,10 @@ export function ComponentNode({
     ? wavelengthToHex(instance.config.source?.wavelengthNm ?? 0)
     : 'transparent'
 
-  const handleSelect = () => {
-    onSelect?.(instance.id)
+  const handleSelect = (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    onSelect?.(instance.id, event)
   }
 
   const currentBoundsRef = useRef(footprintBoundsMm)
@@ -191,7 +197,7 @@ export function ComponentNode({
         }
 
         event.cancelBubble = true
-        handleSelect()
+        handleSelect(event)
       }}
       onDragEnd={(event) => {
         if (!onDragEnd) {
@@ -234,7 +240,7 @@ export function ComponentNode({
         }
 
         event.cancelBubble = true
-        handleSelect()
+        handleSelect(event)
       }}
       onTouchStart={(event) => {
         if (isDragEnabled || onSelect || onResize) {

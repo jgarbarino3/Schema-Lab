@@ -3,6 +3,7 @@ import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
+import { getSourceGuideSnapshot } from '../domain/placement'
 import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type { BeamTraceResult, GaussianTraceResult, ScreenPointPx } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
@@ -107,8 +108,12 @@ export function SchemaStage({
   const updateBreadboardDrag = useEditorStore((state) => state.updateBreadboardDrag)
   const commitBreadboardDrag = useEditorStore((state) => state.commitBreadboardDrag)
 
-  const getStagePointerWorldMm = () => {
-    const pointerPosition = stageRef.current?.getPointerPosition()
+  const getStagePointerWorldMm = (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    const pointerPosition =
+      event?.target.getStage()?.getPointerPosition() ??
+      stageRef.current?.getPointerPosition()
 
     if (!pointerPosition) {
       return undefined
@@ -147,6 +152,57 @@ export function SchemaStage({
 
   const isPanMode = interaction.activeTool === 'pan' || interaction.isSpacePanning
   const isLineTool = interaction.activeTool === 'line' && !interaction.isSpacePanning
+  const sourceGuide = useMemo(() => {
+    if (interaction.pendingPlacement?.draft.config.source) {
+      return getSourceGuideSnapshot({
+        candidateAnchorMm: interaction.pendingPlacement.candidateAnchorMm,
+        scene,
+        source: interaction.pendingPlacement.draft,
+        targetId: interaction.pendingPlacement.draft.config.source.firstTargetComponentId,
+      })
+    }
+
+    if (interaction.dragPreview) {
+      const draggingSource = scene.components.find(
+        (component) =>
+          component.id === interaction.dragPreview?.componentId &&
+          component.config.source,
+      )
+
+      if (draggingSource?.config.source) {
+        return getSourceGuideSnapshot({
+          candidateAnchorMm: interaction.dragPreview.candidateAnchorMm,
+          scene,
+          source: draggingSource,
+          targetId: draggingSource.config.source.firstTargetComponentId,
+        })
+      }
+    }
+
+    if (selection.type !== 'component') {
+      return undefined
+    }
+
+    const selectedSource = scene.components.find(
+      (component) =>
+        component.id === selection.componentId && component.config.source,
+    )
+
+    if (!selectedSource?.config.source?.firstTargetComponentId) {
+      return undefined
+    }
+
+    return getSourceGuideSnapshot({
+      scene,
+      source: selectedSource,
+      targetId: selectedSource.config.source.firstTargetComponentId,
+    })
+  }, [
+    interaction.dragPreview,
+    interaction.pendingPlacement,
+    scene,
+    selection,
+  ])
   const stageCursor = useMemo(() => {
     if (interaction.isPointerPanning) {
       return 'grabbing'
@@ -514,8 +570,10 @@ export function SchemaStage({
     stopPointerPan()
   }
 
-  const handleLineToolClick = () => {
-    const pointerMm = getStagePointerWorldMm()
+  const handleLineToolClick = (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    const pointerMm = getStagePointerWorldMm(event)
 
     if (!pointerMm) {
       return
@@ -541,7 +599,7 @@ export function SchemaStage({
     }
 
     if (isLineTool) {
-      handleLineToolClick()
+      handleLineToolClick(event)
       return
     }
 
@@ -566,14 +624,16 @@ export function SchemaStage({
     selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
   }
 
-  const handleOpticalTableSelect = () => {
+  const handleOpticalTableSelect = (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
     }
 
     if (isLineTool) {
-      handleLineToolClick()
+      handleLineToolClick(event)
       return
     }
 
@@ -593,14 +653,17 @@ export function SchemaStage({
     selectOpticalTable()
   }
 
-  const handleBreadboardSelect = (surfaceId: string) => {
+  const handleBreadboardSelect = (
+    surfaceId: string,
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
     }
 
     if (isLineTool) {
-      handleLineToolClick()
+      handleLineToolClick(event)
       return
     }
 
@@ -676,8 +739,9 @@ export function SchemaStage({
               <BreadboardLayer
                 anchorMm={{ x: 0, y: 0 }}
                 breadboard={opticalTableBoard}
+                isFocused={false}
                 isSelected={selection.type === 'optical-table'}
-                onSelect={() => handleOpticalTableSelect()}
+                onSelect={(event) => handleOpticalTableSelect(event)}
                 palette={{
                   boardFill: '#a8b0b6',
                   boardStroke: '#d4dae0',
@@ -693,6 +757,7 @@ export function SchemaStage({
               <BreadboardLayer
                 anchorMm={{ x: 0, y: 0 }}
                 breadboard={primaryBreadboard}
+                isFocused
                 isSelected={
                   selection.type === 'breadboard' &&
                   selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
@@ -708,12 +773,17 @@ export function SchemaStage({
 
             {breadboardInstances.map((breadboard) => (
               <BreadboardLayer
-                anchorMm={breadboard.anchorMm}
+                anchorMm={
+                  interaction.breadboardDragPreview?.breadboardId === breadboard.id
+                    ? interaction.breadboardDragPreview.candidateAnchorMm
+                    : breadboard.anchorMm
+                }
                 breadboard={{
                   ...breadboard.model,
                   label: breadboard.label,
                 }}
                 draggable={!isPanMode && !isLineTool}
+                isFocused={interaction.focusedBreadboardId === breadboard.id}
                 isSelected={
                   selection.type === 'breadboard' &&
                   selection.surfaceId === breadboard.id
@@ -726,7 +796,7 @@ export function SchemaStage({
                   updateBreadboardDrag(breadboard.id, screenToWorld(screenPointPx, viewport))
                 }
                 onDragStart={() => beginBreadboardDrag(breadboard.id)}
-                onSelect={() => handleBreadboardSelect(breadboard.id)}
+                onSelect={(event) => handleBreadboardSelect(breadboard.id, event)}
                 renderInLayer={false}
                 rotationQuarterTurns={breadboard.rotationQuarterTurns}
                 showLabels={showLabels}
@@ -824,7 +894,28 @@ export function SchemaStage({
             </Layer>
           ) : null}
 
+          {sourceGuide ? (
+            <Layer listening={false}>
+              <Line
+                dash={sourceGuide.alignmentAxis ? [10, 5] : [7, 6]}
+                lineCap="round"
+                points={[
+                  worldToScreen(sourceGuide.sourcePointMm, viewport).x,
+                  worldToScreen(sourceGuide.sourcePointMm, viewport).y,
+                  worldToScreen(sourceGuide.targetPointMm, viewport).x,
+                  worldToScreen(sourceGuide.targetPointMm, viewport).y,
+                ]}
+                shadowBlur={sourceGuide.alignmentAxis ? 12 : 7}
+                shadowColor={sourceGuide.alignmentAxis ? '#7ad2ff' : '#61b8df'}
+                shadowOpacity={0.32}
+                stroke={sourceGuide.alignmentAxis ? '#8fe3ff' : '#5eb4da'}
+                strokeWidth={sourceGuide.alignmentAxis ? 2.6 : 1.8}
+              />
+            </Layer>
+          ) : null}
+
           <ComponentsLayer
+            breadboardDragPreview={interaction.breadboardDragPreview}
             components={scene.components}
             dragPreview={interaction.dragPreview}
             hoveredComponentId={interaction.hoveredComponentId}

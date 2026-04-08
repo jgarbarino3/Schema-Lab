@@ -17,7 +17,6 @@ import {
 } from './geometry'
 import { getExportWorldBoundsMm, type ExportScope, type SvgExportPreset } from './exportLayout'
 import { getGaussianWaistMarkers } from './gaussian'
-import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from './placement'
 import {
   getBreadboardInstance,
   getBreadboardInstances,
@@ -47,7 +46,6 @@ type VectorLineJoin = 'round' | 'bevel' | 'miter'
 export type VectorExportLayerId =
   | 'table'
   | 'breadboards'
-  | 'source-lanes'
   | 'holes'
   | 'mounts'
   | 'components'
@@ -161,8 +159,6 @@ interface ExportPalette {
   componentFill: string
   componentStroke: string
   holeFill: string
-  laneFill: string
-  laneStroke: string
   label: string
   mountFill: string
   mountStroke: string
@@ -175,7 +171,6 @@ const SVG_SANS_FONT = 'IBM Plex Sans, Avenir Next, Segoe UI, sans-serif'
 const LAYER_ORDER: Array<{ id: VectorExportLayerId; label: string }> = [
   { id: 'table', label: 'Optical Table' },
   { id: 'breadboards', label: 'Breadboards' },
-  { id: 'source-lanes', label: 'Source Lanes' },
   { id: 'holes', label: 'Hole Field' },
   { id: 'mounts', label: 'Mounts and Supports' },
   { id: 'components', label: 'Components' },
@@ -334,8 +329,6 @@ function getExportPalette(
       componentFill: '#d9e8ef',
       componentStroke: '#f2f7fb',
       holeFill: boardFinish === 'black-anodized' ? '#0c1014' : '#64717a',
-      laneFill: 'rgba(56, 83, 97, 0.1)',
-      laneStroke: 'rgba(122, 193, 220, 0.42)',
       label: '#d9e8ef',
       mountFill: 'rgba(53, 63, 72, 0.86)',
       mountStroke: '#8da0ad',
@@ -355,8 +348,6 @@ function getExportPalette(
     componentFill: '#f7fbfd',
     componentStroke: '#26424c',
     holeFill: '#7a8791',
-    laneFill: '#f7fafb',
-    laneStroke: '#7f98a6',
     label: '#23313a',
     mountFill: '#eef2f5',
     mountStroke: '#53636e',
@@ -388,20 +379,6 @@ function getComponentPalette(
     mountStroke: '#53636e',
     supportStroke: '#7d97a5',
     text: '#23313a',
-  }
-}
-
-function getLaneLabelPosition(boundsMm: BoundsMm, key: string): Vector2Mm {
-  if (key === 'left' || key === 'right') {
-    return {
-      x: roundMm(boundsMm.x + boundsMm.width / 2),
-      y: roundMm(boundsMm.y + boundsMm.height / 2),
-    }
-  }
-
-  return {
-    x: roundMm(boundsMm.x + 7),
-    y: roundMm(boundsMm.y + boundsMm.height / 2),
   }
 }
 
@@ -1158,7 +1135,6 @@ function getSegmentOpacity(segment: BeamSegment) {
 function createBoardNodes(args: {
   board: BreadboardModel | OpticalTableModel
   groupId: string
-  includeSourceLanes: boolean
   layerMap: Map<VectorExportLayerId, VectorNode[]>
   preset: SvgExportPreset
   rotationQuarterTurns: QuarterTurn
@@ -1168,7 +1144,6 @@ function createBoardNodes(args: {
   const {
     board,
     groupId,
-    includeSourceLanes,
     layerMap,
     preset,
     rotationQuarterTurns,
@@ -1182,9 +1157,7 @@ function createBoardNodes(args: {
   }
   const holeAxes = getBreadboardHoleAxesMm(holeBoard)
   const counterboreCenters = getCounterboreCentersMm(holeBoard)
-  const boardLabelText = `${board.label} • ${board.widthMm.toFixed(0)} × ${board.heightMm.toFixed(0)} mm • ${getEffectiveHolePitchMm(holeBoard).toFixed(1)} mm pitch${
-    includeSourceLanes ? ` • sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm` : ''
-  }`
+  const boardLabelText = `${board.label} • ${board.widthMm.toFixed(0)} × ${board.heightMm.toFixed(0)} mm • ${getEffectiveHolePitchMm(holeBoard).toFixed(1)} mm pitch`
 
   pushLayerNode(layerMap, surfaceKind === 'table' ? 'table' : 'breadboards', {
     kind: 'group',
@@ -1228,50 +1201,6 @@ function createBoardNodes(args: {
       fontSizeMm: 4.7,
     }),
   })
-
-  if (includeSourceLanes) {
-    for (const laneKey of ['left', 'right', 'top', 'bottom'] as const) {
-      const laneBoundsMm = getSourceLaneBoundsMm(holeBoard, laneKey)
-
-      pushLayerNode(layerMap, 'source-lanes', {
-        kind: 'group',
-        id: `${groupId}-lane-${laneKey}`,
-        label: `${board.label} ${laneKey} source lane`,
-        children: [
-          {
-            kind: 'polyline',
-            closed: true,
-            pointsMm: localBoundsToWorldPolyline(
-              surfaceAnchorMm,
-              rotationQuarterTurns,
-              laneBoundsMm,
-            ),
-            style: defaultStyle({
-              dashMm: [2.4, 1.6],
-              fill: palette.laneFill,
-              fillOpacity: 0.24,
-              stroke: palette.laneStroke,
-              strokeWidthMm: 0.45,
-            }),
-          },
-          {
-            kind: 'text',
-            positionMm: localPointToWorld(
-              surfaceAnchorMm,
-              rotationQuarterTurns,
-              getLaneLabelPosition(laneBoundsMm, laneKey),
-            ),
-            text: 'Source Lane',
-            style: defaultStyle({
-              fill: palette.label,
-              fontFamily: SVG_MONO_FONT,
-              fontSizeMm: 4.2,
-            }),
-          },
-        ],
-      })
-    }
-  }
 
   for (const centerMm of counterboreCenters) {
     pushLayerNode(layerMap, 'holes', localCircleToWorld(
@@ -1444,7 +1373,6 @@ export function createVectorExportSceneGraph({
     createBoardNodes({
       board: primaryBreadboard,
       groupId: 'single-breadboard',
-      includeSourceLanes: scope === 'full-scheme',
       layerMap,
       preset: svgPreset,
       rotationQuarterTurns: 0,
@@ -1456,7 +1384,6 @@ export function createVectorExportSceneGraph({
       createBoardNodes({
         board: opticalTable,
         groupId: 'optical-table',
-        includeSourceLanes: false,
         layerMap,
         preset: svgPreset,
         rotationQuarterTurns: 0,
@@ -1472,7 +1399,6 @@ export function createVectorExportSceneGraph({
           label: breadboard.label,
         },
         groupId: `breadboard-${breadboard.id}`,
-        includeSourceLanes: false,
         layerMap,
         preset: svgPreset,
         rotationQuarterTurns: breadboard.rotationQuarterTurns,

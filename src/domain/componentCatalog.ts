@@ -651,6 +651,28 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         description: 'External off-board ultrafast source head for FROG and SHG planning.',
       },
       {
+        id: 'compact-table-source',
+        label: 'Compact Table Source',
+        description: 'Small table-mounted example source for quick table layouts and target alignment.',
+        footprintBoundsMm: bounds(-135, -58, 270, 116),
+        visualBodyBoundsMm: bounds(-126, -50, 252, 100),
+        hitBoundsMm: bounds(-148, -70, 296, 140),
+        mount: mount('hole-mounted', -135, -58, 270, 116),
+        opticalCenterMm: { x: 110, y: 0 },
+        ports: [port('output', 'Output', 'beam-output', 135, 0, 'east')],
+        renderHint: {
+          shape: 'capsule',
+          fill: '#4b6d7f',
+          stroke: '#c5e8f8',
+          glyph: 'laser',
+        },
+        realisticVisualPreset: {
+          finish: 'teal-anodized',
+          accentFill: '#345364',
+          accentStroke: '#d7f5ff',
+        },
+      },
+      {
         id: 'libra',
         label: 'Coherent Libra',
         vendor: 'Coherent',

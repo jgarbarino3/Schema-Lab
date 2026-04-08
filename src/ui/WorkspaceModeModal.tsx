@@ -22,6 +22,7 @@ interface WorkspaceModeModalProps {
   onCancel: () => void
   onConvertCurrentToTable: () => void
   onRestoreSavedTable: () => void
+  onStartFreshTable: () => void
   onConvertToSingleBreadboard: (args: {
     breadboardId?: string
     createFresh: boolean
@@ -35,6 +36,7 @@ export function WorkspaceModeModal({
   onCancel,
   onConvertCurrentToTable,
   onRestoreSavedTable,
+  onStartFreshTable,
   onConvertToSingleBreadboard,
 }: WorkspaceModeModalProps) {
   const [selectedBreadboardId, setSelectedBreadboardId] = useState<string>()
@@ -57,15 +59,16 @@ export function WorkspaceModeModal({
 
   if (state.mode === 'to-optical-table') {
     return (
-      <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Switch to optical table mode">
+      <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Open table view">
         <div className="modal-shell__backdrop" onClick={onCancel} />
 
         <div className="modal-shell__card">
           <div className="modal-shell__header">
-            <h2>Switch to Optical Table</h2>
+            <h2>Open Table View</h2>
             <p>
-              Convert the current breadboard scene into a large silver optical table, or
-              restore the last saved optical-table workspace for this browser.
+              Bring the current breadboard into a full optical-table workspace, restore the
+              last saved table for this browser, or start with a fresh empty table and add
+              customizable breadboards afterward.
             </p>
           </div>
 
@@ -81,6 +84,9 @@ export function WorkspaceModeModal({
                 Restore saved table
               </button>
             ) : null}
+            <button onClick={onStartFreshTable} type="button">
+              Start fresh empty table
+            </button>
           </div>
         </div>
       </div>
@@ -143,7 +149,7 @@ export function WorkspaceModeModal({
             />
             <span>
               <strong>Preserve current optical-table workspace</strong>
-              <span>Save a browser-local snapshot so Table mode can restore this layout later.</span>
+              <span>Save a browser-local snapshot so Table View can restore this layout later.</span>
             </span>
           </label>
         </div>

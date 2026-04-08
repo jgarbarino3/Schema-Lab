@@ -40,7 +40,7 @@ const DISPLAY_GROUPS: DisplayGroup[] = [
 function describeMountMode(mode: string) {
   switch (mode) {
     case 'external-source':
-      return 'source lane'
+      return 'launch edge'
     case 'hole-mounted':
       return 'hole mounted'
     case 'clamp-capable':
@@ -180,7 +180,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                   >
                     <span className="component-library__item-title">{preset.label}</span>
                     <span className="component-library__item-meta">
-                      Arm breadboard placement on the optical table
+                      Arm placement on the optical table, then customize size and label in the inspector
                     </span>
                     {pendingBreadboardPresetId === preset.id ? (
                       <span className="component-library__item-state">

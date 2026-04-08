@@ -42,8 +42,8 @@ try {
   const helpButton = page.getByRole('button', { name: 'Help' })
   const simpleButton = page.getByRole('button', { name: 'Simple' })
   const realisticButton = page.getByRole('button', { name: 'Realistic' })
-  const tableButton = page.getByRole('button', { exact: true, name: 'Table' })
-  const boardButton = page.getByRole('button', { exact: true, name: 'Board' })
+  const tableButton = page.getByRole('button', { exact: true, name: 'Table View' })
+  const boardButton = page.getByRole('button', { exact: true, name: 'Board Focus' })
   const warningButton = page.locator('.toolbar__warning-toggle')
   const exportMenu = page.locator('.toolbar__menu-popover')
   const exportDialog = page.getByRole('dialog', { name: 'Export options' })
@@ -71,7 +71,7 @@ try {
   }
 
   const getStageBox = async () => {
-    const stage = page.locator('.konvajs-content canvas').first()
+    const stage = page.locator('.konvajs-content')
     const stageBox = await stage.boundingBox()
     assert.ok(stageBox, 'Stage should be visible')
     return stageBox
@@ -79,7 +79,7 @@ try {
 
   const clickStageRelative = async (xRatio, yRatio) => {
     const stageBox = await getStageBox()
-    await page.locator('.konvajs-content canvas').first().click({
+    await page.locator('.konvajs-content').click({
       force: true,
       position: {
         x: stageBox.width * xRatio,
@@ -244,7 +244,7 @@ try {
   }
 
   await tableButton.click()
-  await page.getByRole('heading', { name: 'Switch to Optical Table' }).waitFor()
+  await page.getByRole('heading', { name: 'Open Table View' }).waitFor()
   await page.getByRole('button', { name: 'Convert current breadboard' }).click()
   await expectHidden(page.locator('.modal-shell'))
   step('converted to optical table')

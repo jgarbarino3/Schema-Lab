@@ -22,6 +22,7 @@ import {
   zoomViewportAtScreenPoint,
 } from '../domain/geometry'
 import {
+  applySourceGuideAssist,
   alignExternalSourceToTarget,
   findDuplicatePlacement,
   getSceneWorldBoundsMm,
@@ -36,12 +37,15 @@ import {
   convertSceneToOpticalTable,
   convertSceneToSingleBreadboard,
   createBreadboardInstance,
+  createFreshOpticalTableWorkspace,
   getBreadboardAnchorForCenterMm,
+  getBreadboardInstance,
   getBreadboardWorldBoundsMm,
   getDefaultSurfaceId,
   getWorkspaceWorldBoundsMm,
   resolveTopmostSurfaceIdAtWorldPoint,
   surfaceLocalToWorld,
+  translateComponentWorld,
 } from '../domain/workspace'
 import type {
   ActiveTool,
@@ -75,6 +79,7 @@ import type {
   Vector2Mm,
   ViewportState,
   WaveplateConfig,
+  WorkspaceViewMode,
 } from '../domain/types'
 import { OPTICAL_TABLE_SURFACE_ID, SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 
@@ -119,9 +124,11 @@ interface BreadboardDragPreview {
 interface InteractionState {
   activeDragComponentId?: string
   breadboardDragPreview?: BreadboardDragPreview
+  bottomToolbarOffsetPx?: ScreenPointPx
   dragPreview?: DragPreviewState
   pendingPlacement?: PendingPlacementState
   pendingBreadboardPlacement?: PendingBreadboardPlacementState
+  focusedBreadboardId?: string
   hoveredComponentId?: string
   hoveredBeamSegmentId?: string
   cursorWorldMm?: Vector2Mm
@@ -141,6 +148,7 @@ interface InteractionState {
   notice?: string
   lineDrawStartMm?: Vector2Mm
   lineColor: string
+  workspaceViewMode: WorkspaceViewMode
 }
 
 interface WarningFilters {
@@ -205,6 +213,7 @@ interface EditorStore {
   setWarningsOpen: (isOpen: boolean) => void
   setSelectedWarningId: (warningId?: string) => void
   clearNotice: () => void
+  setBottomToolbarOffset: (offsetPx?: ScreenPointPx) => void
   setViewportSize: (canvasSizePx: CanvasSizePx) => void
   setViewport: (viewport: ViewportState) => void
   panViewportByScreenDelta: (deltaPx: ScreenPointPx) => void
@@ -263,10 +272,13 @@ interface EditorStore {
   applyBreadboardPreset: (presetId: string) => void
   updateOpticalTable: (update: Partial<OpticalTableModel>) => void
   convertWorkspaceToOpticalTable: () => void
+  createFreshOpticalTable: () => void
   convertWorkspaceToSingleBreadboard: (args: {
     breadboardId?: string
     createFresh?: boolean
   }) => void
+  setWorkspaceViewMode: (workspaceViewMode: WorkspaceViewMode) => void
+  setFocusedBreadboardId: (breadboardId?: string) => void
   setActiveHostSurfaceId: (surfaceId?: string) => void
   dismissWarning: (warningId: string) => void
   dismissVisibleWarnings: (warningIds: string[]) => void
@@ -289,6 +301,10 @@ const HISTORY_COALESCE_WINDOW_MS = 750
 const RENDER_MODE_STORAGE_KEY = 'schema-lab.render-mode'
 const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
 const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
+const VIEWPORT_SIDE_PADDING_PX = 88
+const VIEWPORT_TOP_PADDING_PX = 28
+const VIEWPORT_BOTTOM_PADDING_PX = 156
+const BOARD_LABEL_MARGIN_MM = 18
 
 function canUseLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
@@ -369,29 +385,185 @@ function readMountVisibilityDefaults(): MountVisibilityDefaults {
   }
 }
 
-function createViewportForScene(
+function getSafeCanvasSize(canvasSizePx: CanvasSizePx = DEFAULT_CANVAS_SIZE) {
+  return {
+    width: canvasSizePx.width > 0 ? canvasSizePx.width : DEFAULT_CANVAS_SIZE.width,
+    height: canvasSizePx.height > 0 ? canvasSizePx.height : DEFAULT_CANVAS_SIZE.height,
+  }
+}
+
+function resolveWorkspaceViewModeForScene(
   scene: SceneDocument,
+  workspaceViewMode?: WorkspaceViewMode,
+): WorkspaceViewMode {
+  if (scene.workspace.kind !== 'optical-table') {
+    return 'board-focus'
+  }
+
+  if (scene.workspace.breadboards.length === 0) {
+    return 'table-view'
+  }
+
+  return workspaceViewMode ?? 'table-view'
+}
+
+function resolveFocusedBreadboardIdForScene(
+  scene: SceneDocument,
+  args?: {
+    activeHostSurfaceId?: string
+    focusedBreadboardId?: string
+    selection?: SelectionState
+  },
+) {
+  if (scene.workspace.kind !== 'optical-table') {
+    return SINGLE_BREADBOARD_SURFACE_ID
+  }
+
+  const selection = args?.selection
+  const selectedComponentHostSurfaceId =
+    selection?.type === 'component'
+      ? scene.components.find(
+          (component) => component.id === selection.componentId,
+        )?.hostSurfaceId
+      : undefined
+  const requestedIds = [
+    args?.focusedBreadboardId,
+    selection?.type === 'breadboard' ? selection.surfaceId : undefined,
+    selectedComponentHostSurfaceId,
+    args?.activeHostSurfaceId,
+  ]
+
+  for (const candidateId of requestedIds) {
+    if (
+      candidateId &&
+      candidateId !== OPTICAL_TABLE_SURFACE_ID &&
+      scene.workspace.breadboards.some((breadboard) => breadboard.id === candidateId)
+    ) {
+      return candidateId
+    }
+  }
+
+  return scene.workspace.breadboards[0]?.id
+}
+
+function getViewportFocusBoundsMm(
+  scene: SceneDocument,
+  workspaceViewMode: WorkspaceViewMode,
+  focusedBreadboardId?: string,
+) {
+  if (scene.workspace.kind === 'single-breadboard') {
+    return {
+      x: 0,
+      y: -BOARD_LABEL_MARGIN_MM,
+      width: scene.workspace.breadboard.widthMm,
+      height: scene.workspace.breadboard.heightMm + BOARD_LABEL_MARGIN_MM,
+    }
+  }
+
+  if (workspaceViewMode === 'board-focus') {
+    const focusedBreadboard = getBreadboardInstance(scene, focusedBreadboardId)
+
+    if (focusedBreadboard) {
+      const bounds = getBreadboardWorldBoundsMm(
+        focusedBreadboard.model,
+        focusedBreadboard.anchorMm,
+        focusedBreadboard.rotationQuarterTurns,
+      )
+
+      return {
+        x: bounds.x,
+        y: bounds.y - BOARD_LABEL_MARGIN_MM,
+        width: bounds.width,
+        height: bounds.height + BOARD_LABEL_MARGIN_MM,
+      }
+    }
+  }
+
+  return getWorkspaceWorldBoundsMm(scene)
+}
+
+function createViewportForBoundsWithTopBias(
+  boundsMm: { x: number; y: number; width: number; height: number },
   canvasSizePx: CanvasSizePx = DEFAULT_CANVAS_SIZE,
-): ViewportState {
+) {
   const safeCanvasSize = {
     width: canvasSizePx.width > 0 ? canvasSizePx.width : DEFAULT_CANVAS_SIZE.width,
     height: canvasSizePx.height > 0 ? canvasSizePx.height : DEFAULT_CANVAS_SIZE.height,
   }
-  const worldBounds = getSceneWorldBoundsMm(scene)
-  const workspaceBounds = getWorkspaceWorldBoundsMm(scene)
-  const centerMm = {
-    x: workspaceBounds.x + workspaceBounds.width / 2,
-    y: workspaceBounds.y + workspaceBounds.height / 2,
+  const availableWidthPx = Math.max(
+    1,
+    safeCanvasSize.width - VIEWPORT_SIDE_PADDING_PX * 2,
+  )
+  const availableHeightPx = Math.max(
+    1,
+    safeCanvasSize.height - VIEWPORT_TOP_PADDING_PX - VIEWPORT_BOTTOM_PADDING_PX,
+  )
+  const zoomPxPerMm = fitZoomPxPerMm(
+    {
+      width: boundsMm.width,
+      height: boundsMm.height,
+    },
+    {
+      width: availableWidthPx,
+      height: availableHeightPx,
+    },
+    0,
+  )
+  const cameraCenterMm = {
+    x: roundMm(boundsMm.x + boundsMm.width / 2),
+    y: roundMm(
+      boundsMm.y +
+        (safeCanvasSize.height / 2 - VIEWPORT_TOP_PADDING_PX) / zoomPxPerMm,
+    ),
   }
 
   return {
-    zoomPxPerMm: fitZoomPxPerMm(
-      { width: worldBounds.width, height: worldBounds.height },
-      safeCanvasSize,
-    ),
-    cameraCenterMm: centerMm,
+    zoomPxPerMm,
+    cameraCenterMm,
     canvasSizePx: safeCanvasSize,
   }
+}
+
+function createViewportForScene(
+  scene: SceneDocument,
+  canvasSizePx: CanvasSizePx = DEFAULT_CANVAS_SIZE,
+  options?: {
+    focusedBreadboardId?: string
+    workspaceViewMode?: WorkspaceViewMode
+  },
+): ViewportState {
+  const safeCanvasSize = getSafeCanvasSize(canvasSizePx)
+  const workspaceViewMode = resolveWorkspaceViewModeForScene(
+    scene,
+    options?.workspaceViewMode,
+  )
+  const focusedBreadboardId = resolveFocusedBreadboardIdForScene(scene, {
+    focusedBreadboardId: options?.focusedBreadboardId,
+  })
+  const focusBounds = getViewportFocusBoundsMm(
+    scene,
+    workspaceViewMode,
+    focusedBreadboardId,
+  )
+  const worldBounds = getSceneWorldBoundsMm(scene)
+  const baseViewport = createViewportForBoundsWithTopBias(
+    focusBounds,
+    safeCanvasSize,
+  )
+  const minimumZoomPxPerMm = fitZoomPxPerMm(
+    {
+      width: worldBounds.width,
+      height: worldBounds.height,
+    },
+    safeCanvasSize,
+  )
+
+  return baseViewport.zoomPxPerMm > minimumZoomPxPerMm
+    ? baseViewport
+    : {
+        ...baseViewport,
+        zoomPxPerMm: minimumZoomPxPerMm,
+      }
 }
 
 function createComponentId(type: ComponentType) {
@@ -504,11 +676,11 @@ function describePlacementReason(reason: string) {
     case 'support-outside-board':
       return 'mount support extends outside the allowed placement region'
     case 'footprint-overhang':
-      return 'component footprint extends outside the breadboard or source lane'
+      return 'component footprint extends outside the breadboard or launch edge'
     case 'occupied':
       return 'mount envelope overlaps another component'
     case 'outside-source-lane':
-      return 'external sources must stay on the source lane'
+      return 'external sources must stay on the chosen launch edge'
     case 'snap-preview':
       return 'drop here to capture the highlighted snap location'
     default:
@@ -714,10 +886,13 @@ function createComponentDraft(
   activeHostSurfaceId?: string,
 ) {
   const definition = getComponentDefinition(type)
-  const defaultSurfaceId = activeHostSurfaceId ?? getDefaultSurfaceId(scene)
+  const defaultSurfaceId =
+    type === 'laser-source' && scene.workspace.kind === 'optical-table'
+      ? OPTICAL_TABLE_SURFACE_ID
+      : activeHostSurfaceId ?? getDefaultSurfaceId(scene)
   const variantId =
-    type === 'laser-source' && defaultSurfaceId === OPTICAL_TABLE_SURFACE_ID
-      ? 'libra'
+    type === 'laser-source' && scene.workspace.kind === 'optical-table'
+      ? 'compact-table-source'
       : definition.defaultVariantId
   const selectedComponentId =
     selection.type === 'component' ? selection.componentId : undefined
@@ -987,6 +1162,41 @@ function applySourceLane(
   }
 }
 
+function getSourceGuideAdjustedAnchorMm(
+  scene: SceneDocument,
+  component: ComponentInstance,
+  candidateAnchorMm: Vector2Mm,
+) {
+  const targetId = component.config.source?.firstTargetComponentId
+
+  if (!targetId) {
+    return candidateAnchorMm
+  }
+
+  return applySourceGuideAssist({
+    candidateAnchorMm,
+    scene,
+    source: component,
+    targetId,
+  }).anchorMm
+}
+
+function translateBreadboardHostedComponents(
+  components: ComponentInstance[],
+  breadboardId: string,
+  deltaMm: Vector2Mm,
+) {
+  if (deltaMm.x === 0 && deltaMm.y === 0) {
+    return components
+  }
+
+  return components.map((component) =>
+    component.hostSurfaceId === breadboardId
+      ? translateComponentWorld(component, deltaMm)
+      : component,
+  )
+}
+
 function createSceneHistoryState(): SceneHistoryState {
   return {
     past: [],
@@ -1085,6 +1295,44 @@ function withResetHistory<StatePatch extends {
   }
 }
 
+function createInteractionForScene(args: {
+  activeHostSurfaceId?: string
+  focusedBreadboardId?: string
+  previousInteraction?: InteractionState
+  scene: SceneDocument
+  selection: SelectionState
+  workspaceViewMode?: WorkspaceViewMode
+}) {
+  const workspaceViewMode = resolveWorkspaceViewModeForScene(
+    args.scene,
+    args.workspaceViewMode ?? args.previousInteraction?.workspaceViewMode,
+  )
+  const focusedBreadboardId = resolveFocusedBreadboardIdForScene(args.scene, {
+    activeHostSurfaceId: args.activeHostSurfaceId ?? args.previousInteraction?.activeHostSurfaceId,
+    focusedBreadboardId:
+      args.focusedBreadboardId ?? args.previousInteraction?.focusedBreadboardId,
+    selection: args.selection,
+  })
+  const resolvedActiveHostSurfaceId =
+    args.scene.workspace.kind === 'optical-table' &&
+    workspaceViewMode === 'board-focus' &&
+    focusedBreadboardId
+      ? focusedBreadboardId
+      : resolveActiveHostSurfaceId(
+          args.scene,
+          args.selection,
+          args.activeHostSurfaceId ?? args.previousInteraction?.activeHostSurfaceId,
+        )
+
+  return {
+    ...initialInteraction,
+    bottomToolbarOffsetPx: args.previousInteraction?.bottomToolbarOffsetPx,
+    focusedBreadboardId,
+    workspaceViewMode,
+    activeHostSurfaceId: resolvedActiveHostSurfaceId,
+  } satisfies InteractionState
+}
+
 function restoreSceneHistorySnapshot(
   state: EditorStore,
   snapshot: SceneHistorySnapshot,
@@ -1096,13 +1344,13 @@ function restoreSceneHistorySnapshot(
     scene: snapshot.scene,
     selection,
     interaction: {
-      ...state.interaction,
-      activeDragComponentId: undefined,
-      activeHostSurfaceId: resolveActiveHostSurfaceId(
-        snapshot.scene,
+      ...createInteractionForScene({
+        activeHostSurfaceId: snapshot.activeHostSurfaceId,
+        previousInteraction: state.interaction,
+        scene: snapshot.scene,
         selection,
-        snapshot.activeHostSurfaceId,
-      ),
+      }),
+      activeDragComponentId: undefined,
       dragPreview: undefined,
       hoveredBeamSegmentId: undefined,
       hoveredComponentId: undefined,
@@ -1120,6 +1368,7 @@ function restoreSceneHistorySnapshot(
 
 const initialInteraction: InteractionState = {
   activeTool: 'select',
+  workspaceViewMode: 'board-focus',
   dismissedWarningIds: [],
   isHelpOpen: false,
   isSpacePanning: false,
@@ -1142,28 +1391,47 @@ export const useEditorStore = create<EditorStore>((set) => ({
   warningFilters: initialWarningFilters,
   mountVisibilityDefaults: initialMountVisibilityDefaults,
   openToolbarMenu: undefined,
-  interaction: {
-    ...initialInteraction,
-    activeHostSurfaceId: getDefaultSurfaceId(initialScene),
-  },
+  interaction: createInteractionForScene({
+    scene: initialScene,
+    selection: getDefaultSelection(initialScene),
+  }),
   history: createSceneHistoryState(),
   canUndo: false,
   canRedo: false,
 
   selectBreadboard: (surfaceId) => {
-    set((state) => ({
-      selection: {
-        type: 'breadboard',
-        surfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
-      },
-      interaction: {
-        ...state.interaction,
-        activeHostSurfaceId: surfaceId ?? getDefaultSurfaceId(state.scene),
-        notice: undefined,
-        pendingPlacement: undefined,
-        pendingBreadboardPlacement: undefined,
-      },
-    }))
+    set((state) => {
+      const nextSurfaceId = surfaceId ?? getDefaultSurfaceId(state.scene)
+      const selection = {
+        type: 'breadboard' as const,
+        surfaceId: nextSurfaceId,
+      }
+      const focusedBreadboardId =
+        state.scene.workspace.kind === 'optical-table' &&
+        nextSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+          ? nextSurfaceId
+          : state.interaction.focusedBreadboardId
+
+      return {
+        selection,
+        viewport:
+          state.scene.workspace.kind === 'optical-table' &&
+          state.interaction.workspaceViewMode === 'board-focus'
+            ? createViewportForScene(state.scene, state.viewport.canvasSizePx, {
+                focusedBreadboardId,
+                workspaceViewMode: 'board-focus',
+              })
+            : state.viewport,
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId: nextSurfaceId,
+          focusedBreadboardId,
+          notice: undefined,
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+        },
+      }
+    })
   },
 
   selectOpticalTable: () => {
@@ -1180,18 +1448,39 @@ export const useEditorStore = create<EditorStore>((set) => ({
   },
 
   selectComponent: (componentId) => {
-    set((state) => ({
-      selection: { type: 'component', componentId },
-      interaction: {
-        ...state.interaction,
-        activeHostSurfaceId:
-          state.scene.components.find((component) => component.id === componentId)
-            ?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
-        notice: undefined,
-        pendingPlacement: undefined,
-        pendingBreadboardPlacement: undefined,
-      },
-    }))
+    set((state) => {
+      const component = state.scene.components.find(
+        (candidate) => candidate.id === componentId,
+      )
+      const focusedBreadboardId =
+        state.scene.workspace.kind === 'optical-table' &&
+        component?.hostSurfaceId &&
+        component.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+          ? component.hostSurfaceId
+          : state.interaction.focusedBreadboardId
+
+      return {
+        selection: { type: 'component', componentId },
+        viewport:
+          state.scene.workspace.kind === 'optical-table' &&
+          state.interaction.workspaceViewMode === 'board-focus' &&
+          focusedBreadboardId
+            ? createViewportForScene(state.scene, state.viewport.canvasSizePx, {
+                focusedBreadboardId,
+                workspaceViewMode: 'board-focus',
+              })
+            : state.viewport,
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId:
+            component?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
+          focusedBreadboardId,
+          notice: undefined,
+          pendingPlacement: undefined,
+          pendingBreadboardPlacement: undefined,
+        },
+      }
+    })
   },
 
   setSnapMode: (snapMode) => {
@@ -1359,6 +1648,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
+  setBottomToolbarOffset: (bottomToolbarOffsetPx) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        bottomToolbarOffsetPx,
+      },
+    }))
+  },
+
   setViewportSize: (canvasSizePx) => {
     set((state) => ({
       viewport: {
@@ -1397,7 +1695,10 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   resetViewport: () => {
     set((state) => ({
-      viewport: createViewportForScene(state.scene, state.viewport.canvasSizePx),
+      viewport: createViewportForScene(state.scene, state.viewport.canvasSizePx, {
+        focusedBreadboardId: state.interaction.focusedBreadboardId,
+        workspaceViewMode: state.interaction.workspaceViewMode,
+      }),
     }))
   },
 
@@ -1416,6 +1717,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeTool: 'select' as const,
+          activeHostSurfaceId: draft.hostSurfaceId,
           lineDrawStartMm: undefined,
           pendingPlacement: {
             draft,
@@ -1468,10 +1770,18 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      const draft = retargetComponentHostSurfaceAtPoint(
+      const retargetedDraft = retargetComponentHostSurfaceAtPoint(
         state.scene,
         pendingPlacement.draft,
         anchorMm,
+      )
+      const guidedAnchorMm = retargetedDraft.config.source
+        ? getSourceGuideAdjustedAnchorMm(state.scene, retargetedDraft, anchorMm)
+        : anchorMm
+      const draft = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        retargetedDraft,
+        guidedAnchorMm,
       )
 
       return {
@@ -1480,9 +1790,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
           pendingPlacement: {
             ...pendingPlacement,
             draft,
-            candidateAnchorMm: anchorMm,
+            candidateAnchorMm: guidedAnchorMm,
           },
           activeHostSurfaceId: draft.hostSurfaceId,
+          focusedBreadboardId:
+            draft.hostSurfaceId && draft.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? draft.hostSurfaceId
+              : state.interaction.focusedBreadboardId,
         },
       }
     })
@@ -1515,14 +1829,26 @@ export const useEditorStore = create<EditorStore>((set) => ({
       }
 
       const candidateAnchorMm = anchorMm ?? pendingPlacement.candidateAnchorMm
-      const draft = retargetComponentHostSurfaceAtPoint(
+      const retargetedDraft = retargetComponentHostSurfaceAtPoint(
         state.scene,
         pendingPlacement.draft,
         candidateAnchorMm,
       )
+      const guidedAnchorMm = retargetedDraft.config.source
+        ? getSourceGuideAdjustedAnchorMm(
+            state.scene,
+            retargetedDraft,
+            candidateAnchorMm,
+          )
+        : candidateAnchorMm
+      const draft = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        retargetedDraft,
+        guidedAnchorMm,
+      )
 
       const placement = resolvePlacementForScene({
-        candidateAnchorMm,
+        candidateAnchorMm: guidedAnchorMm,
         component: draft,
         phase: 'drop',
         scene: state.scene,
@@ -1542,6 +1868,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: nextComponent.hostSurfaceId,
+          focusedBreadboardId:
+            nextComponent.hostSurfaceId &&
+            nextComponent.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? nextComponent.hostSurfaceId
+              : state.interaction.focusedBreadboardId,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
           notice: describePlacementReason(placement.reason),
@@ -1579,6 +1910,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: nextInstance.id,
+          focusedBreadboardId: nextInstance.id,
           pendingBreadboardPlacement: undefined,
           notice: `Placed ${nextInstance.label} on the optical table.`,
         },
@@ -1605,6 +1937,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: breadboardId,
+          focusedBreadboardId: breadboardId,
           breadboardDragPreview: {
             breadboardId,
             candidateAnchorMm: breadboard.anchorMm,
@@ -1645,15 +1978,31 @@ export const useEditorStore = create<EditorStore>((set) => ({
       if (!finalAnchor) {
         return state
       }
+      const currentBreadboard = state.scene.workspace.breadboards.find(
+        (breadboard) => breadboard.id === breadboardId,
+      )
+
+      if (!currentBreadboard) {
+        return state
+      }
 
       const roundedAnchor: Vector2Mm = {
         x: roundMm(finalAnchor.x),
         y: roundMm(finalAnchor.y),
       }
+      const deltaMm = {
+        x: roundMm(roundedAnchor.x - currentBreadboard.anchorMm.x),
+        y: roundMm(roundedAnchor.y - currentBreadboard.anchorMm.y),
+      }
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
+          components: translateBreadboardHostedComponents(
+            state.scene.components,
+            breadboardId,
+            deltaMm,
+          ),
           workspace: {
             ...state.scene.workspace,
             breadboards: state.scene.workspace.breadboards.map((bb) =>
@@ -1676,15 +2025,31 @@ export const useEditorStore = create<EditorStore>((set) => ({
       if (state.scene.workspace.kind !== 'optical-table') {
         return state
       }
+      const currentBreadboard = state.scene.workspace.breadboards.find(
+        (breadboard) => breadboard.id === breadboardId,
+      )
+
+      if (!currentBreadboard) {
+        return state
+      }
 
       const roundedAnchor: Vector2Mm = {
         x: roundMm(anchorMm.x),
         y: roundMm(anchorMm.y),
       }
+      const deltaMm = {
+        x: roundMm(roundedAnchor.x - currentBreadboard.anchorMm.x),
+        y: roundMm(roundedAnchor.y - currentBreadboard.anchorMm.y),
+      }
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
+          components: translateBreadboardHostedComponents(
+            state.scene.components,
+            breadboardId,
+            deltaMm,
+          ),
           workspace: {
             ...state.scene.workspace,
             breadboards: state.scene.workspace.breadboards.map((bb) =>
@@ -1715,6 +2080,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
           activeDragComponentId: componentId,
           activeHostSurfaceId:
             component.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
+          focusedBreadboardId:
+            component.hostSurfaceId &&
+            component.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? component.hostSurfaceId
+              : state.interaction.focusedBreadboardId,
           dragPreview: {
             componentId,
             candidateAnchorMm: component.anchorMm,
@@ -1738,19 +2108,36 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      const previewComponent = retargetComponentHostSurfaceAtPoint(
+      const retargetedComponent = retargetComponentHostSurfaceAtPoint(
         state.scene,
         component,
         anchorMm,
+      )
+      const guidedAnchorMm = retargetedComponent.config.source
+        ? getSourceGuideAdjustedAnchorMm(
+            state.scene,
+            retargetedComponent,
+            anchorMm,
+          )
+        : anchorMm
+      const previewComponent = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        retargetedComponent,
+        guidedAnchorMm,
       )
 
       return {
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: previewComponent.hostSurfaceId,
+          focusedBreadboardId:
+            previewComponent.hostSurfaceId &&
+            previewComponent.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? previewComponent.hostSurfaceId
+              : state.interaction.focusedBreadboardId,
           dragPreview: {
             componentId,
-            candidateAnchorMm: anchorMm,
+            candidateAnchorMm: guidedAnchorMm,
             hostSurfaceId: previewComponent.hostSurfaceId,
           },
         },
@@ -1776,7 +2163,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         anchorMm ??
         state.interaction.dragPreview?.candidateAnchorMm ??
         component.anchorMm
-      const previewComponent = retargetComponentHostSurfaceAtPoint(
+      const retargetedComponent = retargetComponentHostSurfaceAtPoint(
         state.scene,
         {
           ...component,
@@ -1785,9 +2172,21 @@ export const useEditorStore = create<EditorStore>((set) => ({
         },
         candidateAnchorMm,
       )
+      const guidedAnchorMm = retargetedComponent.config.source
+        ? getSourceGuideAdjustedAnchorMm(
+            state.scene,
+            retargetedComponent,
+            candidateAnchorMm,
+          )
+        : candidateAnchorMm
+      const previewComponent = retargetComponentHostSurfaceAtPoint(
+        state.scene,
+        retargetedComponent,
+        guidedAnchorMm,
+      )
 
       const placement = resolvePlacementForScene({
-        candidateAnchorMm,
+        candidateAnchorMm: guidedAnchorMm,
         component: previewComponent,
         phase: 'drop',
         scene: state.scene,
@@ -1810,6 +2209,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: previewComponent.hostSurfaceId,
+          focusedBreadboardId:
+            previewComponent.hostSurfaceId &&
+            previewComponent.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? previewComponent.hostSurfaceId
+              : state.interaction.focusedBreadboardId,
           activeDragComponentId: undefined,
           dragPreview: undefined,
           notice: describePlacementReason(placement.reason),
@@ -3513,18 +3917,50 @@ export const useEditorStore = create<EditorStore>((set) => ({
   convertWorkspaceToOpticalTable: () => {
     set((state) => {
       const nextScene = convertSceneToOpticalTable(state.scene)
+      const nextSelection = getDefaultSelection(nextScene)
+      const nextInteraction = createInteractionForScene({
+        previousInteraction: state.interaction,
+        scene: nextScene,
+        selection: nextSelection,
+        workspaceViewMode: 'table-view',
+      })
 
       return withCommittedScene(state, {
         scene: nextScene,
-        selection: getDefaultSelection(nextScene),
-        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
-        interaction: {
-          ...state.interaction,
-          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
-          pendingPlacement: undefined,
-          pendingBreadboardPlacement: undefined,
-          notice: undefined,
-        },
+        selection: nextSelection,
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx, {
+          focusedBreadboardId: nextInteraction.focusedBreadboardId,
+          workspaceViewMode: nextInteraction.workspaceViewMode,
+        }),
+        interaction: nextInteraction,
+      })
+    })
+  },
+
+  createFreshOpticalTable: () => {
+    set((state) => {
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        workspace: createFreshOpticalTableWorkspace(),
+        components: [],
+        annotations: [],
+      }
+      const nextSelection = getDefaultSelection(nextScene)
+      const nextInteraction = createInteractionForScene({
+        previousInteraction: state.interaction,
+        scene: nextScene,
+        selection: nextSelection,
+        workspaceViewMode: 'table-view',
+      })
+
+      return withCommittedScene(state, {
+        scene: nextScene,
+        selection: nextSelection,
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx, {
+          focusedBreadboardId: nextInteraction.focusedBreadboardId,
+          workspaceViewMode: nextInteraction.workspaceViewMode,
+        }),
+        interaction: nextInteraction,
       })
     })
   },
@@ -3536,19 +3972,87 @@ export const useEditorStore = create<EditorStore>((set) => ({
         breadboardId,
         createFresh,
       })
+      const nextSelection = getDefaultSelection(nextScene)
+      const nextInteraction = createInteractionForScene({
+        previousInteraction: state.interaction,
+        scene: nextScene,
+        selection: nextSelection,
+        workspaceViewMode: 'board-focus',
+      })
 
       return withCommittedScene(state, {
         scene: nextScene,
-        selection: getDefaultSelection(nextScene),
-        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
+        selection: nextSelection,
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx, {
+          focusedBreadboardId: nextInteraction.focusedBreadboardId,
+          workspaceViewMode: nextInteraction.workspaceViewMode,
+        }),
+        interaction: nextInteraction,
+      })
+    })
+  },
+
+  setWorkspaceViewMode: (workspaceViewMode) => {
+    set((state) => {
+      const nextWorkspaceViewMode = resolveWorkspaceViewModeForScene(
+        state.scene,
+        workspaceViewMode,
+      )
+      const focusedBreadboardId = resolveFocusedBreadboardIdForScene(state.scene, {
+        activeHostSurfaceId: state.interaction.activeHostSurfaceId,
+        focusedBreadboardId: state.interaction.focusedBreadboardId,
+        selection: state.selection,
+      })
+      const nextActiveHostSurfaceId =
+        state.scene.workspace.kind === 'optical-table' &&
+        nextWorkspaceViewMode === 'board-focus' &&
+        focusedBreadboardId
+          ? focusedBreadboardId
+          : state.interaction.activeHostSurfaceId
+
+      return {
+        viewport: createViewportForScene(state.scene, state.viewport.canvasSizePx, {
+          focusedBreadboardId,
+          workspaceViewMode: nextWorkspaceViewMode,
+        }),
         interaction: {
           ...state.interaction,
-          activeHostSurfaceId: getDefaultSurfaceId(nextScene),
-          pendingPlacement: undefined,
-          pendingBreadboardPlacement: undefined,
-          notice: undefined,
+          activeHostSurfaceId: nextActiveHostSurfaceId,
+          focusedBreadboardId,
+          workspaceViewMode: nextWorkspaceViewMode,
         },
+      }
+    })
+  },
+
+  setFocusedBreadboardId: (breadboardId) => {
+    set((state) => {
+      const focusedBreadboardId = resolveFocusedBreadboardIdForScene(state.scene, {
+        activeHostSurfaceId: breadboardId,
+        focusedBreadboardId: breadboardId,
+        selection: state.selection,
       })
+
+      return {
+        viewport:
+          state.scene.workspace.kind === 'optical-table' &&
+          state.interaction.workspaceViewMode === 'board-focus' &&
+          focusedBreadboardId
+            ? createViewportForScene(state.scene, state.viewport.canvasSizePx, {
+                focusedBreadboardId,
+                workspaceViewMode: 'board-focus',
+              })
+            : state.viewport,
+        interaction: {
+          ...state.interaction,
+          activeHostSurfaceId:
+            state.interaction.workspaceViewMode === 'board-focus' &&
+            focusedBreadboardId
+              ? focusedBreadboardId
+              : state.interaction.activeHostSurfaceId,
+          focusedBreadboardId,
+        },
+      }
     })
   },
 
@@ -3556,27 +4060,55 @@ export const useEditorStore = create<EditorStore>((set) => ({
     set((state) => {
       const nextSurfaceId = surfaceId ?? getDefaultSurfaceId(state.scene)
       const pendingPlacement = state.interaction.pendingPlacement
+      const nextFocusedBreadboardId =
+        nextSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+          ? nextSurfaceId
+          : state.interaction.focusedBreadboardId
 
       if (!pendingPlacement) {
         return {
           interaction: {
             ...state.interaction,
             activeHostSurfaceId: nextSurfaceId,
+            focusedBreadboardId: nextFocusedBreadboardId,
           },
         }
       }
+
+      const nextCandidateAnchorMm = getSurfaceCenterAnchorMm(state.scene, nextSurfaceId)
+      let nextDraft: ComponentInstance = {
+        ...pendingPlacement.draft,
+        hostSurfaceId: nextSurfaceId,
+      }
+
+      if (nextDraft.config.source) {
+        const aligned = applySourceLane(
+          state.scene,
+          nextDraft,
+          nextDraft.config.source.lane,
+          nextDraft.config.source.firstTargetComponentId,
+        )
+
+        nextDraft = {
+          ...nextDraft,
+          anchorMm: aligned.anchorMm,
+          rotationQuarterTurns: aligned.rotationQuarterTurns,
+        }
+      }
+
+      const resolvedCandidateAnchorMm = nextDraft.config.source
+        ? nextDraft.anchorMm
+        : nextCandidateAnchorMm
 
       return {
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: nextSurfaceId,
+          focusedBreadboardId: nextFocusedBreadboardId,
           pendingPlacement: {
             ...pendingPlacement,
-            candidateAnchorMm: getSurfaceCenterAnchorMm(state.scene, nextSurfaceId),
-            draft: {
-              ...pendingPlacement.draft,
-              hostSurfaceId: nextSurfaceId,
-            },
+            candidateAnchorMm: resolvedCandidateAnchorMm,
+            draft: nextDraft,
           },
         },
       }
@@ -3759,14 +4291,24 @@ export const useEditorStore = create<EditorStore>((set) => ({
         components: reconcileComponentsToScene(scene.components, scene),
       }
       const nextSelection = getDefaultSelection(nextScene)
-      const nextInteraction: InteractionState = {
-        ...initialInteraction,
-        activeHostSurfaceId: getDefaultSurfaceId(nextScene),
-      }
+      const nextInteraction = createInteractionForScene({
+        previousInteraction: state.interaction,
+        scene: nextScene,
+        selection: nextSelection,
+        workspaceViewMode:
+          state.scene.workspace.kind !== nextScene.workspace.kind
+            ? nextScene.workspace.kind === 'optical-table'
+              ? 'table-view'
+              : 'board-focus'
+            : undefined,
+      })
       const patch = {
         scene: nextScene,
         selection: nextSelection,
-        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx),
+        viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx, {
+          focusedBreadboardId: nextInteraction.focusedBreadboardId,
+          workspaceViewMode: nextInteraction.workspaceViewMode,
+        }),
         interaction: nextInteraction,
       }
 

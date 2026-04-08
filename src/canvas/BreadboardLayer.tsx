@@ -7,7 +7,6 @@ import {
   getEffectiveHolePitchMm,
 } from '../domain/breadboard'
 import { worldToScreen } from '../domain/geometry'
-import { getSourceLaneBoundsMm, SOURCE_LANE_OFFSET_MM } from '../domain/placement'
 import type {
   BreadboardModel,
   QuarterTurn,
@@ -21,6 +20,7 @@ interface BreadboardLayerProps {
   anchorMm?: Vector2Mm
   breadboard: BreadboardModel
   draggable?: boolean
+  isFocused?: boolean
   isSelected: boolean
   onDragEnd?: (screenPointPx: ScreenPointPx) => void
   onDragMove?: (screenPointPx: ScreenPointPx) => void
@@ -44,6 +44,7 @@ export function BreadboardLayer({
   anchorMm = { x: 0, y: 0 },
   breadboard,
   draggable = false,
+  isFocused = false,
   isSelected,
   onDragEnd,
   onDragMove,
@@ -53,7 +54,7 @@ export function BreadboardLayer({
   palette,
   renderInLayer = true,
   rotationQuarterTurns = 0,
-  showSourceLanes = true,
+  showSourceLanes: _showSourceLanes = true,
   showLabels = true,
   viewport,
 }: BreadboardLayerProps) {
@@ -74,17 +75,12 @@ export function BreadboardLayer({
   const labelColor =
     palette?.labelColor ??
     (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a')
-  const sourceLanes = showSourceLanes
-    ? [
-    { key: 'left', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'left') },
-    { key: 'right', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'right') },
-    { key: 'top', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'top') },
-    { key: 'bottom', label: 'Source Lane', ...getSourceLaneBoundsMm(breadboard, 'bottom') },
-      ]
-    : []
-  const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch${
-    showSourceLanes ? `  •  sources at ±${SOURCE_LANE_OFFSET_MM.toFixed(0)} mm` : ''
-  }`
+  const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch`
+  const boardAccentStroke = isSelected
+    ? '#a9e8ff'
+    : isFocused
+      ? '#62c8eb'
+      : boardStroke
 
   const content = (
     <Group
@@ -142,11 +138,11 @@ export function BreadboardLayer({
           fill={boardFill}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={6}
-          shadowColor="#000000"
-          shadowOpacity={0.22}
-          stroke={isSelected ? '#7ccce6' : boardStroke}
-          strokeWidth={isSelected ? 1.25 : 0.8}
+          shadowBlur={isSelected ? 14 : isFocused ? 10 : 6}
+          shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
+          shadowOpacity={isSelected ? 0.28 : isFocused ? 0.2 : 0.22}
+          stroke={boardAccentStroke}
+          strokeWidth={isSelected ? 1.7 : isFocused ? 1.2 : 0.8}
           width={breadboard.widthMm}
         />
       ) : (
@@ -157,52 +153,14 @@ export function BreadboardLayer({
           fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={6}
-          shadowColor="#000000"
-          shadowOpacity={0.22}
-          stroke={isSelected ? '#7ccce6' : boardStroke}
-          strokeWidth={isSelected ? 1.25 : 0.8}
+          shadowBlur={isSelected ? 14 : isFocused ? 10 : 6}
+          shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
+          shadowOpacity={isSelected ? 0.28 : isFocused ? 0.2 : 0.22}
+          stroke={boardAccentStroke}
+          strokeWidth={isSelected ? 1.7 : isFocused ? 1.2 : 0.8}
           width={breadboard.widthMm}
         />
       )}
-
-      {sourceLanes.map((lane) => (
-        <Group key={lane.key} listening={false}>
-          <Rect
-            cornerRadius={6}
-            dash={[5, 4]}
-            fill="rgba(56, 83, 97, 0.1)"
-            height={lane.height}
-            stroke="rgba(122, 193, 220, 0.28)"
-            strokeWidth={0.8}
-            width={lane.width}
-            x={lane.x}
-            y={lane.y}
-          />
-          {showLabels ? (
-            lane.key === 'left' || lane.key === 'right' ? (
-              <Text
-                fill="rgba(165, 199, 214, 0.7)"
-                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                fontSize={6.5}
-                rotation={-90}
-                text={lane.label}
-                x={lane.x + lane.width / 2 - 2}
-                y={lane.y + lane.height / 2 + 18}
-              />
-            ) : (
-              <Text
-                fill="rgba(165, 199, 214, 0.7)"
-                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                fontSize={6.5}
-                text={lane.label}
-                x={lane.x + 6}
-                y={lane.y + lane.height / 2 - 4}
-              />
-            )
-          ) : null}
-        </Group>
-      ))}
 
       {counterboreCentersMm.map((counterbore, index) => (
         <Group

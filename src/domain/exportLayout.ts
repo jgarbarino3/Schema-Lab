@@ -1,6 +1,5 @@
 import { createViewportForBounds } from './geometry'
 import { inspectSceneComponentPlacement } from './placement'
-import { getSourceLaneBoundsMm } from './placement'
 import type { BoundsMm, CanvasSizePx, SceneDocument, ViewportState } from './types'
 import {
   getBreadboardInstance,
@@ -95,15 +94,7 @@ export function getExportWorldBoundsMm(
 
   let schemeBounds = expandBounds(getWorkspaceWorldBoundsMm(scene), 0)
 
-  if (getSingleBreadboard(scene)) {
-    const lanes = [
-      getSourceLaneBoundsMm(breadboard, 'left'),
-      getSourceLaneBoundsMm(breadboard, 'right'),
-      getSourceLaneBoundsMm(breadboard, 'top'),
-      getSourceLaneBoundsMm(breadboard, 'bottom'),
-    ]
-    schemeBounds = lanes.reduce(unionBounds, primaryBreadboardBounds)
-  } else {
+  if (!getSingleBreadboard(scene)) {
     schemeBounds = unionBounds(schemeBounds, primaryBreadboardBounds)
   }
 

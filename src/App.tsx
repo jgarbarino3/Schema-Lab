@@ -14,6 +14,8 @@ import { CURRENT_VERSION } from './content/versionHistory'
 import { traceSceneBeams } from './domain/beamTracing'
 import { getBeamSelectionSnapshot } from './domain/beamSelection'
 import { getEffectiveHolePitchMm } from './domain/breadboard'
+import { isOpticalTarget } from './domain/componentCatalog'
+import { worldToScreen } from './domain/geometry'
 import { inspectSceneComponentPlacement } from './domain/placement'
 import {
   createExportViewport,
@@ -38,12 +40,13 @@ import {
 } from './domain/svgImport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
+  getBreadboardInstance,
   getBreadboardInstances,
   getBreadboardWorldBoundsMm,
   getOpticalTableWorldBoundsMm,
   getWorkspacePrimaryBreadboard,
 } from './domain/workspace'
-import type { WorkspaceKind } from './domain/types'
+import type { ScreenPointPx } from './domain/types'
 import {
   OPTICAL_TABLE_SURFACE_ID,
   SINGLE_BREADBOARD_SURFACE_ID,
@@ -180,6 +183,10 @@ function getBoundsCenterMm(bounds: { x: number; y: number; width: number; height
   }
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
@@ -195,6 +202,9 @@ function App() {
   const canRedo = useEditorStore((state) => state.canRedo)
   const convertWorkspaceToOpticalTable = useEditorStore(
     (state) => state.convertWorkspaceToOpticalTable,
+  )
+  const createFreshOpticalTable = useEditorStore(
+    (state) => state.createFreshOpticalTable,
   )
   const convertWorkspaceToSingleBreadboard = useEditorStore(
     (state) => state.convertWorkspaceToSingleBreadboard,
@@ -223,14 +233,28 @@ function App() {
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
   )
+  const updateSelectedSource = useEditorStore((state) => state.updateSelectedSource)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
   const resetViewport = useEditorStore((state) => state.resetViewport)
+  const setBottomToolbarOffset = useEditorStore(
+    (state) => state.setBottomToolbarOffset,
+  )
+  const setWorkspaceViewMode = useEditorStore(
+    (state) => state.setWorkspaceViewMode,
+  )
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
+  const viewport = useEditorStore((state) => state.viewport)
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null)
   const svgFileInputRef = useRef<HTMLInputElement | null>(null)
+  const stageShellRef = useRef<HTMLDivElement | null>(null)
+  const bottomToolbarRef = useRef<HTMLDivElement | null>(null)
+  const bottomToolbarDragRef = useRef<{
+    offsetPx: ScreenPointPx
+    pointerStartPx: ScreenPointPx
+  } | null>(null)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
@@ -351,6 +375,24 @@ function App() {
     selection.type === 'component'
       ? scene.components.find((component) => component.id === selection.componentId)
       : undefined
+  const focusedBreadboardInstance = useMemo(
+    () =>
+      scene.workspace.kind === 'optical-table'
+        ? getBreadboardInstance(scene, interaction.focusedBreadboardId)
+        : undefined,
+    [interaction.focusedBreadboardId, scene],
+  )
+  const boardFocusAvailable =
+    scene.workspace.kind === 'single-breadboard' || breadboardInstances.length > 0
+  const opticalTargets = useMemo(
+    () =>
+      scene.components.filter(
+        (component) =>
+          isOpticalTarget(component.type) &&
+          component.id !== pendingPlacement?.draft.id,
+      ),
+    [pendingPlacement?.draft.id, scene.components],
+  )
   const selectedWarning =
     filteredSceneWarnings.find(
       (warning) => warning.id === interaction.selectedWarningId,
@@ -387,22 +429,44 @@ function App() {
         ),
       },
       {
+        title: 'Board Focus and Table View',
+        selector: '[data-tour=\"workspace-modes\"]',
+        body: (
+          <>
+            <p>
+              Board Focus is the close-up mode for a single breadboard. Table View opens
+              the full optical-table workspace so you can place customizable breadboards
+              and table-mounted hardware side by side.
+            </p>
+            <p>
+              In an optical-table workspace, switching between these two modes does not
+              convert the scene. Schema-Lab remembers the focused breadboard so you can
+              jump out to the full table and back without extra prompts.
+            </p>
+            <p>
+              If you start from a single board and click Table View, Schema-Lab will offer
+              to convert the current board, restore the last saved table for this browser,
+              or start from a fresh empty table.
+            </p>
+          </>
+        ),
+      },
+      {
         title: 'Choose a Family, Then Place It',
         selector: '[data-tour=\"component-library\"]',
         body: (
           <>
             <p>
-              Clicking a family now arms a pending placement instead of creating a real
+              Clicking a family arms a pending placement instead of creating a real
               component immediately.
             </p>
             <p>
               A placement banner appears above the viewport. Move the pointer, rotate with
-              <code>R</code>, then click or tap the board to commit.
+              <code>R</code>, then click or tap the active surface to commit.
             </p>
             <p>
-              In optical-table mode, click a breadboard to make it the active host for smaller
-              optics, or click the table for large table-mounted hardware such as laser bodies
-              and long stages.
+              In optical-table workspaces, breadboard cards are only starting dimensions.
+              You can resize and relabel any breadboard after placement from the inspector.
             </p>
             <p>
               Use Realistic for mounted hardware silhouettes or Simple for cleaner symbolic
@@ -451,10 +515,14 @@ function App() {
         body: (
           <>
             <p>
-              Standard laser sources stay in the off-board source lanes. In optical-table
-              mode, large laser-body variants can also sit directly on the table. Use the
-              inspector to choose a first target and Align to Target when that source model
-              supports beam launch.
+              Single-board source heads still launch from off-board edges, but optical-table
+              workspaces now default to a compact table-mounted source. When other optics are
+              already present, the placement banner lets you choose the first target up front.
+            </p>
+            <p>
+              Selecting a source or dragging it now reveals the guide line to its first target,
+              while Align to Target in the inspector remains the explicit one-click realignment
+              control for supported source models.
             </p>
             <p>
               Once enabled, the Stage 2 beam path and Stage 3 Gaussian readouts update from
@@ -765,22 +833,30 @@ function App() {
     void startExport(request)
   }
 
-  const handleRequestWorkspaceKind = (workspaceKind: WorkspaceKind) => {
-    if (workspaceKind === scene.workspace.kind) {
+  const handleRequestBoardFocus = () => {
+    if (scene.workspace.kind === 'single-breadboard') {
       return
     }
 
-    if (workspaceKind === 'optical-table') {
+    if (!boardFocusAvailable) {
+      return
+    }
+
+    setWorkspaceViewMode('board-focus')
+  }
+
+  const handleRequestTableView = () => {
+    if (scene.workspace.kind === 'optical-table') {
+      setWorkspaceViewMode('table-view')
+      return
+    }
+
+    if (scene.workspace.kind === 'single-breadboard') {
       setWorkspaceModalState({
         mode: 'to-optical-table',
         hasSavedSnapshot: Boolean(readStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY)),
       })
-      return
     }
-
-    setWorkspaceModalState({
-      mode: 'to-single-breadboard',
-    })
   }
 
   const handleConvertCurrentToOpticalTable = () => {
@@ -803,6 +879,21 @@ function App() {
     })
 
     setWorkspaceModalState(undefined)
+  }
+
+  const handleStartFreshTable = () => {
+    createFreshOpticalTable()
+    setWorkspaceModalState(undefined)
+  }
+
+  const handleRequestStandaloneBoard = () => {
+    if (scene.workspace.kind !== 'optical-table') {
+      return
+    }
+
+    setWorkspaceModalState({
+      mode: 'to-single-breadboard',
+    })
   }
 
   const handleConvertToSingleBreadboard = (args: {
@@ -938,6 +1029,77 @@ function App() {
     setIsTutorialModalOpen(false)
     setIsOnboardingOpen(true)
   }
+
+  const bottomToolbarStyle = (() => {
+    const shell = stageShellRef.current
+
+    if (!shell) {
+      return undefined
+    }
+
+    const anchorBounds =
+      scene.workspace.kind === 'single-breadboard'
+        ? getBreadboardWorldBoundsMm(primaryBreadboard)
+        : interaction.workspaceViewMode === 'board-focus' && focusedBreadboardInstance
+          ? getBreadboardWorldBoundsMm(
+              focusedBreadboardInstance.model,
+              focusedBreadboardInstance.anchorMm,
+              focusedBreadboardInstance.rotationQuarterTurns,
+            )
+          : getOpticalTableWorldBoundsMm(scene.workspace.table)
+    const anchorScreenPx = worldToScreen(
+      {
+        x: anchorBounds.x + anchorBounds.width / 2,
+        y: anchorBounds.y + anchorBounds.height,
+      },
+      viewport,
+    )
+    const toolbarWidthPx = bottomToolbarRef.current?.offsetWidth ?? 420
+    const toolbarHeightPx = bottomToolbarRef.current?.offsetHeight ?? 58
+    const dragOffsetPx = interaction.bottomToolbarOffsetPx ?? { x: 0, y: 0 }
+    const leftPx = clamp(
+      anchorScreenPx.x - toolbarWidthPx / 2 + dragOffsetPx.x,
+      16,
+      Math.max(16, viewport.canvasSizePx.width - toolbarWidthPx - 16),
+    )
+    const topPx = clamp(
+      anchorScreenPx.y + 64 + dragOffsetPx.y,
+      16,
+      Math.max(16, viewport.canvasSizePx.height - toolbarHeightPx - 16),
+    )
+
+    return {
+      left: `${leftPx}px`,
+      top: `${topPx}px`,
+    }
+  })()
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = bottomToolbarDragRef.current
+
+      if (!dragState) {
+        return
+      }
+
+      setBottomToolbarOffset({
+        x: dragState.offsetPx.x + (event.clientX - dragState.pointerStartPx.x),
+        y: dragState.offsetPx.y + (event.clientY - dragState.pointerStartPx.y),
+      })
+    }
+
+    const handlePointerUp = () => {
+      bottomToolbarDragRef.current = null
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+  }, [setBottomToolbarOffset])
 
   const finalizeRasterExport = useCallback(
     async (stage: Konva.Stage, request: ExportRequestState) => {
@@ -1428,6 +1590,7 @@ function App() {
       <Toolbar
         beamTrace={beamTrace}
         dismissedWarningCount={dismissedWarningIds.length}
+        isBoardFocusAvailable={boardFocusAvailable}
         isWarningPulse={isWarningReviewOpen}
         onClearBreadboard={handleRequestClearBreadboard}
         onClearTable={handleRequestClearTable}
@@ -1437,9 +1600,12 @@ function App() {
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
         onOpenTutorial={handleOpenTutorial}
-        onRequestWorkspaceKind={handleRequestWorkspaceKind}
+        onRequestBoardFocus={handleRequestBoardFocus}
+        onRequestSingleBoard={handleRequestStandaloneBoard}
+        onRequestTableView={handleRequestTableView}
         warnings={visibleSceneWarnings}
         workspaceKind={scene.workspace.kind}
+        workspaceViewMode={interaction.workspaceViewMode}
       />
 
       <div
@@ -1465,8 +1631,9 @@ function App() {
               <h1>Schema-Lab</h1>
               <p>
                 Millimeter-first optical breadboard layout editor with beam tracing,
-                power bookkeeping, and workspace-scale planning. Switch to table mode
-                to place multiple breadboards and design a full optical stack.
+                power bookkeeping, and workspace-scale planning. Use Board Focus for
+                close-up breadboard work or Table View to place multiple breadboards
+                and design a full optical stack.
               </p>
               <button
                 aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
@@ -1481,7 +1648,7 @@ function App() {
               <span>Scroll to pan</span>
               <span>Ctrl/Cmd + scroll to zoom</span>
               <span>Space or Hand tool to drag-pan</span>
-              <span>Sources stay in off-board lanes • R rotate • D duplicate</span>
+              <span>Board Focus keeps a breadboard framed • R rotate • D duplicate</span>
             </div>
           </div>
 
@@ -1494,13 +1661,36 @@ function App() {
               <span>
                 {pendingBreadboardPlacement
                   ? 'Click or tap the optical table to place'
-                  : 'Click or tap the board to place'}
+                  : scene.workspace.kind === 'optical-table'
+                    ? 'Click or tap the active surface to place'
+                    : 'Click or tap the board to place'}
               </span>
               <span>R rotate • Esc cancel</span>
+              {pendingPlacement?.draft.config.source && opticalTargets.length > 0 ? (
+                <label className="placement-banner__field">
+                  <span>First target</span>
+                  <select
+                    onChange={(event) =>
+                      updateSelectedSource({
+                        firstTargetComponentId:
+                          event.target.value === '' ? undefined : event.target.value,
+                      })
+                    }
+                    value={pendingPlacement.draft.config.source.firstTargetComponentId ?? ''}
+                  >
+                    <option value="">None</option>
+                    {opticalTargets.map((component) => (
+                      <option key={component.id} value={component.id}>
+                        {component.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           ) : null}
 
-          <div className="canvas-panel__stage-shell">
+          <div className="canvas-panel__stage-shell" ref={stageShellRef}>
             <SchemaStage
               beamTrace={beamTrace}
               gaussianTrace={gaussianTrace}
@@ -1511,7 +1701,28 @@ function App() {
               showPostHolders={showPostHolders}
             />
 
-            <div className="canvas-toolbar" aria-label="Canvas controls">
+            <div
+              aria-label="Canvas controls"
+              className="canvas-toolbar"
+              ref={bottomToolbarRef}
+              style={bottomToolbarStyle}
+            >
+              <button
+                aria-label="Drag canvas controls"
+                className="canvas-toolbar__handle"
+                onPointerDown={(event) => {
+                  bottomToolbarDragRef.current = {
+                    offsetPx: interaction.bottomToolbarOffsetPx ?? { x: 0, y: 0 },
+                    pointerStartPx: {
+                      x: event.clientX,
+                      y: event.clientY,
+                    },
+                  }
+                }}
+                type="button"
+              >
+                Drag
+              </button>
               <button
                 className={showComponentLabels ? undefined : 'is-active-tool'}
                 onClick={() => setShowComponentLabels((current) => !current)}
@@ -1537,8 +1748,15 @@ function App() {
 
           <div className="canvas-status">
             <span>
-              {scene.workspace.kind === 'optical-table' ? 'Table host' : 'Board'}{' '}
-              {primaryBreadboard.widthMm.toFixed(0)} × {primaryBreadboard.heightMm.toFixed(0)} mm
+              {scene.workspace.kind === 'optical-table'
+                ? interaction.workspaceViewMode === 'board-focus'
+                  ? `${focusedBreadboardInstance?.label ?? 'Focused breadboard'}`
+                  : `${scene.workspace.table.label}`
+                : 'Board Focus'}{' '}
+              {scene.workspace.kind === 'optical-table' &&
+              interaction.workspaceViewMode === 'table-view'
+                ? `${scene.workspace.table.widthMm.toFixed(0)} × ${scene.workspace.table.heightMm.toFixed(0)} mm`
+                : `${primaryBreadboard.widthMm.toFixed(0)} × ${primaryBreadboard.heightMm.toFixed(0)} mm`}
             </span>
             <span>
               Pitch {getEffectiveHolePitchMm(primaryBreadboard).toFixed(1)} mm
@@ -1740,6 +1958,7 @@ function App() {
         onConvertCurrentToTable={handleConvertCurrentToOpticalTable}
         onConvertToSingleBreadboard={handleConvertToSingleBreadboard}
         onRestoreSavedTable={handleRestoreSavedTable}
+        onStartFreshTable={handleStartFreshTable}
         state={
           workspaceModalState?.mode === 'to-single-breadboard'
             ? {

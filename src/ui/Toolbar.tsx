@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { ExportFormat } from '../domain/exportLayout'
-import type { BeamTraceResult, SceneWarning, WorkspaceKind } from '../domain/types'
+import type { BeamTraceResult, SceneWarning, WorkspaceKind, WorkspaceViewMode } from '../domain/types'
 import { getSurfaceSummaryList } from '../domain/workspace'
 import { useEditorStore } from '../state/editorStore'
 
@@ -18,6 +18,7 @@ export type ExportAction = 'scene-json' | ExportFormat
 interface ToolbarProps {
   beamTrace: BeamTraceResult
   dismissedWarningCount: number
+  isBoardFocusAvailable: boolean
   isWarningPulse: boolean
   onClearBreadboard: () => void
   onClearTable: () => void
@@ -27,9 +28,12 @@ interface ToolbarProps {
   onOpenOnboarding: () => void
   onOpenJson: () => void
   onOpenTutorial: () => void
-  onRequestWorkspaceKind: (workspaceKind: WorkspaceKind) => void
+  onRequestBoardFocus: () => void
+  onRequestSingleBoard: () => void
+  onRequestTableView: () => void
   warnings: SceneWarning[]
   workspaceKind: WorkspaceKind
+  workspaceViewMode: WorkspaceViewMode
 }
 
 function getFloatingStyle(button: HTMLButtonElement | null) {
@@ -57,6 +61,7 @@ function getFloatingStyle(button: HTMLButtonElement | null) {
 export function Toolbar({
   beamTrace,
   dismissedWarningCount,
+  isBoardFocusAvailable,
   isWarningPulse,
   onClearBreadboard,
   onClearTable,
@@ -66,9 +71,12 @@ export function Toolbar({
   onOpenOnboarding,
   onOpenJson,
   onOpenTutorial,
-  onRequestWorkspaceKind,
+  onRequestBoardFocus,
+  onRequestSingleBoard,
+  onRequestTableView,
   warnings,
   workspaceKind,
+  workspaceViewMode,
 }: ToolbarProps) {
   const helpButtonRef = useRef<HTMLButtonElement | null>(null)
   const helpPopoverRef = useRef<HTMLDivElement | null>(null)
@@ -295,13 +303,13 @@ export function Toolbar({
             <section>
               <h3>Placement Mode</h3>
               <p>
-                Clicking a family arms a pending placement. In optical-table mode, pick the active host surface first, then place onto the table or the selected breadboard. Press R to rotate, click or tap to place, and Esc to cancel.
+                Clicking a family arms a pending placement. In optical-table workspaces, Board Focus keeps you centered on one breadboard while Table View zooms back out to the full table. Press R to rotate, click or tap to place, and Esc to cancel.
               </p>
             </section>
             <section>
               <h3>Workspace</h3>
               <p>
-                Board keeps a single breadboard scene. Table promotes the scene onto a 3600 × 1500 mm optical table where additional breadboards can be added and table-mounted hardware can live beside them.
+                Board Focus is the single-board view and the close-up mode inside optical-table workspaces. Table View opens or restores the larger optical-table workspace where customizable breadboards can be added and table-mounted hardware can live beside them.
               </p>
             </section>
             <section>
@@ -337,7 +345,7 @@ export function Toolbar({
             <section>
               <h3>Sources</h3>
               <p>
-                Standard laser sources stay in off-board source lanes. In optical-table mode, large laser-body variants can also sit directly on the table. Pick a first target in the inspector, then align the source when that model supports beam launch.
+                Single-board source heads still launch from off-board edges, but optical-table workspaces now default to a compact table-mounted source. Pick a first target in the placement banner or inspector, then align the source when that model supports beam launch.
               </p>
             </section>
             <section>
@@ -631,7 +639,7 @@ export function Toolbar({
             <span className="toolbar__kicker">Optical Breadboard Layout Editor</span>
             <strong>Schema-Lab</strong>
             <span className="toolbar__subtitle">
-              Design optical breadboards, trace beams, and plan full table stacks in table mode
+              Design optical breadboards, trace beams, and jump between Board Focus and full-table planning
             </span>
           </div>
 
@@ -712,26 +720,27 @@ export function Toolbar({
               </select>
             </label>
 
-            <div className="toolbar__tool-group">
+            <div className="toolbar__tool-group toolbar__tool-group--segmented" data-tour="workspace-modes">
               <button
-                className={workspaceKind === 'single-breadboard' ? 'is-active-tool' : undefined}
-                onClick={() => onRequestWorkspaceKind('single-breadboard')}
+                className={workspaceViewMode === 'board-focus' ? 'is-active-tool' : undefined}
+                disabled={!isBoardFocusAvailable}
+                onClick={onRequestBoardFocus}
                 type="button"
               >
-                Board
+                Board Focus
               </button>
               <button
-                className={workspaceKind === 'optical-table' ? 'is-active-tool' : undefined}
-                onClick={() => onRequestWorkspaceKind('optical-table')}
+                className={workspaceViewMode === 'table-view' ? 'is-active-tool' : undefined}
+                onClick={onRequestTableView}
                 type="button"
               >
-                Table
+                Table View
               </button>
             </div>
 
             {activeHostSummary ? (
               <span className="toolbar__pill toolbar__pill--host">
-                {pendingPlacement ? 'Placing on' : 'Host'}: {activeHostSummary.label}
+                {pendingPlacement ? 'Next placement' : workspaceViewMode === 'board-focus' ? 'Focus' : 'Host'}: {activeHostSummary.label}
               </span>
             ) : null}
 
@@ -890,9 +899,14 @@ export function Toolbar({
             </button>
 
             {workspaceKind === 'optical-table' ? (
-              <button onClick={onClearTable} type="button">
-                Clear Table
-              </button>
+              <>
+                <button onClick={onClearTable} type="button">
+                  Clear Table
+                </button>
+                <button onClick={onRequestSingleBoard} type="button">
+                  Make Standalone Board
+                </button>
+              </>
             ) : null}
 
             <button

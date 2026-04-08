@@ -38,6 +38,7 @@ export const DROP_SNAP_CAPTURE_RADIUS_MM = 5
 export const SOURCE_LANE_OFFSET_MM = 60
 export const SOURCE_LANE_HALF_WIDTH_MM = 16
 export const SCENE_WORLD_PADDING_MM = 120
+export const SOURCE_GUIDE_ALIGNMENT_THRESHOLD_MM = 12
 
 const HOLE_ALIGNMENT_EPSILON_MM = 0.05
 const BOUNDS_INTERSECTION_EPSILON_MM = 0.01
@@ -900,4 +901,116 @@ export function alignSceneSourceToTarget(args: {
 
 export function getOpticalTargetComponentIds(components: ComponentInstance[]) {
   return components.filter((component) => isOpticalTarget(component.type)).map((component) => component.id)
+}
+
+function getSourceOutputPoint(component: ComponentInstance) {
+  const ports = getWorldPortsForComponent(component)
+  const outputPort = ports.find(
+    (port) =>
+      port.kind === 'beam-output' || port.kind === 'beam-bidirectional',
+  )
+
+  if (outputPort) {
+    return outputPort.worldPositionMm
+  }
+
+  return component.anchorMm
+}
+
+export interface SourceGuideSnapshot {
+  alignmentAxis?: 'horizontal' | 'vertical'
+  sourcePointMm: Vector2Mm
+  targetPointMm: Vector2Mm
+}
+
+export function getSourceGuideSnapshot(args: {
+  candidateAnchorMm?: Vector2Mm
+  scene: SceneDocument
+  source: ComponentInstance
+  targetId?: string
+}): SourceGuideSnapshot | undefined {
+  const target =
+    args.targetId === undefined
+      ? undefined
+      : args.scene.components.find((component) => component.id === args.targetId)
+
+  if (!target || !isOpticalTarget(target.type)) {
+    return undefined
+  }
+
+  const source = args.candidateAnchorMm
+    ? {
+        ...args.source,
+        anchorMm: args.candidateAnchorMm,
+      }
+    : args.source
+  const sourcePointMm = getSourceOutputPoint(source)
+  const targetPointMm = getPrimaryTargetPoint(target)
+  const deltaX = targetPointMm.x - sourcePointMm.x
+  const deltaY = targetPointMm.y - sourcePointMm.y
+  const absDeltaX = Math.abs(deltaX)
+  const absDeltaY = Math.abs(deltaY)
+  let alignmentAxis: SourceGuideSnapshot['alignmentAxis']
+
+  if (
+    absDeltaX <= SOURCE_GUIDE_ALIGNMENT_THRESHOLD_MM &&
+    absDeltaX <= absDeltaY
+  ) {
+    alignmentAxis = 'vertical'
+  } else if (absDeltaY <= SOURCE_GUIDE_ALIGNMENT_THRESHOLD_MM) {
+    alignmentAxis = 'horizontal'
+  }
+
+  return {
+    alignmentAxis,
+    sourcePointMm,
+    targetPointMm,
+  }
+}
+
+export function applySourceGuideAssist(args: {
+  candidateAnchorMm: Vector2Mm
+  scene: SceneDocument
+  source: ComponentInstance
+  targetId?: string
+}) {
+  const guide = getSourceGuideSnapshot({
+    candidateAnchorMm: args.candidateAnchorMm,
+    scene: args.scene,
+    source: args.source,
+    targetId: args.targetId,
+  })
+
+  if (!guide?.alignmentAxis) {
+    return {
+      anchorMm: args.candidateAnchorMm,
+      guide,
+    }
+  }
+
+  const deltaMm =
+    guide.alignmentAxis === 'vertical'
+      ? guide.targetPointMm.x - guide.sourcePointMm.x
+      : guide.targetPointMm.y - guide.sourcePointMm.y
+  const normalizedStrength =
+    1 -
+    Math.min(
+      1,
+      Math.abs(deltaMm) / SOURCE_GUIDE_ALIGNMENT_THRESHOLD_MM,
+    )
+  const assistStrength = 0.58 + normalizedStrength * 0.28
+
+  return {
+    anchorMm:
+      guide.alignmentAxis === 'vertical'
+        ? {
+            x: roundMm(args.candidateAnchorMm.x + deltaMm * assistStrength),
+            y: roundMm(args.candidateAnchorMm.y),
+          }
+        : {
+            x: roundMm(args.candidateAnchorMm.x),
+            y: roundMm(args.candidateAnchorMm.y + deltaMm * assistStrength),
+          },
+    guide,
+  }
 }

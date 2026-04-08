@@ -85,15 +85,46 @@ try {
   }
 
   const getStageBox = async () => {
-    const stage = page.locator('.konvajs-content canvas').first()
+    const stage = page.locator('.konvajs-content')
     const stageBox = await stage.boundingBox()
     assert.ok(stageBox, 'Stage should be visible')
     return stageBox
   }
 
+  const getBeamSegmentMidpointsPx = async () =>
+    page.evaluate(async () => {
+      const { traceSceneBeams } = await import('/src/domain/beamTracing.ts')
+      const { worldToScreen } = await import('/src/domain/geometry.ts')
+      const { useEditorStore } = await import('/src/state/editorStore.ts')
+
+      const state = useEditorStore.getState()
+      const trace = traceSceneBeams(state.scene)
+
+      return {
+        canvasSizePx: state.viewport.canvasSizePx,
+        candidates: trace.segments
+        .map((segment) => {
+          const midpointMm = {
+            x: (segment.startMm.x + segment.endMm.x) / 2,
+            y: (segment.startMm.y + segment.endMm.y) / 2,
+          }
+
+          return {
+            id: segment.id,
+            lengthMm: Math.hypot(
+              segment.endMm.x - segment.startMm.x,
+              segment.endMm.y - segment.startMm.y,
+            ),
+            pointPx: worldToScreen(midpointMm, state.viewport),
+          }
+        })
+        .sort((left, right) => right.lengthMm - left.lengthMm),
+      }
+    })
+
   const clickStageRelative = async (xRatio, yRatio) => {
     const stageBox = await getStageBox()
-    await page.locator('.konvajs-content canvas').first().click({
+    await page.locator('.konvajs-content').click({
       force: true,
       position: {
         x: stageBox.width * xRatio,
@@ -359,28 +390,35 @@ try {
     (await page.locator('.toolbar__zoom').textContent()) ?? '',
   )
 
-  let beamInspectionVisible = false
-  const stage = page.locator('.konvajs-content canvas').first()
+  const stage = page.locator('.konvajs-content')
   const stageBox = await getStageBox()
+  let beamInspectionVisible = false
 
-  for (const yRatio of [0.44, 0.5, 0.56, 0.62]) {
-    for (const xRatio of [0.12, 0.18, 0.24, 0.3, 0.36, 0.42, 0.48, 0.54, 0.6]) {
-      await stage.click({
-        force: true,
-        position: {
-          x: stageBox.width * xRatio,
-          y: stageBox.height * yRatio,
-        },
-      })
-      await page.waitForTimeout(90)
+  const beamCandidates = await getBeamSegmentMidpointsPx()
 
-      if (await page.getByRole('heading', { name: 'Beam Inspection' }).isVisible().catch(() => false)) {
-        beamInspectionVisible = true
-        break
-      }
+  for (const candidate of beamCandidates.candidates) {
+    const position = {
+      x: (candidate.pointPx.x / beamCandidates.canvasSizePx.width) * stageBox.width,
+      y: (candidate.pointPx.y / beamCandidates.canvasSizePx.height) * stageBox.height,
     }
 
-    if (beamInspectionVisible) {
+    if (
+      position.x < 0 ||
+      position.y < 0 ||
+      position.x > stageBox.width ||
+      position.y > stageBox.height
+    ) {
+      continue
+    }
+
+    await stage.click({
+      force: true,
+      position,
+    })
+    await page.waitForTimeout(90)
+
+    if (await page.getByRole('heading', { name: 'Beam Inspection' }).isVisible().catch(() => false)) {
+      beamInspectionVisible = true
       break
     }
   }

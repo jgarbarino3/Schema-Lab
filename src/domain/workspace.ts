@@ -464,6 +464,14 @@ export function createCenteredTableWorkspaceFromSingle(
   }
 }
 
+export function createFreshOpticalTableWorkspace(): OpticalTableWorkspace {
+  return {
+    kind: 'optical-table',
+    table: createDefaultOpticalTable(),
+    breadboards: [],
+  }
+}
+
 export function createFreshSingleBreadboardWorkspace(): SingleBreadboardWorkspace {
   return {
     kind: 'single-breadboard',

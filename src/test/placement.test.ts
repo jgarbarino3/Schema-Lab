@@ -5,10 +5,13 @@ import {
   getComponentDefinition,
 } from '../domain/componentCatalog'
 import {
+  applySourceGuideAssist,
   alignExternalSourceToTarget,
   findDuplicatePlacement,
+  getSourceGuideSnapshot,
   resolveComponentPlacement,
 } from '../domain/placement'
+import { createEmptyScene } from '../domain/serialization'
 import type { ComponentInstance, ComponentType } from '../domain/types'
 
 const breadboard = createBreadboardFromPreset('metric-300-square')
@@ -184,5 +187,73 @@ describe('placement resolution', () => {
 
     expect(alignment.anchorMm).toEqual({ x: -60, y: 137.5 })
     expect(alignment.rotationQuarterTurns).toBe(0)
+  })
+
+  it('reports a horizontal source guide when the source is nearly level with the target', () => {
+    const baseSourceConfig = createDefaultComponentConfig('laser-source', undefined, 'left')
+    const source = makeComponent('laser-source', {
+      config: {
+        ...baseSourceConfig,
+        source: {
+          ...baseSourceConfig.source!,
+          firstTargetComponentId: 'mirror-1',
+          isEnabled: true,
+        },
+      },
+      anchorMm: { x: -60, y: 132 },
+    })
+    const mirror = makeComponent('mirror', {
+      id: 'mirror-1',
+      anchorMm: { x: 100, y: 137.5 },
+    })
+    const scene = {
+      ...createEmptyScene(),
+      components: [source, mirror],
+    }
+
+    const guide = getSourceGuideSnapshot({
+      candidateAnchorMm: source.anchorMm,
+      scene,
+      source,
+      targetId: mirror.id,
+    })
+
+    expect(guide?.alignmentAxis).toBe('horizontal')
+    expect(guide?.sourcePointMm.x).toBeLessThan(guide?.targetPointMm.x ?? 0)
+  })
+
+  it('softly pulls a source toward a nearby target alignment without hard-snapping', () => {
+    const baseSourceConfig = createDefaultComponentConfig('laser-source', undefined, 'left')
+    const source = makeComponent('laser-source', {
+      config: {
+        ...baseSourceConfig,
+        source: {
+          ...baseSourceConfig.source!,
+          firstTargetComponentId: 'mirror-1',
+          isEnabled: true,
+        },
+      },
+      anchorMm: { x: -60, y: 131 },
+    })
+    const mirror = makeComponent('mirror', {
+      id: 'mirror-1',
+      anchorMm: { x: 100, y: 137.5 },
+    })
+    const scene = {
+      ...createEmptyScene(),
+      components: [source, mirror],
+    }
+
+    const assisted = applySourceGuideAssist({
+      candidateAnchorMm: source.anchorMm,
+      scene,
+      source,
+      targetId: mirror.id,
+    })
+
+    expect(assisted.guide?.alignmentAxis).toBe('horizontal')
+    expect(assisted.anchorMm.x).toBe(source.anchorMm.x)
+    expect(assisted.anchorMm.y).toBeGreaterThan(source.anchorMm.y)
+    expect(assisted.anchorMm.y).toBeLessThan(137.5)
   })
 })

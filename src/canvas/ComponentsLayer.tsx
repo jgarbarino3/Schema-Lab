@@ -1,3 +1,4 @@
+import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Layer, Rect } from 'react-konva'
 import {
   annotateScenePlacementOccupancy,
@@ -26,7 +27,13 @@ interface DragPreviewState {
   hostSurfaceId?: string
 }
 
+interface BreadboardDragPreviewState {
+  breadboardId: string
+  candidateAnchorMm: { x: number; y: number }
+}
+
 interface ComponentsLayerProps {
+  breadboardDragPreview?: BreadboardDragPreviewState
   components: ComponentInstance[]
   dragPreview?: DragPreviewState
   hoveredComponentId?: string
@@ -41,7 +48,9 @@ interface ComponentsLayerProps {
     anchorMm?: { x: number; y: number },
   ) => void
   onHoverComponent: (componentId?: string) => void
-  onLineToolClick?: () => void
+  onLineToolClick?: (
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => void
   onSelectComponent: (componentId: string) => void
   onResizeComponent?: (
     componentId: string,
@@ -88,6 +97,7 @@ function resolvePreviewHostSurfaceId(
 }
 
 export function ComponentsLayer({
+  breadboardDragPreview,
   components,
   dragPreview,
   hoveredComponentId,
@@ -113,6 +123,23 @@ export function ComponentsLayer({
   const previewedComponent = dragPreview
     ? components.find((component) => component.id === dragPreview.componentId)
     : undefined
+  const breadboardDragDeltaMm =
+    scene.workspace.kind === 'optical-table' && breadboardDragPreview
+      ? (() => {
+          const breadboard = scene.workspace.breadboards.find(
+            (candidate) => candidate.id === breadboardDragPreview.breadboardId,
+          )
+
+          return breadboard
+            ? {
+                x:
+                  breadboardDragPreview.candidateAnchorMm.x - breadboard.anchorMm.x,
+                y:
+                  breadboardDragPreview.candidateAnchorMm.y - breadboard.anchorMm.y,
+              }
+            : undefined
+        })()
+      : undefined
   const previewHostSurfaceId =
     previewedComponent && dragPreview
       ? dragPreview.hostSurfaceId ??
@@ -177,7 +204,18 @@ export function ComponentsLayer({
       {components.map((component) => (
         <ComponentNode
           isHighlighted={highlightedComponentIds?.includes(component.id)}
-          instance={component}
+          instance={
+            breadboardDragDeltaMm &&
+            component.hostSurfaceId === breadboardDragPreview?.breadboardId
+              ? {
+                  ...component,
+                  anchorMm: {
+                    x: component.anchorMm.x + breadboardDragDeltaMm.x,
+                    y: component.anchorMm.y + breadboardDragDeltaMm.y,
+                  },
+                }
+              : component
+          }
           isDragEnabled={!isPanMode && !isLineTool}
           isHovered={component.id === hoveredComponentId}
           isSelected={component.id === selectedComponentId}
@@ -197,7 +235,7 @@ export function ComponentsLayer({
             isPanMode
               ? undefined
               : isLineTool
-                ? () => onLineToolClick?.()
+                ? (_componentId, event) => onLineToolClick?.(event)
                 : onSelectComponent
           }
           placementStatus={

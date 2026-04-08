@@ -4,11 +4,14 @@ import {
   createDefaultComponentConfig,
   getComponentDefinition,
 } from '../domain/componentCatalog'
+import { worldToScreen } from '../domain/geometry'
 import { createEmptyScene } from '../domain/serialization'
 import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
 import {
   convertSceneToOpticalTable,
   createBreadboardInstance,
+  getBreadboardInstance,
+  getBreadboardWorldBoundsMm,
 } from '../domain/workspace'
 import { useEditorStore } from '../state/editorStore'
 
@@ -243,5 +246,147 @@ describe('editor store optical table placement', () => {
     )
     expect(pendingPlacement?.candidateAnchorMm.x).toBeGreaterThan(2280)
     expect(pendingPlacement?.candidateAnchorMm.y).toBeGreaterThan(520)
+  })
+
+  it('defaults optical-table laser sources to the compact table-mounted variant', () => {
+    const store = useEditorStore.getState()
+
+    store.selectBreadboard('breadboard-2')
+    store.addComponent('laser-source')
+
+    const pendingPlacement = useEditorStore.getState().interaction.pendingPlacement
+
+    expect(pendingPlacement?.draft.variantId).toBe('compact-table-source')
+    expect(pendingPlacement?.draft.hostSurfaceId).toBe(OPTICAL_TABLE_SURFACE_ID)
+    expect(pendingPlacement?.draft.config.source?.firstTargetComponentId).toBeUndefined()
+  })
+
+  it('moves hosted components together with a dragged breadboard', () => {
+    const scene = useEditorStore.getState().scene
+
+    useEditorStore.getState().loadScene(
+      {
+        ...scene,
+        components: [
+          {
+            id: 'mirror-on-board',
+            type: 'mirror',
+            label: 'Mirror 1',
+            variantId: mirrorVariantId,
+            anchorMm: { x: 2362.5, y: 612.5 },
+            hostSurfaceId: 'breadboard-2',
+            rotationQuarterTurns: 0,
+            config: createDefaultComponentConfig('mirror', mirrorVariantId),
+          },
+        ],
+      },
+      { history: 'reset' },
+    )
+
+    const store = useEditorStore.getState()
+
+    store.beginBreadboardDrag('breadboard-2')
+    store.updateBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
+    store.commitBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
+
+    expect(useEditorStore.getState().scene.components[0]?.anchorMm).toEqual({
+      x: 2392.5,
+      y: 652.5,
+    })
+
+    const nextScene = useEditorStore.getState().scene
+    if (nextScene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    expect(
+      nextScene.workspace.breadboards.find((breadboard) => breadboard.id === 'breadboard-2')
+        ?.anchorMm,
+    ).toEqual({
+      x: 2310,
+      y: 560,
+    })
+  })
+
+  it('remembers the focused breadboard across board-focus and table-view toggles', () => {
+    const store = useEditorStore.getState()
+
+    store.selectBreadboard('breadboard-2')
+    store.setWorkspaceViewMode('board-focus')
+
+    expect(useEditorStore.getState().interaction.focusedBreadboardId).toBe(
+      'breadboard-2',
+    )
+    expect(useEditorStore.getState().interaction.activeHostSurfaceId).toBe(
+      'breadboard-2',
+    )
+
+    store.setWorkspaceViewMode('table-view')
+    expect(useEditorStore.getState().interaction.workspaceViewMode).toBe('table-view')
+
+    store.setWorkspaceViewMode('board-focus')
+    expect(useEditorStore.getState().interaction.focusedBreadboardId).toBe(
+      'breadboard-2',
+    )
+    expect(useEditorStore.getState().interaction.activeHostSurfaceId).toBe(
+      'breadboard-2',
+    )
+  })
+
+  it('uses a top-biased reset view for both board focus and table view', () => {
+    const store = useEditorStore.getState()
+
+    store.setViewportSize({ width: 1400, height: 900 })
+    store.selectBreadboard('breadboard-2')
+    store.setWorkspaceViewMode('board-focus')
+    store.resetViewport()
+
+    const boardFocusViewport = useEditorStore.getState().viewport
+    const breadboard = getBreadboardInstance(useEditorStore.getState().scene, 'breadboard-2')
+
+    if (!breadboard) {
+      throw new Error('expected breadboard-2 to exist')
+    }
+
+    const boardBounds = getBreadboardWorldBoundsMm(
+      breadboard.model,
+      breadboard.anchorMm,
+      breadboard.rotationQuarterTurns,
+    )
+    const boardTopPx = worldToScreen({ x: boardBounds.x, y: boardBounds.y }, boardFocusViewport).y
+
+    expect(boardTopPx).toBeGreaterThan(0)
+    expect(boardTopPx).toBeLessThan(90)
+
+    store.setWorkspaceViewMode('table-view')
+    store.resetViewport()
+
+    const tableViewport = useEditorStore.getState().viewport
+    const tableTopPx = worldToScreen({ x: 0, y: 0 }, tableViewport).y
+
+    expect(tableTopPx).toBeGreaterThan(0)
+    expect(tableTopPx).toBeLessThan(90)
+  })
+})
+
+describe('editor store fresh optical table', () => {
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })
+  })
+
+  it('can create a fresh empty optical table workspace', () => {
+    const store = useEditorStore.getState()
+
+    store.createFreshOpticalTable()
+
+    expect(useEditorStore.getState().scene.workspace.kind).toBe('optical-table')
+    const nextScene = useEditorStore.getState().scene
+
+    if (nextScene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+    expect(nextScene.workspace.breadboards).toHaveLength(0)
+    expect(nextScene.components).toHaveLength(0)
+    expect(useEditorStore.getState().interaction.workspaceViewMode).toBe('table-view')
   })
 })

@@ -43,7 +43,7 @@ export function deriveSceneWarnings(
         category: 'mechanical',
         severity: 'critical',
         tier: 'simple',
-        message: `${component.label} support extends outside the allowed board or source-lane region.`,
+        message: `${component.label} support extends outside the allowed board or launch-edge region.`,
         componentId: component.id,
         highlightTarget: {
           componentIds: [component.id],
