@@ -1,15 +1,16 @@
 # Schema-Lab
 
-Schema-Lab is a browser-based optical breadboard layout editor for ultrafast optics setups such as FROG, Z-scan, and related lab schematics.
+Schema-Lab is a browser-based optics workspace for laying out, tracing, reviewing, and exporting ultrafast optics setups such as FROG, Z-scan, delay-line, OPA, and related lab schematics.
 
-Stage 1 in this repository implements:
+The current repository includes:
 
-- millimeter-first breadboard geometry
-- grid-based optical component placement
-- zoom and pan as view transforms only
-- rotation-aware optical ports
-- JSON scene import/export
-- Vitest coverage for core geometry and serialization helpers
+- millimeter-first geometry for breadboards, optical tables, component footprints, anchors, and ports
+- multi-surface placement with breadboards hosted on an optical table
+- deterministic beam tracing, beam inspection, and warning generation
+- optional Gaussian-beam analysis, overlays, and warning support
+- interpreted SVG import with reliable-path mapping and ambiguity review
+- scoped export flows for SVG, DXF, PDF, PPTX, and shared vector-scene output
+- onboarding, tutorial, help, and browser-smoke coverage for critical UI flows
 
 ## Stack
 
@@ -29,12 +30,15 @@ npm run test
 npm run build
 ```
 
+Useful browser smokes live under `output/playwright/`, including optical-table, optics-physics, SVG-import, and broader UX checks.
+
 ## Structure
 
-- `src/domain`: millimeter-space scene model, presets, geometry, serialization, component catalog
+- `src/domain`: millimeter-space scene model, workspace geometry, tracing, Gaussian analysis, import/export, warnings
 - `src/state`: Zustand editor state and actions
 - `src/canvas`: Konva rendering and interaction logic
-- `src/ui`: toolbar, library, inspector, and JSON workflow
-- `src/test`: Stage 1 unit tests
+- `src/ui`: toolbar, library, inspector, onboarding, warnings, import/export, and modal workflows
+- `src/test`: unit coverage for geometry, tracing, Gaussian analysis, import/export, and serialization
+- `.agents/skills`: repo-local skills that capture current project contracts for coding agents
 
 Durable project conventions live in [`AGENTS.md`](/Users/joegarbarino/Desktop/Schema-Lab/AGENTS.md).
