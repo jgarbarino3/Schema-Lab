@@ -10,11 +10,11 @@ export const VERSION_HISTORY: VersionHistoryEntry[] = [
   {
     version: 'v1.8',
     summary:
-      'Canvas annotations feel much more polished with compact controls, cleaner header space, and one-click placement that behaves like the rest of the workspace.',
+      'Schema-Lab added freeform canvas annotations so layouts can include notes, callouts, and diagram shapes with built-in styling controls.',
     highlights: [
-      'Smaller header-docked text and shape tools',
-      'One-shot text and shape placement',
-      'Cleaner workspace header and softer board focus styling',
+      'Text, sticky notes, note cards, callout bubbles, and diagram shapes',
+      'Font, color, alignment, fill, and stroke customization',
+      'Inline editing, resizing, layering, and export support',
     ],
   },
   {
