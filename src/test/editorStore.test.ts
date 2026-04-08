@@ -67,6 +67,18 @@ describe('editor store pending placement', () => {
     expect(useEditorStore.getState().interaction.pendingPlacement).toBeUndefined()
     expect(useEditorStore.getState().scene.components).toHaveLength(0)
   })
+
+  it('sets and clears interaction notices explicitly', () => {
+    const store = useEditorStore.getState()
+
+    store.setNotice('Loaded an optical-table scene and switched to table view.')
+    expect(useEditorStore.getState().interaction.notice).toBe(
+      'Loaded an optical-table scene and switched to table view.',
+    )
+
+    store.clearNotice()
+    expect(useEditorStore.getState().interaction.notice).toBeUndefined()
+  })
 })
 
 describe('editor store scene history', () => {

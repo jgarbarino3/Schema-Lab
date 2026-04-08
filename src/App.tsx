@@ -29,6 +29,10 @@ import {
 } from './domain/exportLayout'
 import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
+import {
+  formatSceneImportNotice,
+  importSceneDocument,
+} from './domain/sceneImport'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
 import {
   analyzeSvgImportDocument,
@@ -53,6 +57,7 @@ import {
 import type { AnnotationText, ScreenPointPx } from './domain/types'
 import {
   OPTICAL_TABLE_SURFACE_ID,
+  SCENE_DOCUMENT_VERSION,
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
@@ -252,6 +257,7 @@ function App() {
   const setWorkspaceViewMode = useEditorStore(
     (state) => state.setWorkspaceViewMode,
   )
+  const setNotice = useEditorStore((state) => state.setNotice)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
@@ -1594,6 +1600,25 @@ function App() {
     [finalizeSvgImport],
   )
 
+  const importSceneJson = useCallback(
+    (rawText: string) => {
+      const result = importSceneDocument(rawText)
+      const notice = formatSceneImportNotice({
+        currentWorkspaceKind: scene.workspace.kind,
+        result,
+      })
+
+      startTransition(() => {
+        loadScene(result.scene, { history: 'record' })
+        setNotice(notice)
+      })
+
+      setJsonError(undefined)
+      setIsJsonModalOpen(false)
+    },
+    [loadScene, scene.workspace.kind, setNotice],
+  )
+
   const handleImportSceneJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0]
 
@@ -1604,14 +1629,7 @@ function App() {
     const rawText = await nextFile.text()
 
     try {
-      const nextScene = parseSceneDocument(rawText)
-
-      startTransition(() => {
-        loadScene(nextScene, { history: 'record' })
-      })
-
-      setJsonError(undefined)
-      setIsJsonModalOpen(false)
+      importSceneJson(rawText)
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Scene JSON could not be loaded.'
@@ -1722,14 +1740,7 @@ function App() {
   }
 
   const handleLoadFromJson = (rawText: string) => {
-    const nextScene = parseSceneDocument(rawText)
-
-    startTransition(() => {
-      loadScene(nextScene, { history: 'record' })
-    })
-
-    setJsonError(undefined)
-    setIsJsonModalOpen(false)
+    importSceneJson(rawText)
   }
 
   return (
@@ -2068,6 +2079,7 @@ function App() {
           setIsJsonModalOpen(false)
         }}
         onLoad={handleLoadFromJson}
+        schemaVersion={SCENE_DOCUMENT_VERSION}
       />
 
       <WarningReviewModal

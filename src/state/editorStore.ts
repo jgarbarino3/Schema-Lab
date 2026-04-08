@@ -249,6 +249,7 @@ interface EditorStore {
   setHelpOpen: (isOpen: boolean) => void
   setWarningsOpen: (isOpen: boolean) => void
   setSelectedWarningId: (warningId?: string) => void
+  setNotice: (notice?: string) => void
   clearNotice: () => void
   setBottomToolbarOffset: (offsetPx?: ScreenPointPx) => void
   setViewportSize: (canvasSizePx: CanvasSizePx) => void
@@ -2025,6 +2026,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
         ...state.interaction,
         isWarningsOpen: warningId ? true : state.interaction.isWarningsOpen,
         selectedWarningId: warningId,
+      },
+    }))
+  },
+
+  setNotice: (notice) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        notice,
       },
     }))
   },

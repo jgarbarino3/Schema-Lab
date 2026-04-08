@@ -1631,6 +1631,12 @@ textarea {
   color: var(--muted);
 }
 
+.json-modal__hint {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted-dim);
+}
+
 .json-modal__actions {
   justify-content: flex-end;
 }
@@ -1642,6 +1648,51 @@ textarea {
   border-radius: 12px;
   background: rgba(109, 61, 22, 0.28);
   color: var(--warning);
+}
+
+.json-modal__helper {
+  border: 1px solid rgba(136, 160, 174, 0.2);
+  border-radius: 12px;
+  background: rgba(8, 12, 16, 0.52);
+  padding: 0.85rem 1rem 0.95rem;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.json-modal__helper-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.json-modal__helper h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.json-modal__helper ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  display: grid;
+  gap: 0.4rem;
+}
+
+.json-modal__helper-actions {
+  margin: 0.45rem 0 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.json-modal__helper-status {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid rgba(136, 160, 174, 0.22);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  background: rgba(14, 19, 24, 0.86);
 }
 
 .modal-shell {
