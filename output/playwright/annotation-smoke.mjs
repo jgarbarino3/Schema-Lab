@@ -19,7 +19,7 @@ try {
     console.log(`STEP: ${label}`)
   }
 
-  await page.goto(targetUrl, { waitUntil: 'networkidle' })
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
 
   if (await page.locator('.tour-card').isVisible().catch(() => false)) {
     await page.getByRole('button', { name: 'Exit' }).click()
@@ -66,14 +66,16 @@ try {
     await page.waitForTimeout(200)
   }
 
-  const toolbarField = (label) =>
-    page.locator('.toolbar__field').filter({ hasText: label })
+  const dockField = (label) =>
+    page.locator('.annotation-dock__field').filter({ hasText: label })
 
   await page.getByRole('button', { exact: true, name: 'Text' }).click()
   await clickStageWorld({ x: 48, y: 52 })
   const editor = page.locator('.annotation-text-editor')
   await editor.waitFor()
+  await page.locator('.annotation-toolbar').waitFor()
   await editor.fill('Pump arm note')
+  assert.equal(await page.locator('.annotation-toolbar').isVisible(), true)
   await page.getByRole('button', { exact: true, name: 'Select' }).click()
   step('created text annotation')
 
@@ -87,7 +89,7 @@ try {
   step('styled text annotation')
 
   await page.getByRole('button', { exact: true, name: 'Shape' }).click()
-  await toolbarField('Shape').locator('select').selectOption('arrow')
+  await dockField('Shape kind').locator('select').selectOption('arrow')
   await clickStageWorld({ x: 138, y: 116 })
   await page.getByRole('button', { exact: true, name: 'Select' }).click()
   step('created arrow annotation')

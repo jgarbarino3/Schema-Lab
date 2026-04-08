@@ -111,7 +111,6 @@ export function Toolbar({
   )
   const interaction = useEditorStore((state) => state.interaction)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
-  const setLineColor = useEditorStore((state) => state.setLineColor)
   const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
@@ -141,7 +140,6 @@ export function Toolbar({
   const resetViewport = useEditorStore((state) => state.resetViewport)
   const zoomPxPerMm = useEditorStore((state) => state.viewport.zoomPxPerMm)
   const updateBeamSettings = useEditorStore((state) => state.updateBeamSettings)
-  const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
   const activeSourceCount = scene.components.filter(
     (component) => component.config.source?.isEnabled,
   ).length
@@ -687,83 +685,7 @@ export function Toolbar({
                   <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
                 </svg>
               </button>
-              <button
-                aria-label="Line"
-                aria-pressed={interaction.activeTool === 'line'}
-                className={`toolbar__icon-button${interaction.activeTool === 'line' ? ' is-active' : ''}`}
-                data-tooltip="Line"
-                onClick={() => setActiveTool('line')}
-                type="button"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="5" cy="19" r="2" />
-                  <circle cx="19" cy="5" r="2" />
-                  <line x1="6.4" y1="17.6" x2="17.6" y2="6.4" />
-                </svg>
-              </button>
-              <button
-                aria-label="Text"
-                aria-pressed={interaction.activeTool === 'text'}
-                className={`toolbar__icon-button${interaction.activeTool === 'text' ? ' is-active' : ''}`}
-                data-tooltip="Text"
-                onClick={() => setActiveTool('text')}
-                type="button"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 5h16" />
-                  <path d="M12 5v14" />
-                  <path d="M8 19h8" />
-                </svg>
-              </button>
-              <button
-                aria-label="Shape"
-                aria-pressed={interaction.activeTool === 'shape'}
-                className={`toolbar__icon-button${interaction.activeTool === 'shape' ? ' is-active' : ''}`}
-                data-tooltip="Shape"
-                onClick={() => setActiveTool('shape')}
-                type="button"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="4" y="4" width="8" height="8" rx="1.2" />
-                  <circle cx="17.5" cy="17.5" r="3.5" />
-                </svg>
-              </button>
             </div>
-
-            {interaction.activeTool === 'line' ? (
-              <div className="toolbar__color-swatches" data-tour="line-color">
-                {[
-                  '#ff0000', '#00ff00', '#0088ff', '#ffee00',
-                  '#ff00ff', '#00eeff', '#ff8800', '#ffffff',
-                ].map((color) => (
-                  <button
-                    aria-label={`Line color ${color}`}
-                    aria-pressed={interaction.lineColor === color}
-                    className={`toolbar__swatch${interaction.lineColor === color ? ' is-active-swatch' : ''}`}
-                    key={color}
-                    onClick={() => setLineColor(color)}
-                    style={{ backgroundColor: color }}
-                    type="button"
-                  />
-                ))}
-              </div>
-            ) : null}
-
-            {interaction.activeTool === 'shape' ? (
-              <label className="toolbar__field">
-                <span>Shape</span>
-                <select
-                  onChange={(event) =>
-                    setShapeToolKind(event.target.value as typeof interaction.shapeToolKind)
-                  }
-                  value={interaction.shapeToolKind}
-                >
-                  <option value="rectangle">Rectangle</option>
-                  <option value="ellipse">Ellipse</option>
-                  <option value="arrow">Arrow</option>
-                </select>
-              </label>
-            ) : null}
 
             <label className="toolbar__field">
               <span>Snap</span>

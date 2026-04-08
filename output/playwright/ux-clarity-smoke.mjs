@@ -37,7 +37,7 @@ try {
     console.log(`STEP: ${label}`)
   }
 
-  await page.goto(targetUrl, { waitUntil: 'networkidle' })
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
   step('page loaded')
 
   const guideButton = page.getByRole('button', { name: 'Guide' })

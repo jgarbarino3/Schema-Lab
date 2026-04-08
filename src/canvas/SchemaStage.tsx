@@ -1360,6 +1360,7 @@ export function SchemaStage({
             activeTool={interaction.activeTool}
             annotations={belowBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
             editingTextAnnotationId={interaction.editingTextAnnotationId}
+            editingTextDraftText={interaction.editingTextDraftText}
             onAnnotationToolClick={handleAnnotationToolClick}
             onResizeSelectedShape={updateSelectedShapeAnnotation}
             onUpdateSelectedText={(update) =>
@@ -1413,6 +1414,7 @@ export function SchemaStage({
             activeTool={interaction.activeTool}
             annotations={aboveBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
             editingTextAnnotationId={interaction.editingTextAnnotationId}
+            editingTextDraftText={interaction.editingTextDraftText}
             onAnnotationToolClick={handleAnnotationToolClick}
             onResizeSelectedShape={updateSelectedShapeAnnotation}
             onUpdateSelectedText={(update) =>

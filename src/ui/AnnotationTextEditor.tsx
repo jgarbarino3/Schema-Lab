@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import {
   getAnnotationFontStack,
 } from '../domain/annotations'
@@ -8,25 +8,24 @@ interface AnnotationTextEditorProps {
   annotation: AnnotationText
   leftPx: number
   topPx: number
+  text: string
   widthPx: number
   onCancel: () => void
-  onCommit: (text: string) => void
+  onChangeText: (text: string) => void
+  onCommit: () => void
 }
 
 export function AnnotationTextEditor({
   annotation,
   leftPx,
   topPx,
+  text,
   widthPx,
   onCancel,
+  onChangeText,
   onCommit,
 }: AnnotationTextEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const [value, setValue] = useState(annotation.text)
-
-  useEffect(() => {
-    setValue(annotation.text)
-  }, [annotation.id, annotation.text])
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -48,14 +47,14 @@ export function AnnotationTextEditor({
 
     textarea.style.height = '0px'
     textarea.style.height = `${textarea.scrollHeight}px`
-  }, [value])
+  }, [text])
 
   return (
     <textarea
       aria-label="Edit annotation text"
       className="annotation-text-editor"
-      onBlur={() => onCommit(value)}
-      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => onCommit()}
+      onChange={(event) => onChangeText(event.target.value)}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault()
@@ -65,7 +64,7 @@ export function AnnotationTextEditor({
 
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
           event.preventDefault()
-          onCommit(value)
+          onCommit()
         }
       }}
       ref={textareaRef}
@@ -81,7 +80,7 @@ export function AnnotationTextEditor({
         top: topPx,
         width: widthPx,
       }}
-      value={value}
+      value={text}
     />
   )
 }

@@ -159,6 +159,7 @@ interface InteractionState {
   bottomToolbarOffsetPx?: ScreenPointPx
   dragPreview?: DragPreviewState
   editingTextAnnotationId?: string
+  editingTextDraftText?: string
   pendingPlacement?: PendingPlacementState
   pendingBreadboardPlacement?: PendingBreadboardPlacementState
   focusedBreadboardId?: string
@@ -345,8 +346,9 @@ interface EditorStore {
   translateSelectedAnnotation: (deltaMm: Vector2Mm) => void
   setShapeToolKind: (shapeKind: AnnotationShapeKind) => void
   setTextToolVariant: (variant: AnnotationTextVariant) => void
+  setTextAnnotationDraftText: (text: string) => void
   startTextAnnotationEditing: (annotationId: string) => void
-  finishTextAnnotationEditing: (text: string) => void
+  finishTextAnnotationEditing: (text?: string) => void
   cancelTextAnnotationEditing: () => void
   clearSelectedGeometryOverride: () => void
   updateSelectedPostHolderDiameter: (diameterMm: number) => void
@@ -1680,6 +1682,7 @@ function createInteractionForScene(args: {
     ...initialInteraction,
     bottomToolbarOffsetPx: args.previousInteraction?.bottomToolbarOffsetPx,
     editingTextAnnotationId: undefined,
+    editingTextDraftText: undefined,
     focusedBreadboardId,
     shapeToolKind: args.previousInteraction?.shapeToolKind ?? DEFAULT_ANNOTATION_SHAPE_KIND,
     textToolVariant:
@@ -1711,6 +1714,7 @@ function restoreSceneHistorySnapshot(
       hoveredBeamSegmentId: undefined,
       hoveredComponentId: undefined,
       editingTextAnnotationId: undefined,
+      editingTextDraftText: undefined,
       notice: undefined,
       pendingBreadboardPlacement: undefined,
       pendingPlacement: undefined,
@@ -1727,6 +1731,7 @@ const initialInteraction: InteractionState = {
   activeTool: 'select',
   workspaceViewMode: 'board-focus',
   dismissedWarningIds: [],
+  editingTextDraftText: undefined,
   isHelpOpen: false,
   isSpacePanning: false,
   isPointerPanning: false,
@@ -1785,6 +1790,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeHostSurfaceId: nextSurfaceId,
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
           focusedBreadboardId,
           notice: undefined,
           pendingPlacement: undefined,
@@ -1801,6 +1807,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         ...state.interaction,
         activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
         editingTextAnnotationId: undefined,
+        editingTextDraftText: undefined,
         notice: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
@@ -1836,6 +1843,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           activeHostSurfaceId:
             component?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
           focusedBreadboardId,
           notice: undefined,
           pendingPlacement: undefined,
@@ -1853,6 +1861,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         activeDragComponentId: undefined,
         dragPreview: undefined,
         editingTextAnnotationId: undefined,
+        editingTextDraftText: undefined,
         notice: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
@@ -1871,6 +1880,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
         activeTool: tool,
         editingTextAnnotationId:
           tool === 'text' ? state.interaction.editingTextAnnotationId : undefined,
+        editingTextDraftText:
+          tool === 'text' ? state.interaction.editingTextDraftText : undefined,
         lineDrawStartMm: tool === 'line' ? state.interaction.lineDrawStartMm : undefined,
       },
     }))
@@ -2131,6 +2142,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeTool: 'select',
           editingTextAnnotationId: nextAnnotation.id,
+          editingTextDraftText: nextAnnotation.text,
           lineDrawStartMm: undefined,
           notice: undefined,
           pendingPlacement: undefined,
@@ -2159,6 +2171,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeTool: 'select',
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
           lineDrawStartMm: undefined,
           notice: undefined,
           pendingPlacement: undefined,
@@ -2665,6 +2678,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         breadboardDragPreview: undefined,
         dragPreview: undefined,
         editingTextAnnotationId: undefined,
+        editingTextDraftText: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
         hoveredBeamSegmentId: undefined,
@@ -2768,6 +2782,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           activeDragComponentId: undefined,
           dragPreview: undefined,
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
           notice: undefined,
         },
       })
@@ -2900,6 +2915,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
           notice: undefined,
         },
       })
@@ -4333,6 +4349,21 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
+  setTextAnnotationDraftText: (text) => {
+    set((state) => {
+      if (!state.interaction.editingTextAnnotationId) {
+        return state
+      }
+
+      return {
+        interaction: {
+          ...state.interaction,
+          editingTextDraftText: text,
+        },
+      }
+    })
+  },
+
   startTextAnnotationEditing: (annotationId) => {
     set((state) => {
       const annotation = state.scene.annotations.find((item) => item.id === annotationId)
@@ -4347,6 +4378,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...state.interaction,
           activeTool: 'select',
           editingTextAnnotationId: annotationId,
+          editingTextDraftText: annotation.text,
           notice: undefined,
         },
       }
@@ -4370,11 +4402,17 @@ export const useEditorStore = create<EditorStore>((set) => ({
           interaction: {
             ...state.interaction,
             editingTextAnnotationId: undefined,
+            editingTextDraftText: undefined,
           },
         }
       }
 
-      if (!text.trim()) {
+      const nextText =
+        text ??
+        state.interaction.editingTextDraftText ??
+        selectedAnnotation.text
+
+      if (!nextText.trim()) {
         return withCommittedScene(state, {
           scene: {
             ...state.scene,
@@ -4386,6 +4424,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           interaction: {
             ...state.interaction,
             editingTextAnnotationId: undefined,
+            editingTextDraftText: undefined,
             notice: undefined,
           },
         })
@@ -4401,7 +4440,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
               isTextAnnotation(annotation)
                 ? {
                     ...annotation,
-                    text,
+                    text: nextText,
                   }
                 : annotation,
           ),
@@ -4409,6 +4448,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         interaction: {
           ...state.interaction,
           editingTextAnnotationId: undefined,
+          editingTextDraftText: undefined,
         },
       }, {
         mergeKey: `annotation-text:${annotationId}`,
@@ -4421,6 +4461,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       interaction: {
         ...state.interaction,
         editingTextAnnotationId: undefined,
+        editingTextDraftText: undefined,
       },
     }))
   },

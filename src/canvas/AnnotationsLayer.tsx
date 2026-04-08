@@ -33,6 +33,7 @@ interface AnnotationsLayerProps {
   activeTool: ActiveTool
   annotations: SceneAnnotation[]
   editingTextAnnotationId?: string
+  editingTextDraftText?: string
   onAnnotationToolClick?: (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => void
@@ -218,6 +219,7 @@ function renderTextAnnotationBackground(annotation: AnnotationText) {
 function TextAnnotationNode({
   activeTool,
   annotation,
+  draftText,
   isEditing,
   isSelected,
   onAnnotationToolClick,
@@ -231,6 +233,7 @@ function TextAnnotationNode({
 }: {
   activeTool: ActiveTool
   annotation: AnnotationText
+  draftText?: string
   isEditing: boolean
   isSelected: boolean
   onAnnotationToolClick?: (
@@ -247,18 +250,27 @@ function TextAnnotationNode({
   ) => ScreenPointPx
   viewport: ViewportState
 }) {
-  const bounds = getTextAnnotationBoundsMm(annotation)
-  const bodyBounds = getTextAnnotationBodyBoundsMm(annotation)
+  const layoutAnnotation =
+    isEditing && draftText !== undefined
+      ? {
+          ...annotation,
+          text: draftText,
+        }
+      : annotation
+  const bounds = getTextAnnotationBoundsMm(layoutAnnotation)
+  const bodyBounds = getTextAnnotationBodyBoundsMm(layoutAnnotation)
   const wrappedText = wrapAnnotationText(
-    annotation.text,
-    annotation.style,
-    getTextAnnotationBodyWidthMm(annotation),
+    layoutAnnotation.text,
+    layoutAnnotation.style,
+    getTextAnnotationBodyWidthMm(layoutAnnotation),
   )
-  const lineHeight = getAnnotationLineHeightMm(annotation.style) / annotation.style.fontSizeMm
+  const lineHeight =
+    getAnnotationLineHeightMm(layoutAnnotation.style) /
+    layoutAnnotation.style.fontSizeMm
   const screenAnchorPx = worldToScreen(annotation.anchorMm, viewport)
   const originMm = getAnnotationOriginMm(annotation)
   const selectionStroke = getSelectionStroke(isSelected)
-  const textOriginMm = getTextAnnotationTextOriginMm(annotation)
+  const textOriginMm = getTextAnnotationTextOriginMm(layoutAnnotation)
 
   return (
     <Group
@@ -331,7 +343,7 @@ function TextAnnotationNode({
         y={0}
       />
 
-      {renderTextAnnotationBackground(annotation)}
+      {renderTextAnnotationBackground(layoutAnnotation)}
 
       {isSelected ? (
         <Rect
@@ -350,19 +362,19 @@ function TextAnnotationNode({
       {!isEditing ? (
         <>
           <Text
-            align={annotation.style.align}
-            fill={annotation.style.color}
-            fontFamily={getAnnotationFontStack(annotation.style.fontFamily)}
-            fontSize={annotation.style.fontSizeMm}
-            fontStyle={getAnnotationFontStyle(annotation.style)}
+            align={layoutAnnotation.style.align}
+            fill={layoutAnnotation.style.color}
+            fontFamily={getAnnotationFontStack(layoutAnnotation.style.fontFamily)}
+            fontSize={layoutAnnotation.style.fontSizeMm}
+            fontStyle={getAnnotationFontStyle(layoutAnnotation.style)}
             lineHeight={lineHeight}
             listening={false}
             text={wrappedText.join('\n')}
-            width={getTextAnnotationBodyWidthMm(annotation)}
+            width={getTextAnnotationBodyWidthMm(layoutAnnotation)}
             x={textOriginMm.x - annotation.anchorMm.x}
             y={textOriginMm.y - annotation.anchorMm.y}
           />
-          {renderTextUnderlines(annotation)}
+          {renderTextUnderlines(layoutAnnotation)}
         </>
       ) : null}
 
@@ -760,6 +772,7 @@ export function AnnotationsLayer({
   activeTool,
   annotations,
   editingTextAnnotationId,
+  editingTextDraftText,
   onAnnotationToolClick,
   onResizeSelectedShape,
   onSelectAnnotation,
@@ -787,6 +800,11 @@ export function AnnotationsLayer({
           <TextAnnotationNode
             activeTool={activeTool}
             annotation={annotation}
+            draftText={
+              editingTextAnnotationId === annotation.id
+                ? editingTextDraftText
+                : undefined
+            }
             isEditing={editingTextAnnotationId === annotation.id}
             isSelected={selectedAnnotationId === annotation.id}
             key={annotation.id}

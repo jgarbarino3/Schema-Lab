@@ -56,8 +56,8 @@ import {
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
+import { AnnotationDock } from './ui/AnnotationDock'
 import { AnnotationTextEditor } from './ui/AnnotationTextEditor'
-import { AnnotationToolbar } from './ui/AnnotationToolbar'
 import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { ExportOptionsModal } from './ui/ExportOptionsModal'
@@ -258,6 +258,9 @@ function App() {
   const finishTextAnnotationEditing = useEditorStore(
     (state) => state.finishTextAnnotationEditing,
   )
+  const setTextAnnotationDraftText = useEditorStore(
+    (state) => state.setTextAnnotationDraftText,
+  )
   const cancelTextAnnotationEditing = useEditorStore(
     (state) => state.cancelTextAnnotationEditing,
   )
@@ -398,6 +401,9 @@ function App() {
     selectedAnnotation && selectedAnnotation.kind !== 'line'
       ? selectedAnnotation
       : undefined
+  const editingTextDraftText = useEditorStore(
+    (state) => state.interaction.editingTextDraftText,
+  )
   const editingTextAnnotation = useMemo(
     () =>
       interaction.editingTextAnnotationId
@@ -409,6 +415,7 @@ function App() {
         : undefined,
     [interaction.editingTextAnnotationId, scene.annotations],
   )
+  const activeDockAnnotation = editingTextAnnotation ?? selectedCanvasAnnotation
   const focusedBreadboardInstance = useMemo(
     () =>
       scene.workspace.kind === 'optical-table'
@@ -1787,12 +1794,10 @@ function App() {
               </p>
             </div>
             <div className="canvas-panel__annotation-dock">
-              {selectedCanvasAnnotation && !editingTextAnnotation ? (
-                <AnnotationToolbar
-                  annotation={selectedCanvasAnnotation}
-                  onDone={handleClearCanvasSelection}
-                />
-              ) : null}
+              <AnnotationDock
+                onDone={handleClearCanvasSelection}
+                selectedAnnotation={activeDockAnnotation}
+              />
             </div>
           </div>
 
@@ -1850,7 +1855,9 @@ function App() {
                 annotation={editingTextAnnotation}
                 leftPx={textEditorPosition.leftPx}
                 onCancel={cancelTextAnnotationEditing}
+                onChangeText={setTextAnnotationDraftText}
                 onCommit={finishTextAnnotationEditing}
+                text={editingTextDraftText ?? editingTextAnnotation.text}
                 topPx={textEditorPosition.topPx}
                 widthPx={textEditorPosition.widthPx}
               />

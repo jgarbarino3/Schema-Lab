@@ -924,6 +924,65 @@ textarea {
   width: 100%;
 }
 
+.annotation-dock {
+  display: grid;
+  justify-items: end;
+  gap: 0.34rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.annotation-dock__tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  justify-content: flex-end;
+}
+
+.annotation-dock__panel {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
+}
+
+.annotation-dock__inline-panel {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  max-width: min(100%, 860px);
+  padding: 0.4rem 0.55rem;
+  border: 1px solid rgba(145, 202, 222, 0.22);
+  border-radius: 14px;
+  background: rgba(9, 13, 17, 0.8);
+  backdrop-filter: blur(18px);
+}
+
+.annotation-dock__label,
+.annotation-dock__field span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.annotation-dock__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.annotation-dock__field select {
+  min-width: 8.2rem;
+  height: 2rem;
+  padding: 0.28rem 0.46rem;
+  border: 1px solid rgba(145, 202, 222, 0.16);
+  border-radius: 9px;
+  background: rgba(14, 20, 25, 0.86);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
 .annotation-toolbar__field {
   display: flex;
   flex-direction: column;
@@ -1164,9 +1223,9 @@ textarea {
 }
 
 .canvas-panel__annotation-dock {
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
+  display: grid;
+  justify-items: end;
+  align-content: start;
   min-width: 0;
 }
 
@@ -2059,6 +2118,13 @@ textarea {
     justify-content: flex-start;
     align-items: flex-start;
     text-align: left;
+  }
+
+  .annotation-dock,
+  .annotation-dock__tools,
+  .annotation-dock__panel {
+    justify-items: start;
+    justify-content: flex-start;
   }
 
   .placement-banner__field {
