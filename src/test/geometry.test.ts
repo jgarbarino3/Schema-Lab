@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyPinchViewportTransform,
+  clampViewportToKeepBoundsVisible,
   panViewportByScreenDelta,
   screenToWorld,
   worldToScreen,
@@ -82,5 +83,45 @@ describe('coordinate transforms', () => {
       nextMidpointPx.y,
       5,
     )
+  })
+
+  it('clamps the camera before the active bounds can leave the viewport entirely', () => {
+    const clampedViewport = clampViewportToKeepBoundsVisible(
+      {
+        ...viewport,
+        cameraCenterMm: { x: 2200, y: -1800 },
+      },
+      {
+        x: 0,
+        y: 0,
+        width: 350,
+        height: 350,
+      },
+    )
+
+    expect(clampedViewport.cameraCenterMm).toEqual({
+      x: 410,
+      y: -10,
+    })
+  })
+
+  it('leaves the camera unchanged when enough of the bounds remain visible', () => {
+    const unclampedViewport = clampViewportToKeepBoundsVisible(
+      {
+        ...viewport,
+        cameraCenterMm: { x: 120, y: 110 },
+      },
+      {
+        x: 0,
+        y: 0,
+        width: 350,
+        height: 350,
+      },
+    )
+
+    expect(unclampedViewport.cameraCenterMm).toEqual({
+      x: 120,
+      y: 110,
+    })
   })
 })

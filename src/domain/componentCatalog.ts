@@ -115,6 +115,35 @@ function renderHint(
   }
 }
 
+const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
+  'mirror',
+  'curved-mirror',
+  'beamsplitter',
+  'lens',
+  'filter',
+  'attenuator',
+  'polarizer',
+  'waveplate',
+  'iris',
+  'bbo',
+  'telescope',
+  'opa',
+  'sample',
+  'fiber',
+  'spectrometer',
+  'detector',
+  'beam-dump',
+])
+
+export function supportsSimpleGlyphAppearance(
+  spec: Pick<ResolvedComponentSpec, 'renderHint' | 'type'>,
+) {
+  return (
+    spec.type !== 'laser-source' &&
+    SIMPLE_GLYPH_APPEARANCE_GLYPHS.has(spec.renderHint.glyph)
+  )
+}
+
 function realisticVisualPreset(
   family: RealisticVisualPreset['family'],
   finish: RealisticVisualPreset['finish'],
@@ -649,11 +678,13 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       {
         id: 'fs-source-head',
         label: 'Femtosecond Source Head',
+        shortLabel: 'FS Source',
         description: 'External off-board ultrafast source head for FROG and SHG planning.',
       },
       {
         id: 'compact-table-source',
         label: 'Compact Table Source',
+        shortLabel: 'Table Source',
         description: 'Small table-mounted example source for quick table layouts and target alignment.',
         footprintBoundsMm: bounds(-135, -58, 270, 116),
         visualBodyBoundsMm: bounds(-126, -50, 252, 100),
@@ -676,6 +707,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       {
         id: 'libra',
         label: 'Coherent Libra',
+        shortLabel: 'Coherent Libra',
         vendor: 'Coherent',
         sku: 'LIBRA',
         description: 'Table-mounted Libra class laser body.',
@@ -700,6 +732,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       {
         id: 'pharos-body',
         label: 'Light Conversion Pharos',
+        shortLabel: 'Pharos',
         vendor: 'Light Conversion',
         sku: 'PHAROS',
         description: 'Table-mounted Pharos laser body with practical default footprint.',
@@ -724,6 +757,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
       {
         id: 'clark-ti-sapphire',
         label: 'Clark Ti:Sapphire',
+        shortLabel: 'Clark Ti:Sapph',
         vendor: 'Clark',
         sku: 'TI-SAPPHIRE',
         description: 'Table-mounted Ti:sapphire oscillator or amplifier body.',
@@ -939,7 +973,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   {
     type: 'mirror',
     category: 'steering',
-    defaultLabel: 'Mirror',
+    defaultLabel: 'Planar Mirror',
     familyLabel: 'Mirror',
     defaultVariantId: 'bb1-e02',
     footprintBoundsMm: bounds(-12.7, -12.7, 25.4, 25.4),
@@ -1881,6 +1915,7 @@ export function getResolvedComponentSpec(
     defaultLabel: definition.defaultLabel,
     variantId: variant.id,
     variantLabel: variant.label,
+    shortVariantLabel: variant.shortLabel ?? variant.label,
     vendor: variant.vendor,
     sku: variant.sku,
     description: variant.description,

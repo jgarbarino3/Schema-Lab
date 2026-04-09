@@ -12,14 +12,13 @@ import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
 import { CURRENT_VERSION } from './content/versionHistory'
 import {
+  getAnnotationBoundsMm,
   getTextAnnotationBodyWidthMm,
   getTextAnnotationTextOriginMm,
 } from './domain/annotations'
 import { traceSceneBeams } from './domain/beamTracing'
-import { getBeamSelectionSnapshot } from './domain/beamSelection'
-import { getEffectiveHolePitchMm } from './domain/breadboard'
 import { isOpticalTarget } from './domain/componentCatalog'
-import { worldToScreen } from './domain/geometry'
+import { fitZoomPxPerMm, roundMm, worldToScreen } from './domain/geometry'
 import { inspectSceneComponentPlacement } from './domain/placement'
 import {
   createExportViewport,
@@ -27,7 +26,7 @@ import {
   type ExportScope,
   type SvgExportPreset,
 } from './domain/exportLayout'
-import { analyzeGaussianPaths, getGaussianSegmentAnalysis } from './domain/gaussian'
+import { analyzeGaussianPaths } from './domain/gaussian'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import {
   formatSceneImportNotice,
@@ -54,7 +53,7 @@ import {
   getOpticalTableWorldBoundsMm,
   getWorkspacePrimaryBreadboard,
 } from './domain/workspace'
-import type { AnnotationText, ScreenPointPx } from './domain/types'
+import type { AnnotationText } from './domain/types'
 import {
   OPTICAL_TABLE_SURFACE_ID,
   SCENE_DOCUMENT_VERSION,
@@ -64,6 +63,10 @@ import { useEditorStore } from './state/editorStore'
 import { AnnotationDock } from './ui/AnnotationDock'
 import { AnnotationTextEditor } from './ui/AnnotationTextEditor'
 import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
+import {
+  CanvasContextMenu,
+  type CanvasContextMenuAction,
+} from './ui/CanvasContextMenu'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { ExportOptionsModal } from './ui/ExportOptionsModal'
 import { InspectorPanel } from './ui/InspectorPanel'
@@ -72,6 +75,7 @@ import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
 import { SvgAmbiguityModal } from './ui/SvgAmbiguityModal'
 import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
 import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
+import { SelectionToolbar } from './ui/SelectionToolbar'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { TutorialModal } from './ui/TutorialModal'
 import { VersionHistoryModal } from './ui/VersionHistoryModal'
@@ -86,6 +90,9 @@ const OPTICAL_TABLE_SNAPSHOT_KEY = 'schema-lab.workspace.optical-table-snapshot'
 const EXPORT_CANVAS_WIDTH_PX = 1800
 const EXPORT_CANVAS_HEIGHT_PX = 1200
 const DEFAULT_SVG_PRESET: SvgExportPreset = 'engineering'
+const CENTER_FRAME_SIDE_PADDING_PX = 88
+const CENTER_FRAME_TOP_PADDING_PX = 28
+const CENTER_FRAME_BOTTOM_PADDING_PX = 156
 
 interface ExportRequestState {
   format: ExportFormat
@@ -118,6 +125,12 @@ type WorkspaceModalState =
   | {
       mode: 'to-single-breadboard'
     }
+
+interface CanvasContextMenuState {
+  kind: 'annotation' | 'canvas' | 'component'
+  x: number
+  y: number
+}
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
@@ -187,15 +200,41 @@ function writeStoredSnapshot(key: string, value?: string) {
   window.localStorage.setItem(key, value)
 }
 
-function getBoundsCenterMm(bounds: { x: number; y: number; width: number; height: number }) {
-  return {
-    x: bounds.x + bounds.width / 2,
-    y: bounds.y + bounds.height / 2,
-  }
-}
-
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value))
+}
+
+function createTopBiasedViewportForBounds(
+  bounds: { x: number; y: number; width: number; height: number },
+  viewport: { canvasSizePx: { width: number; height: number }; zoomPxPerMm: number },
+) {
+  const canvasWidth = Math.max(1, viewport.canvasSizePx.width)
+  const canvasHeight = Math.max(1, viewport.canvasSizePx.height)
+  const availableWidthPx = Math.max(1, canvasWidth - CENTER_FRAME_SIDE_PADDING_PX * 2)
+  const availableHeightPx = Math.max(
+    1,
+    canvasHeight - CENTER_FRAME_TOP_PADDING_PX - CENTER_FRAME_BOTTOM_PADDING_PX,
+  )
+  const fitZoomPxPerMmForBounds = fitZoomPxPerMm(
+    {
+      width: bounds.width,
+      height: bounds.height,
+    },
+    {
+      width: availableWidthPx,
+      height: availableHeightPx,
+    },
+    0,
+  )
+  const zoomPxPerMm = Math.min(viewport.zoomPxPerMm, fitZoomPxPerMmForBounds)
+
+  return {
+    zoomPxPerMm,
+    cameraCenterMm: {
+      x: roundMm(bounds.x + bounds.width / 2),
+      y: roundMm(bounds.y + (canvasHeight / 2 - CENTER_FRAME_TOP_PADDING_PX) / zoomPxPerMm),
+    },
+  }
 }
 
 function App() {
@@ -224,6 +263,8 @@ function App() {
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
   const setWarningsOpen = useEditorStore((state) => state.setWarningsOpen)
+  const setActiveTool = useEditorStore((state) => state.setActiveTool)
+  const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
   const cancelActiveInteraction = useEditorStore(
     (state) => state.cancelActiveInteraction,
@@ -240,6 +281,9 @@ function App() {
   const duplicateSelectedAnnotation = useEditorStore(
     (state) => state.duplicateSelectedAnnotation,
   )
+  const moveSelectedAnnotationInStack = useEditorStore(
+    (state) => state.moveSelectedAnnotationInStack,
+  )
   const clearSurfaceContent = useEditorStore((state) => state.clearSurfaceContent)
   const selectBreadboard = useEditorStore((state) => state.selectBreadboard)
   const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
@@ -247,12 +291,15 @@ function App() {
   const rotateSelectedComponent = useEditorStore(
     (state) => state.rotateSelectedComponent,
   )
+  const rotateHighlightSelection = useEditorStore(
+    (state) => state.rotateHighlightSelection,
+  )
   const updateSelectedSource = useEditorStore((state) => state.updateSelectedSource)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
   const resetViewport = useEditorStore((state) => state.resetViewport)
-  const setBottomToolbarOffset = useEditorStore(
-    (state) => state.setBottomToolbarOffset,
+  const clearHighlightSelection = useEditorStore(
+    (state) => state.clearHighlightSelection,
   )
   const setWorkspaceViewMode = useEditorStore(
     (state) => state.setWorkspaceViewMode,
@@ -274,11 +321,6 @@ function App() {
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null)
   const svgFileInputRef = useRef<HTMLInputElement | null>(null)
   const stageShellRef = useRef<HTMLDivElement | null>(null)
-  const bottomToolbarRef = useRef<HTMLDivElement | null>(null)
-  const bottomToolbarDragRef = useRef<{
-    offsetPx: ScreenPointPx
-    pointerStartPx: ScreenPointPx
-  } | null>(null)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
   const [jsonError, setJsonError] = useState<string | undefined>()
@@ -307,6 +349,7 @@ function App() {
     useState<SvgImportPendingCalibrationState>()
   const [svgAmbiguityState, setSvgAmbiguityState] =
     useState<SvgImportPendingAmbiguityState>()
+  const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState>()
   const [svgImportNotice, setSvgImportNotice] = useState<string | undefined>()
   const [showComponentLabels, setShowComponentLabels] = useState(true)
   const [showPostHolders, setShowPostHolders] = useState(false)
@@ -337,28 +380,6 @@ function App() {
           : warningFilters.advanced,
       ),
     [visibleSceneWarnings, warningFilters.advanced, warningFilters.simple],
-  )
-  const selectedBeam = useMemo(
-    () =>
-      getBeamSelectionSnapshot(beamTrace, {
-        interactionId: interaction.selectedBeamInteractionId,
-        pathId: interaction.selectedBeamPathId,
-        segmentId: interaction.selectedBeamSegmentId,
-      }),
-    [
-      beamTrace,
-      interaction.selectedBeamInteractionId,
-      interaction.selectedBeamPathId,
-      interaction.selectedBeamSegmentId,
-    ],
-  )
-  const selectedGaussianSegment = useMemo(
-    () =>
-      getGaussianSegmentAnalysis(
-        gaussianTrace,
-        interaction.selectedBeamSegmentId,
-      ),
-    [gaussianTrace, interaction.selectedBeamSegmentId],
   )
   const activeSources = scene.components.filter(
     (component) => component.config.source?.isEnabled,
@@ -410,6 +431,9 @@ function App() {
   const editingTextDraftText = useEditorStore(
     (state) => state.interaction.editingTextDraftText,
   )
+  const highlightSelection = useEditorStore(
+    (state) => state.interaction.highlightSelection,
+  )
   const editingTextAnnotation = useMemo(
     () =>
       interaction.editingTextAnnotationId
@@ -455,183 +479,101 @@ function App() {
   const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
   const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
   const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
+  const stageHighlightedComponentIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...highlightedComponentIds,
+          ...(highlightSelection?.componentIds ?? []),
+        ]),
+      ),
+    [highlightSelection?.componentIds, highlightedComponentIds],
+  )
+  const stageHighlightedAnnotationIds = useMemo(
+    () => Array.from(new Set(highlightSelection?.annotationIds ?? [])),
+    [highlightSelection?.annotationIds],
+  )
 
   const guideSteps = useMemo<OnboardingStep[]>(
     () => [
       {
-        title: 'Welcome to Schema-Lab',
+        title: 'Keyboard Shortcuts',
         selector: '[data-tour=\"toolbar-help\"]',
         body: (
           <>
-            <p>
-              The Help menu is your quick reference for controls, snap behavior, sources,
-              workspace switching, realistic vs simple view modes, Gaussian overlays,
-              side-panel collapse, and warning review.
-            </p>
-            <p>
-              When the scene needs attention, warnings appear in the top toolbar near this area,
-              and Guide can reopen the onboarding any time.
-            </p>
+            <p>Open the shortcuts overlay any time to see the core canvas controls without covering the workspace in instructions.</p>
           </>
         ),
       },
       {
-        title: 'Board Focus and Table View',
+        title: 'Workspace Modes',
         selector: '[data-tour=\"workspace-modes\"]',
         body: (
           <>
-            <p>
-              Board Focus is the close-up mode for a single breadboard. Table View opens
-              the full optical-table workspace so you can place customizable breadboards
-              and table-mounted hardware side by side.
-            </p>
-            <p>
-              In an optical-table workspace, switching between these two modes does not
-              convert the scene. Schema-Lab remembers the focused breadboard so you can
-              jump out to the full table and back without extra prompts.
-            </p>
-            <p>
-              If you start from a single board and click Table View, Schema-Lab will offer
-              to convert the current board, restore the last saved table for this browser,
-              or start from a fresh empty table.
-            </p>
+            <p>Switch between Board Focus for detail work and Table View for the broader optical-table layout without losing your place.</p>
           </>
         ),
       },
       {
-        title: 'Choose a Family, Then Place It',
+        title: 'Component Library',
         selector: '[data-tour=\"component-library\"]',
         body: (
           <>
-            <p>
-              Clicking a family arms a pending placement instead of creating a real
-              component immediately.
-            </p>
-            <p>
-              A placement banner appears above the viewport. Move the pointer, rotate with
-              <code>R</code>, then click or tap the active surface to commit.
-            </p>
-            <p>
-              In optical-table workspaces, breadboard cards are only starting dimensions.
-              You can resize and relabel any breadboard after placement from the inspector.
-            </p>
-            <p>
-              Use Realistic for mounted hardware silhouettes or Simple for cleaner symbolic
-              optics while keeping the same mechanical footprint logic underneath.
-            </p>
+            <p>Search the library, click a family to arm placement, then place it directly on the active surface.</p>
           </>
         ),
       },
       {
-        title: 'Collapse Panels from the Panels',
+        title: 'Panel Collapse',
         selector: '[data-tour=\"panel-library-toggle\"]',
         body: (
           <>
-            <p>
-              The side panels now collapse from their own headers instead of the top toolbar.
-              Each collapsed panel leaves a slim edge tab behind so you can reopen it without
-              sacrificing central viewport space.
-            </p>
-            <p>
-              This is the fastest way to temporarily expand the breadboard area while keeping
-              your current library or inspector context intact.
-            </p>
+            <p>Collapse either side panel from its own header when you want more canvas space without leaving the current workflow.</p>
           </>
         ),
       },
       {
-        title: 'Inspector States Are Explicit',
+        title: 'Inspector Context',
         selector: '[data-tour=\"inspector\"]',
         body: (
           <>
-            <p>
-              The right panel tells you whether you are editing the breadboard, a pending
-              placement, the optical table, or a selected component already on the board.
-            </p>
-            <p>
-              This is also where variants, lens values, BBO thickness and phase matching,
-              mount defaults, recommended hardware, table or breadboard dimensions, delay
-              scan controls, telescope settings, polarization optics, and OPA links appear.
-            </p>
+            <p>The inspector changes with the current selection so you can tune board settings, component variants, or annotation details in one place.</p>
           </>
         ),
       },
       {
-        title: 'Laser Sources and First Targets',
+        title: 'Canvas Flow',
         selector: '[data-tour=\"canvas-panel\"]',
         body: (
           <>
-            <p>
-              Single-board source heads still launch from off-board edges, but optical-table
-              workspaces now default to a compact table-mounted source. When other optics are
-              already present, the placement banner lets you choose the first target up front.
-            </p>
-            <p>
-              Selecting a source or dragging it now reveals the guide line to its first target,
-              while Align to Target in the inspector remains the explicit one-click realignment
-              control for supported source models.
-            </p>
-            <p>
-              Once enabled, the Stage 2 beam path and Stage 3 Gaussian readouts update from
-              that source.
-            </p>
-            <p>
-              Delay stages add femtosecond path delay without bending the 2D centerline, and
-              OPA blocks prefer real beam hits before falling back to linked pump or seed inputs.
-            </p>
+            <p>The canvas stays visually quiet until you select or place something, then the relevant placement, selection, and source-target cues appear in context.</p>
           </>
         ),
       },
       {
-        title: 'Warnings and Export Review',
+        title: 'Warnings',
         selector: '[data-tour=\"toolbar-controls\"]',
         body: (
           <>
-            <p>
-              Warning filters separate simple mechanical issues from advanced optical ones.
-              You can dismiss low-priority warnings for the current session, restore them later,
-              and export review only blocks on the warnings you have not dismissed.
-            </p>
+            <p>Review warnings from the top bar when the scene needs attention, then dismiss or restore them without leaving the editor.</p>
           </>
         ),
       },
       {
-        title: 'Vector Export and Format Options',
+        title: 'Export',
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
-            <p>
-              Export now chooses a format family first, then opens a compact options dialog
-              for scope and SVG preset. Engineering SVG is the clean mm-native Inkscape output,
-              while DXF is the layout / CAD export for boards, holes, mounts, and components.
-            </p>
-            <p>
-              Export will still pause if unresolved warnings remain, so you can review them
-              before downloading PNG, PDF, SVG, DXF, or PPTX output.
-            </p>
-            <p>
-              Help also documents the newer optics pass, including curved-mirror and telescope
-              Gaussian behavior, delay-line scan readouts, OPA fallback links, and the current
-              note that periscopes remain 2D relays until the later 3D pass.
-            </p>
+            <p>Choose a format from Export, confirm scope in the follow-up dialog, and Schema-Lab will still stop for unresolved warnings before download.</p>
           </>
         ),
       },
       {
-        title: 'Try the Tutorial Scene',
-        selector: '[data-tour=\"toolbar-tutorial\"]',
+        title: 'Learn Menu',
+        selector: '[data-tour=\"toolbar-learn\"]',
         body: (
           <>
-            <p>
-              Tutorial asks before replacing the current scene, then loads a curated example
-              that demonstrates steering mirrors, curved-mirror behavior, attenuation,
-              polarization optics, a compact delay stage, a reflective telescope, BBO, and
-              detector readout.
-            </p>
-            <p>
-              It also explains the difference between Stage 2 deterministic tracing and Stage 3
-              Gaussian / paraxial analysis so the demo doubles as a capability walkthrough.
-            </p>
+            <p>Use Learn to reopen this guide, load the tutorial scene, or check what changed in recent versions.</p>
           </>
         ),
       },
@@ -645,16 +587,7 @@ function App() {
         selector: '[data-tour=\"canvas-panel\"]',
         body: (
           <>
-            <p>
-              This example intentionally mixes a steering branch at the top with a longer inline
-              branch across the middle so you can see multiple optics families working in one
-              deterministic scene.
-            </p>
-            <p>
-              The top branch shows flat-mirror steering into a curved mirror and then into a
-              detector. The main branch runs through attenuation, polarization control, delay,
-              reflective telescope behavior, BBO, and final detection.
-            </p>
+            <p>This scene combines steering optics and an inline branch so you can inspect multiple optics families in one working layout.</p>
           </>
         ),
       },
@@ -663,50 +596,25 @@ function App() {
         selector: '[data-tour=\"inspector\"]',
         body: (
           <>
-            <p>
-              The inspector is focused on the compact delay stage so you can adjust stage
-              position, travel, topology, and femtosecond offset immediately.
-            </p>
-            <p>
-              In this model, Stage 2 keeps the 2D centerline fixed while the stage adds internal
-              optical path length and timing delay. Stage 3 then uses that effective path length
-              for downstream Gaussian readouts.
-            </p>
+            <p>The inspector is focused on the delay stage so you can adjust timing-related controls immediately.</p>
           </>
         ),
       },
       {
-        title: 'What the Engine Is Modeling',
+        title: 'Shortcuts and Context',
         selector: '[data-tour=\"toolbar-help\"]',
         body: (
           <>
-            <p>
-              Stage 2 is the deterministic engine: it resolves geometry, beam routing, power
-              loss, attenuation, simple polarization transforms, delay-line timing, and block-level
-              interaction logic such as BBO SHG and OPA module handoff.
-            </p>
-            <p>
-              Stage 3 is the analytical Gaussian layer on top of those resolved paths. It tracks
-              q-parameter propagation, waist shifts, spot size, curved-mirror / telescope ABCD
-              behavior, and aperture overfill warnings without replacing the Stage 2 geometry.
-            </p>
+            <p>Open the shortcuts overlay whenever you want a quick reminder of canvas navigation, edit commands, and placement controls.</p>
           </>
         ),
       },
       {
-        title: 'What Is Still Deferred',
+        title: 'Export Review',
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
-            <p>
-              This tutorial is physically meaningful, but it is still a 2D model. Full 3D beam
-              height, full nonlinear material physics, full spectrometer internals, and pulse
-              chirp / GDD propagation are still intentionally deferred.
-            </p>
-            <p>
-              When you are ready, export Engineering SVG for clean Inkscape editing or DXF for
-              mechanical CAD-style layout work.
-            </p>
+            <p>Export the tutorial once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
           </>
         ),
       },
@@ -714,6 +622,13 @@ function App() {
     [],
   )
   const onboardingSteps = tourMode === 'tutorial' ? tutorialSteps : guideSteps
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      ;(window as Window & { __SCHEMA_LAB_STORE__?: typeof useEditorStore }).__SCHEMA_LAB_STORE__ =
+        useEditorStore
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1034,7 +949,11 @@ function App() {
   const handleCenterSelection = () => {
     const viewport = useEditorStore.getState().viewport
 
-    const focusPointMm = (() => {
+    const focusBoundsMm = (() => {
+      if (highlightSelection) {
+        return highlightSelection.boundsMm
+      }
+
       if (selection.type === 'component') {
         const component = scene.components.find(
           (candidate) => candidate.id === selection.componentId,
@@ -1044,13 +963,12 @@ function App() {
           return undefined
         }
 
-        const placement = inspectSceneComponentPlacement(scene, component)
-        return getBoundsCenterMm(placement.supportBoundsMm)
+        return inspectSceneComponentPlacement(scene, component).supportBoundsMm
       }
 
       if (selection.type === 'breadboard') {
         if (scene.workspace.kind === 'single-breadboard') {
-          return getBoundsCenterMm(getBreadboardWorldBoundsMm(primaryBreadboard))
+          return getBreadboardWorldBoundsMm(primaryBreadboard)
         }
 
         const breadboard = breadboardInstances.find(
@@ -1058,32 +976,95 @@ function App() {
         )
 
         return breadboard
-          ? getBoundsCenterMm(
-              getBreadboardWorldBoundsMm(
-                breadboard.model,
-                breadboard.anchorMm,
-                breadboard.rotationQuarterTurns,
-              ),
+          ? getBreadboardWorldBoundsMm(
+              breadboard.model,
+              breadboard.anchorMm,
+              breadboard.rotationQuarterTurns,
             )
           : undefined
       }
 
-      if (scene.workspace.kind === 'optical-table') {
-        return getBoundsCenterMm(getOpticalTableWorldBoundsMm(scene.workspace.table))
+      if (selection.type === 'annotation') {
+        return selectedAnnotation ? getAnnotationBoundsMm(selectedAnnotation) : undefined
       }
 
-      return getBoundsCenterMm(getBreadboardWorldBoundsMm(primaryBreadboard))
+      if (scene.workspace.kind === 'optical-table') {
+        return getOpticalTableWorldBoundsMm(scene.workspace.table)
+      }
+
+      return getBreadboardWorldBoundsMm(primaryBreadboard)
     })()
 
-    if (!focusPointMm) {
+    if (!focusBoundsMm) {
       return
     }
 
+    const nextViewport = createTopBiasedViewportForBounds(focusBoundsMm, viewport)
+
     useEditorStore.getState().setViewport({
       ...viewport,
-      cameraCenterMm: focusPointMm,
+      ...nextViewport,
     })
   }
+
+  const handleRotateSelection = useCallback(() => {
+    if (highlightSelection) {
+      rotateHighlightSelection(1)
+      return
+    }
+
+    if (selection.type === 'component' || pendingPlacement || pendingBreadboardPlacement) {
+      rotateSelectedComponent(1)
+    }
+  }, [
+    highlightSelection,
+    pendingBreadboardPlacement,
+    pendingPlacement,
+    rotateHighlightSelection,
+    rotateSelectedComponent,
+    selection.type,
+  ])
+
+  const handleDuplicateSelection = useCallback(() => {
+    if (selection.type === 'annotation') {
+      duplicateSelectedAnnotation()
+      return
+    }
+
+    if (selection.type === 'component') {
+      duplicateSelectedComponent()
+    }
+  }, [
+    duplicateSelectedAnnotation,
+    duplicateSelectedComponent,
+    selection.type,
+  ])
+
+  const handleDeleteSelection = useCallback(() => {
+    if (selection.type === 'annotation') {
+      deleteSelectedAnnotation()
+      return
+    }
+
+    if (selection.type === 'component') {
+      deleteSelectedComponent()
+    }
+  }, [
+    deleteSelectedAnnotation,
+    deleteSelectedComponent,
+    selection.type,
+  ])
+
+  const handleOpenCanvasContextMenu = useCallback(
+    (state: CanvasContextMenuState) => {
+      setContextMenuState({
+        kind: state.kind,
+        x: clamp(state.x, 12, window.innerWidth - 220),
+        y: clamp(state.y, 12, window.innerHeight - 240),
+      })
+    },
+    [],
+  )
 
   const handleOpenTutorial = () => {
     markOnboardingSeen()
@@ -1101,50 +1082,6 @@ function App() {
     setIsTutorialModalOpen(false)
     setIsOnboardingOpen(true)
   }
-
-  const bottomToolbarStyle = (() => {
-    const shell = stageShellRef.current
-
-    if (!shell) {
-      return undefined
-    }
-
-    const anchorBounds =
-      scene.workspace.kind === 'single-breadboard'
-        ? getBreadboardWorldBoundsMm(primaryBreadboard)
-        : interaction.workspaceViewMode === 'board-focus' && focusedBreadboardInstance
-          ? getBreadboardWorldBoundsMm(
-              focusedBreadboardInstance.model,
-              focusedBreadboardInstance.anchorMm,
-              focusedBreadboardInstance.rotationQuarterTurns,
-            )
-          : getOpticalTableWorldBoundsMm(scene.workspace.table)
-    const anchorScreenPx = worldToScreen(
-      {
-        x: anchorBounds.x + anchorBounds.width / 2,
-        y: anchorBounds.y + anchorBounds.height,
-      },
-      viewport,
-    )
-    const toolbarWidthPx = bottomToolbarRef.current?.offsetWidth ?? 420
-    const toolbarHeightPx = bottomToolbarRef.current?.offsetHeight ?? 58
-    const dragOffsetPx = interaction.bottomToolbarOffsetPx ?? { x: 0, y: 0 }
-    const leftPx = clamp(
-      anchorScreenPx.x - toolbarWidthPx / 2 + dragOffsetPx.x,
-      16,
-      Math.max(16, viewport.canvasSizePx.width - toolbarWidthPx - 16),
-    )
-    const topPx = clamp(
-      anchorScreenPx.y + 64 + dragOffsetPx.y,
-      16,
-      Math.max(16, viewport.canvasSizePx.height - toolbarHeightPx - 16),
-    )
-
-    return {
-      left: `${leftPx}px`,
-      top: `${topPx}px`,
-    }
-  })()
 
   const handleClearCanvasSelection = useCallback(() => {
     if (scene.workspace.kind === 'optical-table') {
@@ -1199,33 +1136,6 @@ function App() {
       widthPx,
     }
   }, [editingTextAnnotation, viewport])
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const dragState = bottomToolbarDragRef.current
-
-      if (!dragState) {
-        return
-      }
-
-      setBottomToolbarOffset({
-        x: dragState.offsetPx.x + (event.clientX - dragState.pointerStartPx.x),
-        y: dragState.offsetPx.y + (event.clientY - dragState.pointerStartPx.y),
-      })
-    }
-
-    const handlePointerUp = () => {
-      bottomToolbarDragRef.current = null
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', handlePointerUp)
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', handlePointerUp)
-    }
-  }, [setBottomToolbarOffset])
 
   const finalizeRasterExport = useCallback(
     async (stage: Konva.Stage, request: ExportRequestState) => {
@@ -1290,6 +1200,16 @@ function App() {
   )
 
   useEffect(() => {
+    if (!contextMenuState) {
+      return
+    }
+
+    if (pendingPlacement || pendingBreadboardPlacement) {
+      setContextMenuState(undefined)
+    }
+  }, [contextMenuState, pendingBreadboardPlacement, pendingPlacement])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === ' ' &&
@@ -1302,6 +1222,16 @@ function App() {
       ) {
         event.preventDefault()
         setSpacePanning(true)
+        return
+      }
+
+      if (
+        event.key === 'Enter' &&
+        (event.target instanceof HTMLInputElement ||
+          event.target instanceof HTMLSelectElement)
+      ) {
+        event.preventDefault()
+        event.target.blur()
         return
       }
 
@@ -1338,6 +1268,12 @@ function App() {
         if (interaction.isHelpOpen) {
           event.preventDefault()
           setHelpOpen(false)
+          return
+        }
+
+        if (contextMenuState) {
+          event.preventDefault()
+          setContextMenuState(undefined)
           return
         }
 
@@ -1414,6 +1350,19 @@ function App() {
       const key = event.key.toLowerCase()
       const isModifierPressed = event.metaKey || event.ctrlKey
 
+      if (
+        isModifierPressed &&
+        event.shiftKey &&
+        (event.key === '?' || key === '/' || event.code === 'Slash')
+      ) {
+        event.preventDefault()
+        setContextMenuState(undefined)
+        setWarningsOpen(false)
+        setOpenToolbarMenu(undefined)
+        setHelpOpen(true)
+        return
+      }
+
       if (isModifierPressed && key === 'z' && !event.shiftKey) {
         if (!canUndo) {
           return
@@ -1438,7 +1387,69 @@ function App() {
         return
       }
 
-      if (!selectedComponent && !selectedAnnotation && !pendingPlacement) {
+      if (!isModifierPressed && event.shiftKey && key === 'l') {
+        event.preventDefault()
+        setShowComponentLabels((current) => !current)
+        return
+      }
+
+      if (!isModifierPressed && !event.shiftKey) {
+        if (key === '0') {
+          event.preventDefault()
+          resetViewport()
+          return
+        }
+
+        if (key === '1') {
+          event.preventDefault()
+          setRenderMode('realistic')
+          return
+        }
+
+        if (key === '2') {
+          event.preventDefault()
+          setRenderMode('simple')
+          return
+        }
+
+        if (key === 'v') {
+          event.preventDefault()
+          setActiveTool('select')
+          return
+        }
+
+        if (key === 'h') {
+          event.preventDefault()
+          setActiveTool('pan')
+          return
+        }
+
+        if (key === 'l') {
+          event.preventDefault()
+          setActiveTool('line')
+          return
+        }
+
+        if (key === 't') {
+          event.preventDefault()
+          setActiveTool('text')
+          return
+        }
+
+        if (key === 's') {
+          event.preventDefault()
+          setActiveTool('shape')
+          return
+        }
+
+        if (key === 'q') {
+          event.preventDefault()
+          setActiveTool('highlight')
+          return
+        }
+      }
+
+      if (!selectedComponent && !selectedAnnotation && !pendingPlacement && !highlightSelection) {
         return
       }
 
@@ -1466,9 +1477,9 @@ function App() {
         return
       }
 
-      if (key === 'r' && (selectedComponent || pendingPlacement)) {
+      if (key === 'r' && (selectedComponent || pendingPlacement || highlightSelection)) {
         event.preventDefault()
-        rotateSelectedComponent(1)
+        handleRotateSelection()
       }
     }
 
@@ -1503,6 +1514,7 @@ function App() {
     exportOptionsFormat,
     handleClearCanvasSelection,
     isClearModalOpen,
+    contextMenuState,
     interaction.isHelpOpen,
     isOnboardingOpen,
     isSvgAmbiguityOpen,
@@ -1516,16 +1528,23 @@ function App() {
     openToolbarMenu,
     pendingPlacement,
     redo,
-    rotateSelectedComponent,
+    handleRotateSelection,
+    highlightSelection,
+    resetViewport,
     selectedComponent,
     selectedAnnotation,
+    setActiveTool,
+    setContextMenuState,
     setHelpOpen,
     setOpenToolbarMenu,
     setPendingExportRequest,
+    setRenderMode,
     setSpacePanning,
     setSvgAmbiguityState,
     setSvgCalibrationState,
     setSvgImportOptionsState,
+    setWarningsOpen,
+    setShowComponentLabels,
     setWorkspaceModalState,
     undo,
   ])
@@ -1743,6 +1762,182 @@ function App() {
     importSceneJson(rawText)
   }
 
+  const selectionBoundsMm = useMemo(() => {
+    if (highlightSelection) {
+      return highlightSelection.boundsMm
+    }
+
+    if (selection.type === 'component') {
+      const component = scene.components.find(
+        (candidate) => candidate.id === selection.componentId,
+      )
+
+      return component
+        ? inspectSceneComponentPlacement(scene, component).supportBoundsMm
+        : undefined
+    }
+
+    if (selection.type === 'annotation') {
+      return selectedAnnotation ? getAnnotationBoundsMm(selectedAnnotation) : undefined
+    }
+
+    if (selection.type === 'breadboard') {
+      if (scene.workspace.kind === 'single-breadboard') {
+        return getBreadboardWorldBoundsMm(primaryBreadboard)
+      }
+
+      const breadboard = breadboardInstances.find(
+        (candidate) => candidate.id === selection.surfaceId,
+      )
+
+      return breadboard
+        ? getBreadboardWorldBoundsMm(
+            breadboard.model,
+            breadboard.anchorMm,
+            breadboard.rotationQuarterTurns,
+          )
+        : undefined
+    }
+
+    if (selection.type === 'optical-table' && scene.workspace.kind === 'optical-table') {
+      return getOpticalTableWorldBoundsMm(scene.workspace.table)
+    }
+
+    return undefined
+  }, [
+    breadboardInstances,
+    highlightSelection,
+    primaryBreadboard,
+    scene,
+    selectedAnnotation,
+    selection,
+  ])
+
+  const canCenterSelection = useMemo(() => {
+    if (
+      !selectionBoundsMm ||
+      viewport.canvasSizePx.width <= 0 ||
+      viewport.canvasSizePx.height <= 0
+    ) {
+      return false
+    }
+
+    const topLeftPx = worldToScreen(
+      { x: selectionBoundsMm.x, y: selectionBoundsMm.y },
+      viewport,
+    )
+    const bottomRightPx = worldToScreen(
+      {
+        x: selectionBoundsMm.x + selectionBoundsMm.width,
+        y: selectionBoundsMm.y + selectionBoundsMm.height,
+      },
+      viewport,
+    )
+    const offscreen =
+      topLeftPx.x < 48 ||
+      topLeftPx.y < 48 ||
+      bottomRightPx.x > viewport.canvasSizePx.width - 48 ||
+      bottomRightPx.y > viewport.canvasSizePx.height - 48
+    const targetViewport = createTopBiasedViewportForBounds(selectionBoundsMm, viewport)
+    const farFromTargetFrame =
+      Math.abs(targetViewport.cameraCenterMm.x - viewport.cameraCenterMm.x) >
+        Math.max(24, selectionBoundsMm.width * 0.08) ||
+      Math.abs(targetViewport.cameraCenterMm.y - viewport.cameraCenterMm.y) >
+        Math.max(24, selectionBoundsMm.height * 0.08) ||
+      Math.abs(targetViewport.zoomPxPerMm - viewport.zoomPxPerMm) > 0.08
+
+    return offscreen || farFromTargetFrame
+  }, [selectionBoundsMm, viewport])
+
+  const canShowSelectionToolbar =
+    !pendingPlacement &&
+    !pendingBreadboardPlacement &&
+    (Boolean(highlightSelection) ||
+      selection.type === 'component' ||
+      selection.type === 'annotation' ||
+      selection.type === 'breadboard')
+
+  const statusBoardLabel =
+    scene.workspace.kind === 'optical-table'
+      ? interaction.workspaceViewMode === 'table-view'
+        ? scene.workspace.table.label
+        : focusedBreadboardInstance?.label ?? 'Focused breadboard'
+      : primaryBreadboard.label
+
+  const contextMenuActions = useMemo<CanvasContextMenuAction[]>(() => {
+    if (!contextMenuState) {
+      return []
+    }
+
+    if (contextMenuState.kind === 'component') {
+      if (!selectedComponent) {
+        return []
+      }
+
+      return [
+        { label: 'Rotate +90°', onSelect: handleRotateSelection },
+        { label: 'Duplicate', onSelect: handleDuplicateSelection },
+        { destructive: true, label: 'Delete', onSelect: handleDeleteSelection },
+        { label: 'Center Selection', onSelect: handleCenterSelection },
+      ]
+    }
+
+    if (contextMenuState.kind === 'annotation') {
+      if (!selectedAnnotation) {
+        return []
+      }
+
+      return [
+        { label: 'Duplicate', onSelect: handleDuplicateSelection },
+        { destructive: true, label: 'Delete', onSelect: handleDeleteSelection },
+        { label: 'Bring Forward', onSelect: () => moveSelectedAnnotationInStack('forward') },
+        { label: 'Send Backward', onSelect: () => moveSelectedAnnotationInStack('backward') },
+        { label: 'Bring to Front', onSelect: () => moveSelectedAnnotationInStack('front') },
+        { label: 'Send to Back', onSelect: () => moveSelectedAnnotationInStack('back') },
+        { label: 'Center Selection', onSelect: handleCenterSelection },
+      ]
+    }
+
+    if (highlightSelection) {
+      return [
+        { label: 'Rotate +90°', onSelect: handleRotateSelection },
+        {
+          disabled: !canCenterSelection,
+          label: 'Center Selection',
+          onSelect: handleCenterSelection,
+        },
+        { label: 'Clear Highlight', onSelect: clearHighlightSelection },
+      ]
+    }
+
+    return [
+      { label: 'Reset View', onSelect: resetViewport },
+      {
+        label: showComponentLabels ? 'Hide Labels' : 'Show Labels',
+        onSelect: () => setShowComponentLabels((current) => !current),
+      },
+      {
+        label: showPostHolders ? 'Hide Post Holders' : 'Show Post Holders',
+        onSelect: () => setShowPostHolders((current) => !current),
+      },
+    ]
+  }, [
+    canCenterSelection,
+    clearHighlightSelection,
+    contextMenuState,
+    handleCenterSelection,
+    handleDeleteSelection,
+    handleDuplicateSelection,
+    handleRotateSelection,
+    highlightSelection,
+    moveSelectedAnnotationInStack,
+    resetViewport,
+    selectedAnnotation,
+    selectedComponent,
+    showComponentLabels,
+    showPostHolders,
+  ])
+
   return (
     <div className="app-shell">
       <Toolbar
@@ -1758,9 +1953,42 @@ function App() {
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
         onOpenTutorial={handleOpenTutorial}
+        onOpenVersionHistory={() => setIsVersionHistoryOpen(true)}
         onRequestBoardFocus={handleRequestBoardFocus}
         onRequestSingleBoard={handleRequestStandaloneBoard}
         onRequestTableView={handleRequestTableView}
+        onResetView={resetViewport}
+        onToggleLabels={() => setShowComponentLabels((current) => !current)}
+        onTogglePostHolders={() => setShowPostHolders((current) => !current)}
+        selectionActions={
+          canShowSelectionToolbar ? (
+            <SelectionToolbar
+              canCenter={canCenterSelection}
+              canDelete={
+                !highlightSelection &&
+                (selection.type === 'component' || selection.type === 'annotation')
+              }
+              canDuplicate={
+                !highlightSelection &&
+                (selection.type === 'component' || selection.type === 'annotation')
+              }
+              canRotate={Boolean(highlightSelection) || selection.type === 'component'}
+              className="selection-toolbar--inline"
+              onCenter={handleCenterSelection}
+              onDelete={handleDeleteSelection}
+              onDuplicate={handleDuplicateSelection}
+              onRotate={handleRotateSelection}
+            />
+          ) : null
+        }
+        showComponentLabels={showComponentLabels}
+        showPostHolders={showPostHolders}
+        toolDock={
+          <AnnotationDock
+            onDone={handleClearCanvasSelection}
+            selectedAnnotation={activeDockAnnotation}
+          />
+        }
         warnings={visibleSceneWarnings}
         workspaceKind={scene.workspace.kind}
         workspaceViewMode={interaction.workspaceViewMode}
@@ -1784,48 +2012,24 @@ function App() {
         </div>
 
         <section className="canvas-panel workspace__canvas" data-tour="canvas-panel">
-          <div className="canvas-panel__header">
-            <div className="canvas-panel__branding">
-              <button
-                aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
-                className="canvas-panel__version-link"
-                onClick={() => setIsVersionHistoryOpen(true)}
-                type="button"
-              >
-                {CURRENT_VERSION}
-              </button>
-              <p className="canvas-panel__usage">
-                Use Board Focus for close-up breadboard work or Table View to
-                place multiple breadboards and design a full optical stack.
-              </p>
-              <p className="canvas-panel__usage canvas-panel__usage--shortcuts">
-                Scroll to pan • Ctrl/Cmd + scroll to zoom • Space or Hand tool to
-                drag-pan • Board Focus keeps a breadboard framed • R rotate • D
-                duplicate
-              </p>
-            </div>
-            <div className="canvas-panel__annotation-dock">
-              <AnnotationDock
-                onDone={handleClearCanvasSelection}
-                selectedAnnotation={activeDockAnnotation}
-              />
-            </div>
-          </div>
-
           {pendingPlacement || pendingBreadboardPlacement ? (
-            <div className="placement-banner">
+            <div className="placement-banner" data-testid="placement-banner">
               <strong>
-                Placing:{' '}
-                {pendingBreadboardPlacement?.label ?? pendingPlacement?.draft.label}
+                Placing {pendingBreadboardPlacement?.label ?? pendingPlacement?.draft.label}
               </strong>
               <span>
                 {pendingBreadboardPlacement
-                  ? 'Click or tap the optical table to place'
+                  ? 'click to place on the optical table'
                   : scene.workspace.kind === 'optical-table'
-                    ? 'Click or tap the active surface to place'
-                    : 'Click or tap the board to place'}
+                    ? 'click to place on the active surface'
+                    : 'click to place on the board'}
               </span>
-              <span>R rotate • Esc cancel</span>
+              <div className="placement-banner__keys" aria-label="Placement shortcuts">
+                <kbd>R</kbd>
+                <span>rotate</span>
+                <kbd>Esc</kbd>
+                <span>cancel</span>
+              </div>
               {pendingPlacement?.draft.config.source && opticalTargets.length > 0 ? (
                 <label className="placement-banner__field">
                   <span>First target</span>
@@ -1851,12 +2055,33 @@ function App() {
           ) : null}
 
           <div className="canvas-panel__stage-shell" ref={stageShellRef}>
+            {scene.components.length === 0 &&
+            scene.annotations.length === 0 &&
+            !pendingPlacement &&
+            !pendingBreadboardPlacement ? (
+              <div className="canvas-empty-state" data-testid="canvas-empty-state">
+                <strong>Click a component to get started</strong>
+                <span>Search the library, place optics, then refine the selection in the inspector.</span>
+              </div>
+            ) : null}
+
             <SchemaStage
               beamTrace={beamTrace}
               gaussianTrace={gaussianTrace}
-              highlightedComponentIds={highlightedComponentIds}
+              highlightedAnnotationIds={stageHighlightedAnnotationIds}
+              highlightedBreadboardIds={highlightSelection?.breadboardIds}
+              highlightedComponentIds={stageHighlightedComponentIds}
               highlightedInteractionIds={highlightedInteractionIds}
               highlightedPathIds={highlightedPathIds}
+              onOpenAnnotationContextMenu={(point) =>
+                handleOpenCanvasContextMenu({ kind: 'annotation', ...point })
+              }
+              onOpenCanvasContextMenu={(point) =>
+                handleOpenCanvasContextMenu({ kind: 'canvas', ...point })
+              }
+              onOpenComponentContextMenu={(point) =>
+                handleOpenCanvasContextMenu({ kind: 'component', ...point })
+              }
               showLabels={showComponentLabels}
               showPostHolders={showPostHolders}
             />
@@ -1873,110 +2098,23 @@ function App() {
                 widthPx={textEditorPosition.widthPx}
               />
             ) : null}
-
-            <div
-              aria-label="Canvas controls"
-              className="canvas-toolbar"
-              ref={bottomToolbarRef}
-              style={bottomToolbarStyle}
-            >
-              <button
-                aria-label="Drag canvas controls"
-                className="canvas-toolbar__handle"
-                onPointerDown={(event) => {
-                  bottomToolbarDragRef.current = {
-                    offsetPx: interaction.bottomToolbarOffsetPx ?? { x: 0, y: 0 },
-                    pointerStartPx: {
-                      x: event.clientX,
-                      y: event.clientY,
-                    },
-                  }
-                }}
-                type="button"
-              >
-                Drag
-              </button>
-              <button
-                className={showComponentLabels ? undefined : 'is-active-tool'}
-                onClick={() => setShowComponentLabels((current) => !current)}
-                type="button"
-              >
-                {showComponentLabels ? 'Hide Labels' : 'Show Labels'}
-              </button>
-              <button onClick={handleCenterSelection} type="button">
-                Center Selection
-              </button>
-              <button onClick={resetViewport} type="button">
-                Reset View
-              </button>
-              <button
-                className={showPostHolders ? 'is-active-tool' : undefined}
-                onClick={() => setShowPostHolders((current) => !current)}
-                type="button"
-              >
-                {showPostHolders ? 'Hide Post Holders' : 'Show Post Holders'}
-              </button>
-            </div>
           </div>
 
-          <div className="canvas-status">
-            <span>
-              {scene.workspace.kind === 'optical-table'
-                ? interaction.workspaceViewMode === 'board-focus'
-                  ? `${focusedBreadboardInstance?.label ?? 'Focused breadboard'}`
-                  : `${scene.workspace.table.label}`
-                : 'Board Focus'}{' '}
-              {scene.workspace.kind === 'optical-table' &&
-              interaction.workspaceViewMode === 'table-view'
-                ? `${scene.workspace.table.widthMm.toFixed(0)} × ${scene.workspace.table.heightMm.toFixed(0)} mm`
-                : `${primaryBreadboard.widthMm.toFixed(0)} × ${primaryBreadboard.heightMm.toFixed(0)} mm`}
+          <div className="canvas-status" data-testid="canvas-status">
+            <button
+              aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
+              className="canvas-status__version"
+              data-testid="status-version"
+              onClick={() => setIsVersionHistoryOpen(true)}
+              type="button"
+            >
+              {CURRENT_VERSION}
+            </button>
+            <span data-testid="status-counts">
+              {activeSources.length} sources · {beamTrace.pathSummaries.length} paths
             </span>
-            <span>
-              Pitch {getEffectiveHolePitchMm(primaryBreadboard).toFixed(1)} mm
-            </span>
-            <span>Beam mode {scene.beamSettings.beamFidelityMode}</span>
-            <span>View {renderMode === 'realistic' ? 'Realistic' : 'Simple'}</span>
-            <span>{activeSources.length} active sources</span>
-            <span>{beamTrace.segments.length} segments</span>
-            <span>{beamTrace.pathSummaries.length} paths</span>
-            <span>
-              Cursor{' '}
-              {interaction.cursorWorldMm
-                ? `(${interaction.cursorWorldMm.x.toFixed(1)}, ${interaction.cursorWorldMm.y.toFixed(1)}) mm`
-                : 'off canvas'}
-            </span>
-            <span>
-              Selection{' '}
-              {pendingPlacement
-                  ? `${pendingPlacement.draft.label} (pending)`
-                : selectedComponent
-                  ? selectedComponent.label
-                  : selectedAnnotation
-                    ? selectedAnnotation.kind === 'text'
-                      ? 'Text Annotation'
-                      : selectedAnnotation.kind === 'shape'
-                        ? `${selectedAnnotation.shapeKind[0]!.toUpperCase()}${selectedAnnotation.shapeKind.slice(1)} Annotation`
-                        : 'Beam Line'
-                  : selection.type === 'optical-table'
-                    ? scene.workspace.kind === 'optical-table'
-                      ? scene.workspace.table.label
-                      : primaryBreadboard.label
-                    : selection.type === 'breadboard'
-                      ? breadboardInstances.find(
-                          (breadboard) => breadboard.id === selection.surfaceId,
-                        )?.label ?? primaryBreadboard.label
-                      : primaryBreadboard.label}
-            </span>
-            {selectedBeam.segment ? (
-              <span>
-            Beam {selectedBeam.segment.pathId} • {selectedBeam.segment.powerMw.toFixed(2)} mW
-              </span>
-            ) : null}
-            {selectedGaussianSegment ? (
-              <span>
-                Spot radius {selectedGaussianSegment.end.spotRadiusMm.toFixed(3)} mm
-              </span>
-            ) : null}
+            <span data-testid="status-board">Board: {statusBoardLabel}</span>
+            <span data-testid="status-zoom">{viewport.zoomPxPerMm.toFixed(2)} px/mm</span>
             {interaction.notice ? (
               <span className="canvas-status__warning">{interaction.notice}</span>
             ) : null}
@@ -1984,6 +2122,14 @@ function App() {
               <span className="canvas-status__warning">{svgImportNotice}</span>
             ) : null}
           </div>
+
+          <CanvasContextMenu
+            actions={contextMenuActions}
+            isOpen={Boolean(contextMenuState) && contextMenuActions.length > 0}
+            onClose={() => setContextMenuState(undefined)}
+            x={contextMenuState?.x ?? 0}
+            y={contextMenuState?.y ?? 0}
+          />
         </section>
 
         <div className="workspace__right-panel">

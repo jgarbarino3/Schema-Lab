@@ -46,6 +46,25 @@ export function rotatePointQuarterTurns(
   }
 }
 
+export function rotatePointAroundCenterQuarterTurns(
+  pointMm: Vector2Mm,
+  centerMm: Vector2Mm,
+  quarterTurns: QuarterTurn,
+): Vector2Mm {
+  const rotatedPoint = rotatePointQuarterTurns(
+    {
+      x: roundMm(pointMm.x - centerMm.x),
+      y: roundMm(pointMm.y - centerMm.y),
+    },
+    quarterTurns,
+  )
+
+  return {
+    x: roundMm(centerMm.x + rotatedPoint.x),
+    y: roundMm(centerMm.y + rotatedPoint.y),
+  }
+}
+
 export function rotateCardinalDirection(
   direction: CardinalDirection,
   quarterTurns: QuarterTurn,
@@ -84,6 +103,70 @@ export function rotateBoundsQuarterTurns(
     width: roundMm(maximumX - minimumX),
     height: roundMm(maximumY - minimumY),
   }
+}
+
+export function getBoundsCenterMm(boundsMm: BoundsMm): Vector2Mm {
+  return {
+    x: roundMm(boundsMm.x + boundsMm.width / 2),
+    y: roundMm(boundsMm.y + boundsMm.height / 2),
+  }
+}
+
+export function boundsFromPointsMm(
+  firstPointMm: Vector2Mm,
+  secondPointMm: Vector2Mm,
+): BoundsMm {
+  const minimumX = Math.min(firstPointMm.x, secondPointMm.x)
+  const minimumY = Math.min(firstPointMm.y, secondPointMm.y)
+  const maximumX = Math.max(firstPointMm.x, secondPointMm.x)
+  const maximumY = Math.max(firstPointMm.y, secondPointMm.y)
+
+  return {
+    x: roundMm(minimumX),
+    y: roundMm(minimumY),
+    width: roundMm(maximumX - minimumX),
+    height: roundMm(maximumY - minimumY),
+  }
+}
+
+export function unionBoundsMm(boundsItems: BoundsMm[]): BoundsMm | undefined {
+  const [firstBounds, ...remainingBounds] = boundsItems
+
+  if (!firstBounds) {
+    return undefined
+  }
+
+  return remainingBounds.reduce<BoundsMm>(
+    (mergedBounds, boundsMm) => {
+      const minimumX = Math.min(mergedBounds.x, boundsMm.x)
+      const minimumY = Math.min(mergedBounds.y, boundsMm.y)
+      const maximumX = Math.max(
+        mergedBounds.x + mergedBounds.width,
+        boundsMm.x + boundsMm.width,
+      )
+      const maximumY = Math.max(
+        mergedBounds.y + mergedBounds.height,
+        boundsMm.y + boundsMm.height,
+      )
+
+      return {
+        x: roundMm(minimumX),
+        y: roundMm(minimumY),
+        width: roundMm(maximumX - minimumX),
+        height: roundMm(maximumY - minimumY),
+      }
+    },
+    firstBounds,
+  )
+}
+
+export function boundsIntersectMm(firstBounds: BoundsMm, secondBounds: BoundsMm) {
+  return !(
+    firstBounds.x + firstBounds.width < secondBounds.x ||
+    secondBounds.x + secondBounds.width < firstBounds.x ||
+    firstBounds.y + firstBounds.height < secondBounds.y ||
+    secondBounds.y + secondBounds.height < firstBounds.y
+  )
 }
 
 export function worldToScreen(
@@ -128,6 +211,66 @@ export function panViewportByScreenDelta(
       ),
       y: roundMm(
         viewport.cameraCenterMm.y + deltaPx.y / viewport.zoomPxPerMm,
+      ),
+    },
+  }
+}
+
+function getRequiredVisibleSpanMm(
+  boundsSpanMm: number,
+  viewportSpanMm: number,
+  options?: {
+    maxVisibleViewportFraction?: number
+    minVisibleFraction?: number
+    minVisibleMm?: number
+  },
+) {
+  const minVisibleFraction = options?.minVisibleFraction ?? 0.18
+  const minVisibleMm = options?.minVisibleMm ?? 140
+  const maxVisibleViewportFraction = options?.maxVisibleViewportFraction ?? 0.92
+  const minimumVisibleSpanMm = Math.max(boundsSpanMm * minVisibleFraction, minVisibleMm)
+
+  return Math.min(boundsSpanMm, minimumVisibleSpanMm, viewportSpanMm * maxVisibleViewportFraction)
+}
+
+export function clampViewportToKeepBoundsVisible(
+  viewport: ViewportState,
+  boundsMm: BoundsMm,
+  options?: {
+    maxVisibleViewportFraction?: number
+    minVisibleFraction?: number
+    minVisibleMm?: number
+  },
+): ViewportState {
+  const viewportWidthMm = Math.max(1, viewport.canvasSizePx.width / viewport.zoomPxPerMm)
+  const viewportHeightMm = Math.max(1, viewport.canvasSizePx.height / viewport.zoomPxPerMm)
+  const halfViewportWidthMm = viewportWidthMm / 2
+  const halfViewportHeightMm = viewportHeightMm / 2
+  const requiredVisibleWidthMm = getRequiredVisibleSpanMm(
+    boundsMm.width,
+    viewportWidthMm,
+    options,
+  )
+  const requiredVisibleHeightMm = getRequiredVisibleSpanMm(
+    boundsMm.height,
+    viewportHeightMm,
+    options,
+  )
+  const minimumCameraCenterX = boundsMm.x - halfViewportWidthMm + requiredVisibleWidthMm
+  const maximumCameraCenterX =
+    boundsMm.x + boundsMm.width + halfViewportWidthMm - requiredVisibleWidthMm
+  const minimumCameraCenterY = boundsMm.y - halfViewportHeightMm + requiredVisibleHeightMm
+  const maximumCameraCenterY =
+    boundsMm.y + boundsMm.height + halfViewportHeightMm - requiredVisibleHeightMm
+
+  return {
+    ...viewport,
+    cameraCenterMm: {
+      x: roundMm(
+        clamp(viewport.cameraCenterMm.x, minimumCameraCenterX, maximumCameraCenterX),
+      ),
+      y: roundMm(
+        clamp(viewport.cameraCenterMm.y, minimumCameraCenterY, maximumCameraCenterY),
       ),
     },
   }

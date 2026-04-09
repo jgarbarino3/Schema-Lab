@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from 'react'
+import { useEffect, useState, useMemo, type CSSProperties, type ReactNode } from 'react'
 import {
   ANNOTATION_FONT_OPTIONS,
   ANNOTATION_SHAPE_OPTIONS,
@@ -29,6 +29,7 @@ import {
   isOpticalTarget,
   isPostMountedType,
   DEFAULT_POST_HOLDER_DIAMETER_MM,
+  supportsSimpleGlyphAppearance,
   supportsMountToggle,
 } from '../domain/componentCatalog'
 import { inspectSceneComponentPlacement } from '../domain/placement'
@@ -60,6 +61,15 @@ import type {
 } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 
+const SIMPLE_APPEARANCE_SWATCHS = [
+  '#f4fbff',
+  '#ffc9b8',
+  '#ffe08c',
+  '#90f0d6',
+  '#9dd2ff',
+  '#f0b0ff',
+] as const
+
 interface InspectorPanelProps {
   beamTrace: BeamTraceResult
   gaussianTrace: GaussianTraceResult
@@ -81,36 +91,87 @@ function Field({ children, label }: FieldProps) {
 }
 
 interface NumberFieldProps {
+  displayPrecision?: number
   label: string
   onChange: (value: number) => void
+  selectAllOnFocus?: boolean
   step?: number
   suffix?: string
   value: number
 }
 
+function formatNumberFieldValue(value: number, displayPrecision?: number) {
+  if (displayPrecision === undefined) {
+    return String(value)
+  }
+
+  return String(Number(value.toFixed(displayPrecision)))
+}
+
 function NumberField({
+  displayPrecision,
   label,
   onChange,
+  selectAllOnFocus = false,
   step = 0.1,
   suffix,
   value,
 }: NumberFieldProps) {
+  const [isFocused, setIsFocused] = useState(false)
+  const [draftValue, setDraftValue] = useState(String(value))
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraftValue(String(value))
+    }
+  }, [isFocused, value])
+
+  const commitValue = () => {
+    if (draftValue.trim() === '') {
+      setDraftValue(String(value))
+      setIsFocused(false)
+      return
+    }
+
+    const nextValue = Number(draftValue)
+
+    if (Number.isFinite(nextValue)) {
+      onChange(nextValue)
+      setDraftValue(String(nextValue))
+    } else {
+      setDraftValue(String(value))
+    }
+
+    setIsFocused(false)
+  }
+
   const input = (
     <input
       onChange={(event) => {
-        if (event.target.value === '') {
-          return
+        setDraftValue(event.target.value)
+      }}
+      onBlur={() => {
+        commitValue()
+      }}
+      onFocus={(event) => {
+        setIsFocused(true)
+        setDraftValue(String(value))
+        if (selectAllOnFocus) {
+          window.requestAnimationFrame(() => {
+            event.currentTarget.select()
+          })
         }
-
-        const nextValue = Number(event.target.value)
-
-        if (Number.isFinite(nextValue)) {
-          onChange(nextValue)
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setDraftValue(String(value))
+          event.currentTarget.blur()
         }
       }}
       step={step}
       type="number"
-      value={value}
+      value={isFocused ? draftValue : formatNumberFieldValue(value, displayPrecision)}
     />
   )
 
@@ -130,23 +191,34 @@ function NumberField({
 
 interface CollapsibleSectionProps {
   children: ReactNode
+  className?: string
   defaultOpen?: boolean
+  summary?: ReactNode
   title: string
 }
 
-function CollapsibleSection({ children, defaultOpen = false, title }: CollapsibleSectionProps) {
+function CollapsibleSection({
+  children,
+  className,
+  defaultOpen = false,
+  summary,
+  title,
+}: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   return (
-    <div className="inspector__subsection">
+    <div className={`inspector__subsection${className ? ` ${className}` : ''}`}>
       <button
         className="inspector__section-toggle"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
-        <span className="inspector__section-chevron">
-          {isOpen ? '\u25BE' : '\u25B8'}
-        </span>
-        <h3>{title}</h3>
+        <div className="inspector__section-toggle-title">
+          <span className="inspector__section-chevron">
+            {isOpen ? '\u25BE' : '\u25B8'}
+          </span>
+          <h3>{title}</h3>
+        </div>
+        {!isOpen && summary ? <div className="inspector__section-summary">{summary}</div> : null}
       </button>
       {isOpen ? <div className="inspector__section-body">{children}</div> : null}
     </div>
@@ -156,14 +228,32 @@ function CollapsibleSection({ children, defaultOpen = false, title }: Collapsibl
 function StepperButton({
   label,
   onClick,
+  size = 'default',
 }: {
   label: string
   onClick: () => void
+  size?: 'default' | 'mini'
 }) {
   return (
-    <button className="inspector__stepper" onClick={onClick} type="button">
+    <button
+      className={`inspector__stepper${size === 'mini' ? ' inspector__stepper--mini' : ''}`}
+      onClick={onClick}
+      type="button"
+    >
       {label}
     </button>
+  )
+}
+
+function SummaryChips({ chips }: { chips: string[] }) {
+  return (
+    <div className="inspector__summary-chips" aria-hidden="true">
+      {chips.map((chip) => (
+        <span className="inspector__summary-chip" key={chip}>
+          {chip}
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -293,14 +383,6 @@ function formatMountMode(mode: string) {
   }
 }
 
-function formatPlacementStatus(status: string, reason: string) {
-  if (reason === 'none') {
-    return status
-  }
-
-  return `${status} • ${reason}`
-}
-
 function formatDirection(port: WorldPort) {
   return port.worldDirection.charAt(0).toUpperCase() + port.worldDirection.slice(1)
 }
@@ -399,9 +481,11 @@ function formatEventOutputs(event: BeamInteractionEvent) {
 
 function BeamInspectionSection({
   beamTrace,
+  defaultOpen = false,
   gaussianTrace,
 }: {
   beamTrace: BeamTraceResult
+  defaultOpen?: boolean
   gaussianTrace: GaussianTraceResult
 }) {
   const interaction = useEditorStore((state) => state.interaction)
@@ -454,9 +538,7 @@ function BeamInspectionSection({
   }
 
   return (
-    <div className="inspector__subsection">
-      <h3>Beam Inspection</h3>
-
+    <CollapsibleSection defaultOpen={defaultOpen} title="Beam Inspection">
       <div className="inspector__readout">
         <div>
           <span>Source</span>
@@ -689,7 +771,7 @@ function BeamInspectionSection({
           ))}
         </div>
       ) : null}
-    </div>
+    </CollapsibleSection>
   )
 }
 
@@ -745,7 +827,6 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
-  const snapMode = useEditorStore((state) => state.snapMode)
   const interactionNotice = useEditorStore((state) => state.interaction.notice)
   const activeHostSurfaceId = useEditorStore(
     (state) => state.interaction.activeHostSurfaceId,
@@ -850,6 +931,12 @@ export function InspectorPanel({
   const updateSelectedPostHolderDiameter = useEditorStore(
     (state) => state.updateSelectedPostHolderDiameter,
   )
+  const setSimpleGlyphAppearance = useEditorStore(
+    (state) => state.setSimpleGlyphAppearance,
+  )
+  const simpleGlyphAppearances = useEditorStore(
+    (state) => state.simpleGlyphAppearances,
+  )
   const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
   const applySupportToType = useEditorStore((state) => state.applySupportToType)
   const setMountDefaultForType = useEditorStore(
@@ -885,15 +972,7 @@ export function InspectorPanel({
         anchorMm: pendingPlacement.candidateAnchorMm,
       }
     : selectedComponent
-  const inspectorMode = pendingPlacement || pendingBreadboardPlacement
-    ? 'Pending Placement'
-    : selectedAnnotation
-      ? 'Selected Annotation'
-    : inspectedComponent
-      ? 'Selected Component'
-      : selection.type === 'optical-table'
-        ? 'Optical Table'
-        : 'Breadboard'
+  const inspectedComponentId = pendingPlacement?.draft.id ?? selectedComponent?.id
   const primaryBreadboard = getWorkspacePrimaryBreadboard(scene)
   const opticalTable = getOpticalTable(scene)
   const breadboardInstances = getBreadboardInstances(scene)
@@ -923,14 +1002,19 @@ export function InspectorPanel({
     return (
       <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
         <div className="panel__header">
-          <span className="panel__eyebrow">{inspectorMode}</span>
           <div className="panel__header-top">
             <div>
-              <h2>Annotation Inspector</h2>
-              <p>
-                Fine-tune freeform notes, labels, and diagram shapes placed directly on
-                the canvas.
-              </p>
+              <h2>
+                {selectedAnnotation.kind === 'text'
+                  ? 'Text annotation'
+                  : selectedAnnotation.kind === 'shape'
+                    ? `${selectedAnnotation.shapeKind[0]!.toUpperCase()}${selectedAnnotation.shapeKind.slice(1)} annotation`
+                    : 'Line annotation'}
+              </h2>
+              <span className="panel__meta-text">
+                {selectedAnnotation.locked ? 'Locked' : 'Editable'} ·{' '}
+                {selectedAnnotation.hidden ? 'Hidden' : 'Visible'}
+              </span>
             </div>
             <button
               className="panel__collapse-button"
@@ -1471,19 +1555,43 @@ export function InspectorPanel({
     const activeSourceCount = scene.components.filter(
       (component) => component.config.source?.isEnabled,
     ).length
+    const boardSummaryChips = [
+      `${activeBreadboard.widthMm.toFixed(0)} × ${activeBreadboard.heightMm.toFixed(0)} mm`,
+      `${effectivePitchMm.toFixed(1)} mm pitch`,
+      activeBreadboard.finish === 'black-anodized' ? 'Black anodized' : 'Clear anodized',
+    ]
+    const boardConstructionChips = [
+      `${activeBreadboard.thicknessMm.toFixed(1)} mm`,
+      activeBreadboard.holeDensity === 'double' ? 'Double density' : 'Single density',
+      activeBreadboard.counterborePattern === 'none' ? 'No counterbores' : 'Corner counterbores',
+    ]
+    const tableConstructionChips = opticalTable
+      ? [
+          `${opticalTable.thicknessMm.toFixed(1)} mm`,
+          opticalTable.holeDensity === 'double' ? 'Double density' : 'Single density',
+          opticalTable.counterborePattern === 'none' ? 'No counterbores' : 'Corner counterbores',
+        ]
+      : []
 
     return (
       <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
         <div className="panel__header">
-          <span className="panel__eyebrow">{inspectorMode}</span>
           <div className="panel__header-top">
             <div>
-              <h2>{pendingBreadboardPlacement ? 'Pending Breadboard' : 'Breadboard Inspector'}</h2>
-              <p>
+              <h2>
                 {pendingBreadboardPlacement
-                  ? 'Adjust the breadboard preset or dimensions before you place it on the optical table.'
-                  : 'Board geometry, launch-edge defaults, and deterministic beam-scene settings.'}
-              </p>
+                  ? `Pending ${boardLabel}`
+                  : selection.type === 'optical-table' && opticalTable
+                    ? opticalTable.label
+                    : boardLabel}
+              </h2>
+              <span className="panel__meta-text">
+                {pendingBreadboardPlacement
+                  ? 'Adjust the preset and dimensions before placement.'
+                  : selection.type === 'optical-table' && opticalTable
+                    ? 'Table geometry and host surfaces.'
+                    : 'Board settings and beam defaults.'}
+              </span>
             </div>
             <button
               className="panel__collapse-button"
@@ -1500,26 +1608,18 @@ export function InspectorPanel({
           <BeamInspectionSection beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
 
           <div className="inspector__subsection">
-            <h3>{opticalTable && selection.type === 'optical-table' ? 'Optical Table' : 'Board'}</h3>
-
-            {opticalTable ? (
-              <div className="inspector__notice">
-                {pendingBreadboardPlacement ? (
-                  <>
-                    Optical table mode is active. You are editing a pending breadboard preview for{' '}
-                    <strong>{boardLabel}</strong>.
-                  </>
-                ) : (
-                  <>
-                    Optical table mode is active. You are editing{' '}
-                    <strong>{boardLabel}</strong> as the current breadboard surface.
-                  </>
-                )}
-              </div>
-            ) : null}
-
             {opticalTable && selection.type === 'optical-table' ? (
-              <>
+              <CollapsibleSection
+                summary={
+                  <SummaryChips
+                    chips={[
+                      `${opticalTable.widthMm.toFixed(0)} × ${opticalTable.heightMm.toFixed(0)} mm`,
+                      `${opticalTable.holeSpacingMm.toFixed(1)} mm pitch`,
+                    ]}
+                  />
+                }
+                title="Table settings"
+              >
                 <div className="inspector__grid">
                   <NumberField
                     label="Table width"
@@ -1551,193 +1651,234 @@ export function InspectorPanel({
                   />
                 </div>
 
+                <CollapsibleSection
+                  summary={<SummaryChips chips={tableConstructionChips} />}
+                  title="Table construction"
+                >
+                  <div className="inspector__grid">
+                    <NumberField
+                      label="Thickness"
+                      suffix="mm"
+                      onChange={(thicknessMm) => updateOpticalTable({ thicknessMm })}
+                      step={0.5}
+                      value={opticalTable.thicknessMm}
+                    />
+                    <Field label="Hole density">
+                      <select
+                        onChange={(event) =>
+                          updateOpticalTable({
+                            holeDensity:
+                              event.target.value as typeof opticalTable.holeDensity,
+                          })
+                        }
+                        value={opticalTable.holeDensity}
+                      >
+                        <option value="single">Single density</option>
+                        <option value="double">Double density</option>
+                      </select>
+                    </Field>
+                    <Field label="Counterbores">
+                      <select
+                        onChange={(event) =>
+                          updateOpticalTable({
+                            counterborePattern:
+                              event.target.value as typeof opticalTable.counterborePattern,
+                          })
+                        }
+                        value={opticalTable.counterborePattern}
+                      >
+                        <option value="corner-25mm">Corner 25 mm inset</option>
+                        <option value="none">None</option>
+                      </select>
+                    </Field>
+                  </div>
+                </CollapsibleSection>
+              </CollapsibleSection>
+            ) : null}
+
+            <CollapsibleSection
+              defaultOpen={Boolean(pendingBreadboardPlacement)}
+              summary={<SummaryChips chips={boardSummaryChips} />}
+              title="Board settings"
+            >
+              {opticalTable ? (
+                <div className="inspector__notice">
+                  {pendingBreadboardPlacement ? (
+                    <>
+                      Optical table mode is active. You are editing a pending breadboard preview for{' '}
+                      <strong>{boardLabel}</strong>.
+                    </>
+                  ) : (
+                    <>
+                      Optical table mode is active. You are editing{' '}
+                      <strong>{boardLabel}</strong> as the current breadboard surface.
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              <Field label="Preset">
+                <select
+                  onChange={(event) => {
+                    if (event.target.value !== 'custom') {
+                      applyBreadboardPreset(event.target.value)
+                    }
+                  }}
+                  value={activeBreadboard.presetId ?? 'custom'}
+                >
+                  {BREADBOARD_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+
+              <Field label="Label">
+                <input
+                  onChange={(event) =>
+                    updateBreadboard({
+                      label: event.target.value,
+                    })
+                  }
+                  type="text"
+                  value={boardLabel}
+                />
+              </Field>
+
+              {activeBreadboardInstance && opticalTable ? (
+                <div className="inspector__grid">
+                  <NumberField
+                    label="X position"
+                    suffix="mm"
+                    onChange={(x) =>
+                      updateBreadboardPosition(activeBreadboardInstance.id, {
+                        x,
+                        y: activeBreadboardInstance.anchorMm.y,
+                      })
+                    }
+                    step={1}
+                    value={activeBreadboardInstance.anchorMm.x}
+                  />
+                  <NumberField
+                    label="Y position"
+                    suffix="mm"
+                    onChange={(y) =>
+                      updateBreadboardPosition(activeBreadboardInstance.id, {
+                        x: activeBreadboardInstance.anchorMm.x,
+                        y,
+                      })
+                    }
+                    step={1}
+                    value={activeBreadboardInstance.anchorMm.y}
+                  />
+                </div>
+              ) : null}
+
+              <div className="inspector__grid">
+                <NumberField
+                  label="Width"
+                  suffix="mm"
+                  onChange={(widthMm) => updateBreadboard({ widthMm })}
+                  step={1}
+                  value={activeBreadboard.widthMm}
+                />
+                <NumberField
+                  label="Height"
+                  suffix="mm"
+                  onChange={(heightMm) => updateBreadboard({ heightMm })}
+                  step={1}
+                  value={activeBreadboard.heightMm}
+                />
+                <NumberField
+                  label="Hole spacing"
+                  suffix="mm"
+                  onChange={(holeSpacingMm) => updateBreadboard({ holeSpacingMm })}
+                  step={0.5}
+                  value={activeBreadboard.holeSpacingMm}
+                />
+                <NumberField
+                  label="Edge margin"
+                  suffix="mm"
+                  onChange={(edgeMarginMm) => updateBreadboard({ edgeMarginMm })}
+                  step={0.5}
+                  value={activeBreadboard.edgeMarginMm}
+                />
+              </div>
+
+              <CollapsibleSection
+                summary={<SummaryChips chips={boardConstructionChips} />}
+                title="Board construction"
+              >
                 <div className="inspector__grid">
                   <NumberField
                     label="Thickness"
                     suffix="mm"
-                    onChange={(thicknessMm) => updateOpticalTable({ thicknessMm })}
-                    step={0.5}
-                    value={opticalTable.thicknessMm}
+                    onChange={(thicknessMm) => updateBreadboard({ thicknessMm })}
+                    step={0.1}
+                    value={activeBreadboard.thicknessMm}
                   />
+
+                  <Field label="Finish">
+                    <select
+                      onChange={(event) =>
+                        updateBreadboard({
+                          finish: event.target.value as typeof activeBreadboard.finish,
+                        })
+                      }
+                      value={activeBreadboard.finish}
+                    >
+                      <option value="black-anodized">Black anodized</option>
+                      <option value="clear-anodized">Clear anodized</option>
+                    </select>
+                  </Field>
+
                   <Field label="Hole density">
                     <select
                       onChange={(event) =>
-                        updateOpticalTable({
+                        updateBreadboard({
                           holeDensity:
-                            event.target.value as typeof opticalTable.holeDensity,
+                            event.target.value as typeof activeBreadboard.holeDensity,
                         })
                       }
-                      value={opticalTable.holeDensity}
+                      value={activeBreadboard.holeDensity}
                     >
                       <option value="single">Single density</option>
                       <option value="double">Double density</option>
                     </select>
                   </Field>
+
+                  <Field label="Counterbores">
+                    <select
+                      onChange={(event) =>
+                        updateBreadboard({
+                          counterborePattern:
+                            event.target.value as typeof activeBreadboard.counterborePattern,
+                        })
+                      }
+                      value={activeBreadboard.counterborePattern}
+                    >
+                      <option value="corner-25mm">Corner 25 mm inset</option>
+                      <option value="none">None</option>
+                    </select>
+                  </Field>
                 </div>
-              </>
-            ) : null}
+              </CollapsibleSection>
+            </CollapsibleSection>
 
-            <Field label="Preset">
-              <select
-                onChange={(event) => {
-                  if (event.target.value !== 'custom') {
-                    applyBreadboardPreset(event.target.value)
-                  }
-                }}
-                value={activeBreadboard.presetId ?? 'custom'}
-              >
-                {BREADBOARD_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.label}
-                  </option>
-                ))}
-                <option value="custom">Custom</option>
-              </select>
-            </Field>
-
-            <Field label="Label">
-              <input
-                onChange={(event) =>
-                  updateBreadboard({
-                    label: event.target.value,
-                  })
+            {opticalTable ? (
+              <CollapsibleSection
+                summary={
+                  <SummaryChips
+                    chips={[
+                      `${breadboardInstances.length} breadboards`,
+                      `${opticalTable.widthMm.toFixed(0)} × ${opticalTable.heightMm.toFixed(0)} mm`,
+                    ]}
+                  />
                 }
-                type="text"
-                value={boardLabel}
-              />
-            </Field>
-
-            {activeBreadboardInstance && opticalTable ? (
-              <div className="inspector__grid">
-                <NumberField
-                  label="X position"
-                    suffix="mm"
-                  onChange={(x) =>
-                    updateBreadboardPosition(activeBreadboardInstance.id, {
-                      x,
-                      y: activeBreadboardInstance.anchorMm.y,
-                    })
-                  }
-                  step={1}
-                  value={activeBreadboardInstance.anchorMm.x}
-                />
-                <NumberField
-                  label="Y position"
-                    suffix="mm"
-                  onChange={(y) =>
-                    updateBreadboardPosition(activeBreadboardInstance.id, {
-                      x: activeBreadboardInstance.anchorMm.x,
-                      y,
-                    })
-                  }
-                  step={1}
-                  value={activeBreadboardInstance.anchorMm.y}
-                />
-              </div>
-            ) : null}
-
-            <div className="inspector__grid">
-              <NumberField
-                label="Width"
-                    suffix="mm"
-                onChange={(widthMm) => updateBreadboard({ widthMm })}
-                step={1}
-                value={activeBreadboard.widthMm}
-              />
-              <NumberField
-                label="Height"
-                    suffix="mm"
-                onChange={(heightMm) => updateBreadboard({ heightMm })}
-                step={1}
-                value={activeBreadboard.heightMm}
-              />
-              <NumberField
-                label="Hole spacing"
-                    suffix="mm"
-                onChange={(holeSpacingMm) => updateBreadboard({ holeSpacingMm })}
-                step={0.5}
-                value={activeBreadboard.holeSpacingMm}
-              />
-              <NumberField
-                label="Edge margin"
-                    suffix="mm"
-                onChange={(edgeMarginMm) => updateBreadboard({ edgeMarginMm })}
-                step={0.5}
-                value={activeBreadboard.edgeMarginMm}
-              />
-              <NumberField
-                label="Thickness"
-                    suffix="mm"
-                onChange={(thicknessMm) => updateBreadboard({ thicknessMm })}
-                step={0.1}
-                value={activeBreadboard.thicknessMm}
-              />
-            </div>
-
-            <div className="inspector__grid">
-              <Field label="Finish">
-                <select
-                  onChange={(event) =>
-                    updateBreadboard({
-                      finish: event.target.value as typeof activeBreadboard.finish,
-                    })
-                  }
-                  value={activeBreadboard.finish}
-                >
-                  <option value="black-anodized">Black anodized</option>
-                  <option value="clear-anodized">Clear anodized</option>
-                </select>
-              </Field>
-
-              <Field label="Hole density">
-                <select
-                  onChange={(event) =>
-                    updateBreadboard({
-                      holeDensity:
-                        event.target.value as typeof activeBreadboard.holeDensity,
-                    })
-                  }
-                  value={activeBreadboard.holeDensity}
-                >
-                  <option value="single">Single density</option>
-                  <option value="double">Double density</option>
-                </select>
-              </Field>
-
-              <Field label="Counterbores">
-                <select
-                  onChange={(event) =>
-                    updateBreadboard({
-                      counterborePattern:
-                        event.target.value as typeof activeBreadboard.counterborePattern,
-                    })
-                  }
-                  value={activeBreadboard.counterborePattern}
-                >
-                  <option value="corner-25mm">Corner 25 mm inset</option>
-                  <option value="none">None</option>
-                </select>
-              </Field>
-            </div>
-
-            {opticalTable ? (
-              <div className="inspector__readout">
-                <div>
-                  <span>Table size</span>
-                  <strong>
-                    {opticalTable.widthMm.toFixed(0)} × {opticalTable.heightMm.toFixed(0)} mm
-                  </strong>
-                </div>
-                <div>
-                  <span>Breadboards on table</span>
-                  <strong>{breadboardInstances.length}</strong>
-                </div>
-              </div>
-            ) : null}
-
-            {opticalTable ? (
-              <div className="inspector__subsection">
-                <h3>Host Surfaces</h3>
+                title="Host surfaces"
+              >
                 <div className="inspector__list">
                   <button
                     className={`inspector__list-item${activeHostSurfaceId === 'optical-table' ? ' is-active-host' : ''}`}
@@ -1775,7 +1916,7 @@ export function InspectorPanel({
                     </button>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
             ) : null}
           </div>
 
@@ -1793,16 +1934,6 @@ export function InspectorPanel({
             <div>
               <span>Effective pitch</span>
               <strong>{effectivePitchMm.toFixed(1)} mm</strong>
-            </div>
-            <div>
-              <span>Snap mode</span>
-              <strong>
-                {snapMode === 'always'
-                  ? 'Always'
-                  : snapMode === 'onDrop'
-                    ? 'On drop'
-                    : 'None'}
-              </strong>
             </div>
             <div>
               <span>Active sources</span>
@@ -1892,10 +2023,36 @@ export function InspectorPanel({
 
   const definition = getComponentDefinition(inspectedComponent.type)
   const spec = getResolvedComponentSpecForInstance(inspectedComponent)
+  const simpleGlyphAppearance = inspectedComponentId
+    ? simpleGlyphAppearances[inspectedComponentId]
+    : undefined
   const variants = getComponentVariants(inspectedComponent.type)
   const worldPorts = getWorldPortsForComponent(inspectedComponent, spec)
   const rotatedFootprint = getRotatedFootprintBoundsMm(inspectedComponent, spec)
+  const footprintSizeLabel = `${spec.footprintBoundsMm.width.toFixed(1)} × ${spec.footprintBoundsMm.height.toFixed(1)} mm`
+  const rotatedBoundsSizeLabel = `${rotatedFootprint.width.toFixed(1)} × ${rotatedFootprint.height.toFixed(1)} mm`
+  const showRotatedBounds =
+    Math.abs(rotatedFootprint.width - spec.footprintBoundsMm.width) > 0.05 ||
+    Math.abs(rotatedFootprint.height - spec.footprintBoundsMm.height) > 0.05
   const placement = inspectSceneComponentPlacement(scene, inspectedComponent, spec)
+  const placementNotice = describePlacementReason(placement.reason)
+  const placementStateLabel =
+    placement.status.charAt(0).toUpperCase() + placement.status.slice(1)
+  const placementStatusLabel =
+    placement.reason !== 'none'
+      ? `${placement.status === 'warning' ? 'Warning' : placementStateLabel} (${placement.reason})`
+      : placementStateLabel
+  const showSimpleAppearanceStrip =
+    placement.reason === 'none' && supportsSimpleGlyphAppearance(spec)
+  const effectiveSimpleGlyphAppearance = simpleGlyphAppearance ?? {
+    color: SIMPLE_APPEARANCE_SWATCHS[0],
+    scale: 1,
+    weight: 1,
+  }
+  const isAppearanceCustomized =
+    effectiveSimpleGlyphAppearance.color !== SIMPLE_APPEARANCE_SWATCHS[0] ||
+    Math.abs(effectiveSimpleGlyphAppearance.scale - 1) > 0.001 ||
+    Math.abs(effectiveSimpleGlyphAppearance.weight - 1) > 0.001
   const beamEvents = beamTrace.events.filter(
     (event) => event.componentId === inspectedComponent.id,
   )
@@ -1975,15 +2132,16 @@ export function InspectorPanel({
   return (
     <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
       <div className="panel__header">
-        <span className="panel__eyebrow">{inspectorMode}</span>
         <div className="panel__header-top">
           <div>
-            <h2>{pendingPlacement ? 'Pending Placement' : 'Component Inspector'}</h2>
-            <p>
-              {pendingPlacement
-                ? 'Edit the draft before you place it on the board.'
-                : 'Family, variant, placement, and deterministic beam-domain controls for the selection.'}
-            </p>
+            <h2>{inspectedComponent.label}</h2>
+            {placement.reason !== 'none' ? (
+              <span className="panel__meta-text panel__meta-text--warning">
+                Placement warning: {placementNotice ?? placement.reason}
+              </span>
+            ) : pendingPlacement ? (
+              <span className="panel__meta-text">Pending placement draft</span>
+            ) : null}
           </div>
           <button
             className="panel__collapse-button"
@@ -1997,149 +2155,207 @@ export function InspectorPanel({
       </div>
 
       <div className="inspector__content">
-        <BeamInspectionSection beamTrace={beamTrace} gaussianTrace={gaussianTrace} />
-
-        <div className="inspector__readout">
-          <div>
-            <span>Family</span>
-            <strong>{definition.familyLabel}</strong>
-          </div>
-          <div>
-            <span>Editing</span>
-            <strong>{pendingPlacement ? 'Pending draft' : 'Placed component'}</strong>
-          </div>
-          <div>
-            <span>Variant</span>
-            <strong>{spec.variantLabel}</strong>
-          </div>
-          <div>
-            <span>Category</span>
-            <strong>{COMPONENT_CATEGORY_LABELS[definition.category]}</strong>
-          </div>
-          <div>
-            <span>Mount</span>
-            <strong>{formatMountMode(spec.mount.mode)}</strong>
-          </div>
-          <div>
-            <span>Placement</span>
-            <strong>{formatPlacementStatus(placement.status, placement.reason)}</strong>
-          </div>
-          <div>
-            <span>Footprint</span>
-            <strong>
-              {spec.footprintBoundsMm.width.toFixed(1)} × {spec.footprintBoundsMm.height.toFixed(1)} mm
-            </strong>
-          </div>
-          <div>
-            <span>Rotated bounds</span>
-            <strong>
-              {rotatedFootprint.width.toFixed(1)} × {rotatedFootprint.height.toFixed(1)} mm
-            </strong>
-          </div>
-          <div>
-            <span>Ports</span>
-            <strong>{worldPorts.length}</strong>
-          </div>
-        </div>
-
-        <div className="inspector__context">
-          <p className="inspector__description">{spec.description}</p>
-          {spec.vendor || spec.sku ? (
-            <p className="inspector__meta">
-              {spec.vendor ?? 'Generic'}
-              {spec.sku ? ` • ${spec.sku}` : ''}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="inspector__subsection">
-          <h3>Identity</h3>
-
-          <Field label="Variant / SKU">
-            <select
+        <div className="inspector__subsection inspector__subsection--quick-edit">
+          <div className="inspector__quick-edit-card">
+            <Field label="Variant">
+              <select
                 onChange={(event) => updateSelectedVariant(event.target.value)}
-              value={inspectedComponent.variantId}
-            >
-              {variants.map((variant) => (
-                <option key={variant.id} value={variant.id}>
-                  {variant.vendor && variant.sku
-                    ? `${variant.label} • ${variant.vendor} ${variant.sku}`
-                    : variant.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+                value={inspectedComponent.variantId}
+              >
+                {variants.map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.vendor && variant.sku
+                      ? `${variant.label} • ${variant.vendor} ${variant.sku}`
+                      : variant.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
 
-          <Field label="Label">
-            <input
-              onChange={(event) =>
-                updateSelectedComponent({
-                  label: event.target.value,
-                })
-              }
-              type="text"
-              value={inspectedComponent.label}
-            />
-          </Field>
+            {showSimpleAppearanceStrip ? (
+              <div className="inspector__appearance-card inspector__placement-card--full">
+                <div className="inspector__appearance-header">
+                  <span>Appearance</span>
+                  {isAppearanceCustomized ? (
+                    <button
+                      className="inspector__appearance-reset"
+                      onClick={() =>
+                        setSimpleGlyphAppearance(inspectedComponent.id, {
+                          color: SIMPLE_APPEARANCE_SWATCHS[0],
+                          scale: 1,
+                          weight: 1,
+                        })
+                      }
+                      type="button"
+                    >
+                      Reset
+                    </button>
+                  ) : null}
+                </div>
+                <div className="inspector__appearance-strip">
+                  <div className="inspector__appearance-swatches">
+                    {SIMPLE_APPEARANCE_SWATCHS.map((color) => (
+                      <button
+                        aria-label={`Glyph color ${color}`}
+                        aria-pressed={effectiveSimpleGlyphAppearance.color === color}
+                        className={`inspector__appearance-swatch${effectiveSimpleGlyphAppearance.color === color ? ' is-active' : ''}`}
+                        key={color}
+                        onClick={() =>
+                          setSimpleGlyphAppearance(inspectedComponent.id, { color })
+                        }
+                        style={{ '--appearance-swatch-color': color } as CSSProperties}
+                        type="button"
+                      />
+                    ))}
+                  </div>
+                  <div className="inspector__appearance-step-group">
+                    <div className="inspector__appearance-step-header">
+                      <span>Size</span>
+                      <div className="inspector__button-row inspector__button-row--compact">
+                        <StepperButton
+                          label="-"
+                          onClick={() =>
+                            setSimpleGlyphAppearance(inspectedComponent.id, {
+                              scale: effectiveSimpleGlyphAppearance.scale - 0.08,
+                            })
+                          }
+                          size="mini"
+                        />
+                        <StepperButton
+                          label="+"
+                          onClick={() =>
+                            setSimpleGlyphAppearance(inspectedComponent.id, {
+                              scale: effectiveSimpleGlyphAppearance.scale + 0.08,
+                            })
+                          }
+                          size="mini"
+                        />
+                      </div>
+                    </div>
+                    <span className="inspector__appearance-value">
+                      {effectiveSimpleGlyphAppearance.scale.toFixed(2)}×
+                    </span>
+                  </div>
+                  <div className="inspector__appearance-step-group">
+                    <div className="inspector__appearance-step-header">
+                      <span>Weight</span>
+                      <div className="inspector__button-row inspector__button-row--compact">
+                        <StepperButton
+                          label="-"
+                          onClick={() =>
+                            setSimpleGlyphAppearance(inspectedComponent.id, {
+                              weight: effectiveSimpleGlyphAppearance.weight - 0.08,
+                            })
+                          }
+                          size="mini"
+                        />
+                        <StepperButton
+                          label="+"
+                          onClick={() =>
+                            setSimpleGlyphAppearance(inspectedComponent.id, {
+                              weight: effectiveSimpleGlyphAppearance.weight + 0.08,
+                            })
+                          }
+                          size="mini"
+                        />
+                      </div>
+                    </div>
+                    <span className="inspector__appearance-value">
+                      {effectiveSimpleGlyphAppearance.weight.toFixed(2)}×
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="inspector__placement-card inspector__placement-card--full">
+                <span>Placement</span>
+                <strong>{placementStatusLabel}</strong>
+              </div>
+            )}
 
-          <div className="inspector__grid">
-            <NumberField
-              label="Anchor X"
-                    suffix="mm"
-              onChange={(x) =>
-                updateSelectedComponent({
-                  anchorMm: { x, y: inspectedComponent.anchorMm.y },
-                })
-              }
-              step={0.5}
-              value={inspectedComponent.anchorMm.x}
-            />
-            <NumberField
-              label="Anchor Y"
-                    suffix="mm"
-              onChange={(y) =>
-                updateSelectedComponent({
-                  anchorMm: { x: inspectedComponent.anchorMm.x, y },
-                })
-              }
-              step={0.5}
-              value={inspectedComponent.anchorMm.y}
-            />
-
-            {spec.mount.mode !== 'external-source' ? (
-              <Field label="Rotation">
-                <select
+            <div className="inspector__quick-edit-split">
+              <Field label="Label">
+                <input
                   onChange={(event) =>
                     updateSelectedComponent({
-                      rotationQuarterTurns: Number(event.target.value) as QuarterTurn,
+                      label: event.target.value,
                     })
                   }
-                  value={inspectedComponent.rotationQuarterTurns}
-                >
-                  <option value={0}>0°</option>
-                  <option value={1}>90°</option>
-                  <option value={2}>180°</option>
-                  <option value={3}>270°</option>
-                </select>
-              </Field>
-            ) : (
-              <Field label="Orientation">
-                <input
-                  readOnly
                   type="text"
-                  value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
+                  value={inspectedComponent.label}
                 />
               </Field>
-            )}
+              {spec.mount.mode !== 'external-source' ? (
+                <Field label="Rotation">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedComponent({
+                        rotationQuarterTurns: Number(event.target.value) as QuarterTurn,
+                      })
+                    }
+                    value={inspectedComponent.rotationQuarterTurns}
+                  >
+                    <option value={0}>0°</option>
+                    <option value={1}>90°</option>
+                    <option value={2}>180°</option>
+                    <option value={3}>270°</option>
+                  </select>
+                </Field>
+              ) : (
+                <Field label="Orientation">
+                  <input
+                    readOnly
+                    type="text"
+                    value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
+                  />
+                </Field>
+              )}
+            </div>
+
+            <div className="inspector__quick-edit-grid inspector__quick-edit-grid--anchors">
+              <NumberField
+                label="Anchor X"
+                onChange={(x) =>
+                  updateSelectedComponent({
+                    anchorMm: { x, y: inspectedComponent.anchorMm.y },
+                  })
+                }
+                displayPrecision={3}
+                step={0.5}
+                selectAllOnFocus
+                suffix="mm"
+                value={inspectedComponent.anchorMm.x}
+              />
+              <NumberField
+                label="Anchor Y"
+                onChange={(y) =>
+                  updateSelectedComponent({
+                    anchorMm: { x: inspectedComponent.anchorMm.x, y },
+                  })
+                }
+                displayPrecision={3}
+                step={0.5}
+                selectAllOnFocus
+                suffix="mm"
+                value={inspectedComponent.anchorMm.y}
+              />
+            </div>
+
+            {placementNotice ? (
+              <p className="inspector__hint inspector__hint--quick-edit">{placementNotice}</p>
+            ) : null}
           </div>
-          {spec.recommendedHardware ? (
+        </div>
+
+        {spec.recommendedHardware && inspectedComponent.type !== 'beamsplitter' ? (
+          <CollapsibleSection title="Recommended settings">
             <div className="inspector__readout">
               <div>
-                <span>Recommended mount</span>
+                <span>Mount</span>
                 <strong>{spec.recommendedHardware.mount ?? 'n/a'}</strong>
               </div>
               <div>
-                <span>Recommended post</span>
+                <span>Post</span>
                 <strong>{spec.recommendedHardware.post ?? 'n/a'}</strong>
               </div>
               <div>
@@ -2147,144 +2363,210 @@ export function InspectorPanel({
                 <strong>{spec.recommendedHardware.clamp ?? 'Optional'}</strong>
               </div>
             </div>
-          ) : null}
-          <CollapsibleSection title="Geometry Overrides">
-            <div className="inspector__grid">
-              <NumberField
-                label="Footprint width"
-                    suffix="mm"
-                onChange={(widthMm) =>
-                  updateSelectedGeometryOverride({
-                    widthMm,
-                    heightMm:
-                      inspectedComponent.geometryOverride?.heightMm ??
-                      spec.footprintBoundsMm.height,
-                  })
-                }
-                step={0.5}
-                value={spec.footprintBoundsMm.width}
-              />
-              <NumberField
-                label="Footprint height"
-                    suffix="mm"
-                onChange={(heightMm) =>
-                  updateSelectedGeometryOverride({
-                    widthMm:
-                      inspectedComponent.geometryOverride?.widthMm ??
-                      spec.footprintBoundsMm.width,
-                    heightMm,
-                  })
-                }
-                step={0.5}
-                value={spec.footprintBoundsMm.height}
-              />
+          </CollapsibleSection>
+        ) : null}
+
+        <CollapsibleSection
+          summary={
+            <SummaryChips
+              chips={[
+                COMPONENT_CATEGORY_LABELS[definition.category],
+                footprintSizeLabel,
+                `${worldPorts.length} ports`,
+              ]}
+            />
+          }
+          title="Component details"
+        >
+          <div className="inspector__readout inspector__readout--details">
+            <div>
+              <span>Family</span>
+              <strong>{definition.familyLabel}</strong>
             </div>
-            {inspectedComponent.geometryOverride ? (
-              <div className="inspector__action-row">
-                <button
-                  className="inspector__action-button"
-                  onClick={() => clearSelectedGeometryOverride()}
-                  type="button"
-                >
-                  Revert to Default Sizing
-                </button>
+            <div>
+              <span>Editing</span>
+              <strong>{pendingPlacement ? 'Pending draft' : 'Placed component'}</strong>
+            </div>
+            <div>
+              <span>Category</span>
+              <strong>{COMPONENT_CATEGORY_LABELS[definition.category]}</strong>
+            </div>
+            <div>
+              <span>Mount</span>
+              <strong>{formatMountMode(spec.mount.mode)}</strong>
+            </div>
+            <div>
+              <span>Footprint</span>
+              <strong>{footprintSizeLabel}</strong>
+            </div>
+            {showRotatedBounds ? (
+              <div>
+                <span>Rotated bounds</span>
+                <strong>{rotatedBoundsSizeLabel}</strong>
               </div>
             ) : null}
+            <div>
+              <span>Ports</span>
+              <strong>{worldPorts.length}</strong>
+            </div>
+          </div>
+
+          <div className="inspector__context">
+            <p className="inspector__description">{spec.description}</p>
+            {spec.vendor || spec.sku ? (
+              <p className="inspector__meta">
+                {spec.vendor ?? 'Generic'}
+                {spec.sku ? ` • ${spec.sku}` : ''}
+              </p>
+            ) : null}
+          </div>
+        </CollapsibleSection>
+
+        <BeamInspectionSection
+          beamTrace={beamTrace}
+          defaultOpen={
+            Boolean(inspectedComponent.config.source) ||
+            beamEvents.length > 0 ||
+            placement.reason !== 'none'
+          }
+          gaussianTrace={gaussianTrace}
+        />
+
+        <CollapsibleSection title="Geometry Overrides">
+          <div className="inspector__grid">
+            <NumberField
+              label="Footprint width"
+              onChange={(widthMm) =>
+                updateSelectedGeometryOverride({
+                  widthMm,
+                  heightMm:
+                    inspectedComponent.geometryOverride?.heightMm ??
+                    spec.footprintBoundsMm.height,
+                })
+              }
+              step={0.5}
+              suffix="mm"
+              value={spec.footprintBoundsMm.width}
+            />
+            <NumberField
+              label="Footprint height"
+              onChange={(heightMm) =>
+                updateSelectedGeometryOverride({
+                  widthMm:
+                    inspectedComponent.geometryOverride?.widthMm ??
+                    spec.footprintBoundsMm.width,
+                  heightMm,
+                })
+              }
+              step={0.5}
+              suffix="mm"
+              value={spec.footprintBoundsMm.height}
+            />
+          </div>
+          {inspectedComponent.geometryOverride ? (
+            <div className="inspector__action-row">
+              <button
+                className="inspector__action-button"
+                onClick={() => clearSelectedGeometryOverride()}
+                type="button"
+              >
+                Revert to Default Sizing
+              </button>
+            </div>
+          ) : null}
+          <p className="inspector__hint">
+            Canvas resize +/- buttons and these numeric fields update the same
+            per-instance geometry override.
+          </p>
+        </CollapsibleSection>
+
+        {isPostMountedType(inspectedComponent.type) ? (
+          <CollapsibleSection title="Post Holder Override">
+            <div className="inspector__grid">
+              <NumberField
+                label="Liquid glass post holder diameter"
+                onChange={(diameterMm) =>
+                  updateSelectedPostHolderDiameter(diameterMm)
+                }
+                step={0.5}
+                suffix="mm"
+                value={
+                  inspectedComponent.config.postHolderDiameterMm ??
+                  DEFAULT_POST_HOLDER_DIAMETER_MM
+                }
+              />
+            </div>
             <p className="inspector__hint">
-              Canvas resize +/- buttons and these numeric fields update the same
-              per-instance geometry override.
+              Visible in canvas when simple mode is active and Show Post Holders is enabled from the More menu.
             </p>
           </CollapsibleSection>
+        ) : null}
+        {supportsMountToggle(inspectedComponent.type) ? (
+          <CollapsibleSection title="Integrated Mount">
+            <div className="inspector__button-row">
+              <button
+                className={
+                  inspectedComponent.config.support?.includeMount !== false
+                    ? 'is-active'
+                    : undefined
+                }
+                onClick={() => updateSelectedSupport(true)}
+                type="button"
+              >
+                Include mount
+              </button>
+              <button
+                className={
+                  inspectedComponent.config.support?.includeMount === false
+                    ? 'is-active'
+                    : undefined
+                }
+                onClick={() => updateSelectedSupport(false)}
+                type="button"
+              >
+                Hide mount
+              </button>
+            </div>
 
-          {isPostMountedType(inspectedComponent.type) ? (
-            <CollapsibleSection title="Post Holder Override">
-              <div className="inspector__grid">
-                <NumberField
-                  label="Liquid glass post holder diameter"
-                    suffix="mm"
-                  onChange={(diameterMm) =>
-                    updateSelectedPostHolderDiameter(diameterMm)
-                  }
-                  step={0.5}
-                  value={
-                    inspectedComponent.config.postHolderDiameterMm ??
-                    DEFAULT_POST_HOLDER_DIAMETER_MM
-                  }
-                />
-              </div>
-              <p className="inspector__hint">
-                Visible in canvas when simple mode is active and "Show Post Holders" is enabled from the bottom toolbar.
-              </p>
-            </CollapsibleSection>
-          ) : null}
-          {supportsMountToggle(inspectedComponent.type) ? (
-            <CollapsibleSection title="Integrated Mount">
-              <div className="inspector__button-row">
-                <button
-                  className={
-                    inspectedComponent.config.support?.includeMount !== false
-                      ? 'is-active'
-                      : undefined
-                  }
-                  onClick={() => updateSelectedSupport(true)}
-                  type="button"
-                >
-                  Include mount
-                </button>
-                <button
-                  className={
-                    inspectedComponent.config.support?.includeMount === false
-                      ? 'is-active'
-                      : undefined
-                  }
-                  onClick={() => updateSelectedSupport(false)}
-                  type="button"
-                >
-                  Hide mount
-                </button>
-              </div>
+            <div className="inspector__button-row">
+              <button
+                onClick={() => applySupportToType(inspectedComponent.type, true)}
+                type="button"
+              >
+                Apply to all {definition.familyLabel.toLowerCase()}s
+              </button>
+              <button
+                onClick={() => setMountDefaultForType(inspectedComponent.type, true)}
+                type="button"
+              >
+                Use for new {definition.familyLabel.toLowerCase()}s
+              </button>
+            </div>
 
-              <div className="inspector__button-row">
-                <button
-                  onClick={() => applySupportToType(inspectedComponent.type, true)}
-                  type="button"
-                >
-                  Apply to all {definition.familyLabel.toLowerCase()}s
-                </button>
-                <button
-                  onClick={() => setMountDefaultForType(inspectedComponent.type, true)}
-                  type="button"
-                >
-                  Use for new {definition.familyLabel.toLowerCase()}s
-                </button>
-              </div>
+            <div className="inspector__button-row">
+              <button
+                onClick={() => applySupportToType(inspectedComponent.type, false)}
+                type="button"
+              >
+                Hide on all {definition.familyLabel.toLowerCase()}s
+              </button>
+              <button
+                onClick={() => setMountDefaultForType(inspectedComponent.type, false)}
+                type="button"
+              >
+                New {definition.familyLabel.toLowerCase()}s start hidden
+              </button>
+            </div>
 
-              <div className="inspector__button-row">
-                <button
-                  onClick={() => applySupportToType(inspectedComponent.type, false)}
-                  type="button"
-                >
-                  Hide on all {definition.familyLabel.toLowerCase()}s
-                </button>
-                <button
-                  onClick={() => setMountDefaultForType(inspectedComponent.type, false)}
-                  type="button"
-                >
-                  New {definition.familyLabel.toLowerCase()}s start hidden
-                </button>
-              </div>
-
-              <p className="inspector__hint">
-                New {definition.familyLabel.toLowerCase()} placements currently default to{' '}
-                {mountVisibilityDefaults[inspectedComponent.type] === false ? 'hidden mounts' : 'included mounts'}.
-              </p>
-            </CollapsibleSection>
-          ) : null}
-          {describePlacementReason(placement.reason) ? (
-            <p className="inspector__hint">{describePlacementReason(placement.reason)}</p>
-          ) : null}
-        </div>
-
+            <p className="inspector__hint">
+              New {definition.familyLabel.toLowerCase()} placements currently default to{' '}
+              {mountVisibilityDefaults[inspectedComponent.type] === false
+                ? 'hidden mounts'
+                : 'included mounts'}
+              .
+            </p>
+          </CollapsibleSection>
+        ) : null}
         {inspectedComponent.config.source ? (
           <div className="inspector__subsection">
             <h3>Laser Source</h3>
@@ -2787,6 +3069,25 @@ export function InspectorPanel({
               </div>
             </div>
           </div>
+        ) : null}
+
+        {spec.recommendedHardware && inspectedComponent.type === 'beamsplitter' ? (
+          <CollapsibleSection title="Recommended settings">
+            <div className="inspector__readout">
+              <div>
+                <span>Mount</span>
+                <strong>{spec.recommendedHardware.mount ?? 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Post</span>
+                <strong>{spec.recommendedHardware.post ?? 'n/a'}</strong>
+              </div>
+              <div>
+                <span>Clamp</span>
+                <strong>{spec.recommendedHardware.clamp ?? 'Optional'}</strong>
+              </div>
+            </div>
+          </CollapsibleSection>
         ) : null}
 
         {inspectedComponent.type === 'iris' && inspectedComponent.config.iris ? (

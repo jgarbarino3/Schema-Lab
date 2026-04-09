@@ -34,9 +34,11 @@ interface AnnotationsLayerProps {
   annotations: SceneAnnotation[]
   editingTextAnnotationId?: string
   editingTextDraftText?: string
+  highlightedAnnotationIds?: string[]
   onAnnotationToolClick?: (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => void
+  onOpenContextMenu?: (annotationId: string, pointPx: ScreenPointPx) => void
   onResizeSelectedShape?: (
     update: {
       boundsMm?: {
@@ -69,8 +71,16 @@ function isAnnotationSelectionTool(activeTool: ActiveTool) {
   return activeTool === 'select'
 }
 
-function getSelectionStroke(isSelected: boolean) {
-  return isSelected ? '#8ecedf' : '#4d6570'
+function getSelectionStroke(isSelected: boolean, isHighlighted = false) {
+  if (isSelected) {
+    return '#8ecedf'
+  }
+
+  if (isHighlighted) {
+    return '#f0cb87'
+  }
+
+  return '#4d6570'
 }
 
 function createDragDeltaMm(
@@ -221,8 +231,10 @@ function TextAnnotationNode({
   annotation,
   draftText,
   isEditing,
+  isHighlighted,
   isSelected,
   onAnnotationToolClick,
+  onOpenContextMenu,
   onSelectAnnotation,
   onStartTextEditing,
   onTranslateAnnotation,
@@ -235,10 +247,12 @@ function TextAnnotationNode({
   annotation: AnnotationText
   draftText?: string
   isEditing: boolean
+  isHighlighted: boolean
   isSelected: boolean
   onAnnotationToolClick?: (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => void
+  onOpenContextMenu?: (annotationId: string, pointPx: ScreenPointPx) => void
   onSelectAnnotation: (annotationId: string) => void
   onStartTextEditing: (annotationId: string) => void
   onTranslateAnnotation: (annotationId: string, deltaMm: { x: number; y: number }) => void
@@ -269,7 +283,7 @@ function TextAnnotationNode({
     layoutAnnotation.style.fontSizeMm
   const screenAnchorPx = worldToScreen(annotation.anchorMm, viewport)
   const originMm = getAnnotationOriginMm(annotation)
-  const selectionStroke = getSelectionStroke(isSelected)
+  const selectionStroke = getSelectionStroke(isSelected, isHighlighted)
   const textOriginMm = getTextAnnotationTextOriginMm(layoutAnnotation)
 
   return (
@@ -294,6 +308,19 @@ function TextAnnotationNode({
       onDblTap={(event) => {
         event.cancelBubble = true
         onStartTextEditing(annotation.id)
+      }}
+      onContextMenu={(event) => {
+        if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
+          return
+        }
+
+        event.cancelBubble = true
+        event.evt.preventDefault()
+        onSelectAnnotation(annotation.id)
+        onOpenContextMenu?.(annotation.id, {
+          x: event.evt.clientX,
+          y: event.evt.clientY,
+        })
       }}
       onDragEnd={(event) => {
         event.cancelBubble = true
@@ -345,10 +372,10 @@ function TextAnnotationNode({
 
       {renderTextAnnotationBackground(layoutAnnotation)}
 
-      {isSelected ? (
+      {isSelected || isHighlighted ? (
         <Rect
           dash={[4, 3]}
-          fill="rgba(143, 212, 239, 0.04)"
+          fill={isSelected ? 'rgba(143, 212, 239, 0.04)' : 'rgba(240, 203, 135, 0.05)'}
           height={bounds.height}
           listening={false}
           stroke={selectionStroke}
@@ -528,8 +555,10 @@ function renderShapeBody(annotation: ShapeAnnotation) {
 function ShapeAnnotationNode({
   activeTool,
   annotation,
+  isHighlighted,
   isSelected,
   onAnnotationToolClick,
+  onOpenContextMenu,
   onResizeSelectedShape,
   onSelectAnnotation,
   onTranslateAnnotation,
@@ -539,10 +568,12 @@ function ShapeAnnotationNode({
 }: {
   activeTool: ActiveTool
   annotation: ShapeAnnotation
+  isHighlighted: boolean
   isSelected: boolean
   onAnnotationToolClick?: (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => void
+  onOpenContextMenu?: (annotationId: string, pointPx: ScreenPointPx) => void
   onResizeSelectedShape?: (
     update: {
       boundsMm?: {
@@ -566,7 +597,7 @@ function ShapeAnnotationNode({
 }) {
   const originMm = getAnnotationOriginMm(annotation)
   const screenOriginPx = worldToScreen(originMm, viewport)
-  const selectionStroke = getSelectionStroke(isSelected)
+  const selectionStroke = getSelectionStroke(isSelected, isHighlighted)
   const localBounds =
     annotation.shapeKind === 'arrow'
       ? (() => {
@@ -604,6 +635,19 @@ function ShapeAnnotationNode({
         }
 
         onSelectAnnotation(annotation.id)
+      }}
+      onContextMenu={(event) => {
+        if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
+          return
+        }
+
+        event.cancelBubble = true
+        event.evt.preventDefault()
+        onSelectAnnotation(annotation.id)
+        onOpenContextMenu?.(annotation.id, {
+          x: event.evt.clientX,
+          y: event.evt.clientY,
+        })
       }}
       onDragEnd={(event) => {
         event.cancelBubble = true
@@ -647,10 +691,10 @@ function ShapeAnnotationNode({
     >
       {renderShapeBody(annotation)}
 
-      {isSelected ? (
+      {isSelected || isHighlighted ? (
         <Rect
           dash={[4, 3]}
-          fill="rgba(143, 212, 239, 0.04)"
+          fill={isSelected ? 'rgba(143, 212, 239, 0.04)' : 'rgba(240, 203, 135, 0.05)'}
           height={localBounds.height}
           listening={false}
           stroke={selectionStroke}
@@ -773,7 +817,9 @@ export function AnnotationsLayer({
   annotations,
   editingTextAnnotationId,
   editingTextDraftText,
+  highlightedAnnotationIds = [],
   onAnnotationToolClick,
+  onOpenContextMenu,
   onResizeSelectedShape,
   onSelectAnnotation,
   onStartTextEditing,
@@ -806,9 +852,11 @@ export function AnnotationsLayer({
                 : undefined
             }
             isEditing={editingTextAnnotationId === annotation.id}
+            isHighlighted={highlightedAnnotationIds.includes(annotation.id)}
             isSelected={selectedAnnotationId === annotation.id}
             key={annotation.id}
             onAnnotationToolClick={onAnnotationToolClick}
+            onOpenContextMenu={onOpenContextMenu}
             onSelectAnnotation={onSelectAnnotation}
             onStartTextEditing={onStartTextEditing}
             onTranslateAnnotation={onTranslateAnnotation}
@@ -821,9 +869,11 @@ export function AnnotationsLayer({
           <ShapeAnnotationNode
             activeTool={activeTool}
             annotation={annotation}
+            isHighlighted={highlightedAnnotationIds.includes(annotation.id)}
             isSelected={selectedAnnotationId === annotation.id}
             key={annotation.id}
             onAnnotationToolClick={onAnnotationToolClick}
+            onOpenContextMenu={onOpenContextMenu}
             onResizeSelectedShape={onResizeSelectedShape}
             onSelectAnnotation={onSelectAnnotation}
             onTranslateAnnotation={onTranslateAnnotation}

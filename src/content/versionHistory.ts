@@ -4,9 +4,24 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v1.8'
+export const CURRENT_VERSION = 'v2.0'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v2.0',
+    summary:
+      'Schema-Lab 2.0 overhauled the editor into a cleaner canvas-first workspace with faster tool access, lighter panels, highlight workflows, stronger simple-mode legibility, and a much more customizable UI for day-to-day optics layout work.',
+    highlights: [
+      'Two-row premium editor chrome with calmer branding and a bottom status bar',
+      'Contextual selection actions, right-click editing, and Highlight bundle rotation',
+      'Search-first component library with Recent items and lighter browsing',
+      'Cleaner inspector quick-edit layout with collapsed advanced sections',
+      'Simple-mode appearance controls for glyph optics plus stronger source visibility',
+      'Board Focus, Solo Board, and table workflows refined for multi-breadboard planning',
+      'Keyboard-shortcut discoverability, help cleanup, and reduced instructional clutter',
+      'Viewport recovery polish, top-biased framing, and denser canvas visibility',
+    ],
+  },
   {
     version: 'v1.8',
     summary:

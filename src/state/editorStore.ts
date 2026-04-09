@@ -6,12 +6,13 @@ import {
   DEFAULT_ANNOTATION_TEXT_VARIANT,
   DEFAULT_ANNOTATION_SHAPE_KIND,
   getAnnotationBoundsMm,
-  moveAnnotationInStack,
-  reindexAnnotations,
   getArrowAnnotationBoundsMm,
+  moveAnnotationInStack,
   normalizeRectLikeBounds,
+  reindexAnnotations,
   resizeShapeAnnotationBounds,
   resizeTextAnnotationWidth,
+  rotateAnnotationAroundCenterQuarterTurns,
   stepShapeAnnotationSize,
   stepTextAnnotationWidth,
   translateAnnotation,
@@ -35,16 +36,24 @@ import {
   supportsMountToggle,
 } from '../domain/componentCatalog'
 import {
+  clamp,
   applyPinchViewportTransform,
+  boundsFromPointsMm,
+  boundsIntersectMm,
+  clampViewportToKeepBoundsVisible,
   fitZoomPxPerMm,
+  getBoundsCenterMm,
   normalizeQuarterTurns,
   panViewportByScreenDelta as panViewportByDelta,
+  rotatePointAroundCenterQuarterTurns,
   roundMm,
+  unionBoundsMm,
   zoomViewportAtScreenPoint,
 } from '../domain/geometry'
 import {
   applySourceGuideAssist,
   alignExternalSourceToTarget,
+  inspectSceneComponentPlacement,
   findDuplicatePlacement,
   getSceneWorldBoundsMm,
   getSurfacePlacementModel,
@@ -87,6 +96,7 @@ import type {
   CurvedMirrorConfig,
   DelayLineConfig,
   FlipMirrorConfig,
+  HighlightSelectionState,
   OpticalTableModel,
   IrisConfig,
   LensConfig,
@@ -160,6 +170,9 @@ interface InteractionState {
   dragPreview?: DragPreviewState
   editingTextAnnotationId?: string
   editingTextDraftText?: string
+  highlightDragBoundsMm?: BoundsMm
+  highlightDragStartMm?: Vector2Mm
+  highlightSelection?: HighlightSelectionState
   pendingPlacement?: PendingPlacementState
   pendingBreadboardPlacement?: PendingBreadboardPlacementState
   focusedBreadboardId?: string
@@ -192,6 +205,12 @@ interface WarningFilters {
   advanced: boolean
 }
 
+export interface SimpleGlyphAppearanceState {
+  color: string
+  scale: number
+  weight: number
+}
+
 type MountVisibilityDefaults = Partial<Record<ComponentType, boolean>>
 
 interface SceneHistorySnapshot {
@@ -222,6 +241,7 @@ interface EditorStore {
   viewport: ViewportState
   renderMode: RenderMode
   warningFilters: WarningFilters
+  simpleGlyphAppearances: Record<string, SimpleGlyphAppearanceState>
   openToolbarMenu?: ToolbarMenu
   mountVisibilityDefaults: MountVisibilityDefaults
   interaction: InteractionState
@@ -244,6 +264,10 @@ interface EditorStore {
   setRenderMode: (renderMode: RenderMode) => void
   setWarningFilter: (tier: keyof WarningFilters, isEnabled: boolean) => void
   setOpenToolbarMenu: (menu?: ToolbarMenu) => void
+  beginHighlightDrag: (startMm: Vector2Mm) => void
+  updateHighlightDrag: (pointMm: Vector2Mm) => void
+  commitHighlightDrag: (pointMm?: Vector2Mm) => void
+  clearHighlightSelection: () => void
   selectBeamSegment: (segmentId: string, pathId: string, interactionId?: string) => void
   clearBeamInspectionSelection: () => void
   setHelpOpen: (isOpen: boolean) => void
@@ -353,9 +377,14 @@ interface EditorStore {
   cancelTextAnnotationEditing: () => void
   clearSelectedGeometryOverride: () => void
   updateSelectedPostHolderDiameter: (diameterMm: number) => void
+  setSimpleGlyphAppearance: (
+    componentId: string,
+    update: Partial<SimpleGlyphAppearanceState>,
+  ) => void
   applySupportToType: (type: ComponentType, includeMount: boolean) => void
   setMountDefaultForType: (type: ComponentType, includeMount: boolean) => void
   rotateSelectedComponent: (direction: -1 | 1) => void
+  rotateHighlightSelection: (direction: -1 | 1) => void
   updateBreadboard: (update: Partial<BreadboardModel>) => void
   applyBreadboardPreset: (presetId: string) => void
   updateOpticalTable: (update: Partial<OpticalTableModel>) => void
@@ -393,6 +422,19 @@ const VIEWPORT_SIDE_PADDING_PX = 88
 const VIEWPORT_TOP_PADDING_PX = 28
 const VIEWPORT_BOTTOM_PADDING_PX = 156
 const BOARD_LABEL_MARGIN_MM = 18
+const DEFAULT_SIMPLE_GLYPH_APPEARANCE: SimpleGlyphAppearanceState = {
+  color: '#f4fbff',
+  scale: 1,
+  weight: 1,
+}
+
+function clampSimpleGlyphAppearanceScale(value: number) {
+  return clamp(roundMm(value), 0.72, 1.46)
+}
+
+function clampSimpleGlyphAppearanceWeight(value: number) {
+  return clamp(roundMm(value), 0.7, 1.58)
+}
 
 function canUseLocalStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
@@ -652,6 +694,30 @@ function createViewportForScene(
         ...baseViewport,
         zoomPxPerMm: minimumZoomPxPerMm,
       }
+}
+
+function clampViewportForActiveWorkspace(args: {
+  interaction: InteractionState
+  scene: SceneDocument
+  selection: SelectionState
+  viewport: ViewportState
+}) {
+  const workspaceViewMode = resolveWorkspaceViewModeForScene(
+    args.scene,
+    args.interaction.workspaceViewMode,
+  )
+  const focusedBreadboardId = resolveFocusedBreadboardIdForScene(args.scene, {
+    activeHostSurfaceId: args.interaction.activeHostSurfaceId,
+    focusedBreadboardId: args.interaction.focusedBreadboardId,
+    selection: args.selection,
+  })
+  const focusBounds = getViewportFocusBoundsMm(
+    args.scene,
+    workspaceViewMode,
+    focusedBreadboardId,
+  )
+
+  return clampViewportToKeepBoundsVisible(args.viewport, focusBounds)
 }
 
 function createComponentId(type: ComponentType) {
@@ -975,6 +1041,121 @@ function createAutoNumberedBreadboardLabel(scene: SceneDocument) {
   }
 
   return `Breadboard ${highestIndex + 1}`
+}
+
+function clearHighlightInteractionState(interaction: InteractionState): InteractionState {
+  return {
+    ...interaction,
+    highlightDragBoundsMm: undefined,
+    highlightDragStartMm: undefined,
+    highlightSelection: undefined,
+  }
+}
+
+function createHighlightSelectionFromBounds(
+  scene: SceneDocument,
+  captureBoundsMm: BoundsMm,
+): HighlightSelectionState | undefined {
+  const breadboardIds =
+    scene.workspace.kind === 'optical-table'
+      ? scene.workspace.breadboards
+          .filter((breadboard) =>
+            boundsIntersectMm(
+              getBreadboardWorldBoundsMm(
+                breadboard.model,
+                breadboard.anchorMm,
+                breadboard.rotationQuarterTurns,
+              ),
+              captureBoundsMm,
+            ),
+          )
+          .map((breadboard) => breadboard.id)
+      : []
+  const breadboardIdSet = new Set(breadboardIds)
+  const componentIds: string[] = []
+
+  for (const component of scene.components) {
+    const componentBoundsMm = inspectSceneComponentPlacement(scene, component).supportBoundsMm
+
+    if (
+      (component.hostSurfaceId && breadboardIdSet.has(component.hostSurfaceId)) ||
+      boundsIntersectMm(componentBoundsMm, captureBoundsMm)
+    ) {
+      componentIds.push(component.id)
+    }
+  }
+
+  const annotationIds = scene.annotations
+    .filter(
+      (annotation) =>
+        !annotation.hidden &&
+        !annotation.locked &&
+        boundsIntersectMm(getAnnotationBoundsMm(annotation), captureBoundsMm),
+    )
+    .map((annotation) => annotation.id)
+
+  const selectionBoundsMm = unionBoundsMm([
+    ...breadboardIds.map((breadboardId) => {
+      const breadboard = getBreadboardInstance(scene, breadboardId)
+
+      return breadboard
+        ? getBreadboardWorldBoundsMm(
+            breadboard.model,
+            breadboard.anchorMm,
+            breadboard.rotationQuarterTurns,
+          )
+        : undefined
+    }),
+    ...componentIds.map((componentId) => {
+      const component = scene.components.find((candidate) => candidate.id === componentId)
+      return component
+        ? inspectSceneComponentPlacement(scene, component).supportBoundsMm
+        : undefined
+    }),
+    ...annotationIds.map((annotationId) => {
+      const annotation = scene.annotations.find((candidate) => candidate.id === annotationId)
+      return annotation ? getAnnotationBoundsMm(annotation) : undefined
+    }),
+  ].filter((boundsMm): boundsMm is BoundsMm => Boolean(boundsMm)))
+
+  if (!selectionBoundsMm) {
+    return undefined
+  }
+
+  return {
+    annotationIds,
+    boundsMm: selectionBoundsMm,
+    breadboardIds,
+    componentIds,
+  }
+}
+
+function getHighlightSelectionBounds(
+  scene: SceneDocument,
+  highlightSelection: HighlightSelectionState,
+): BoundsMm | undefined {
+  return unionBoundsMm([
+    ...highlightSelection.breadboardIds.map((breadboardId) => {
+      const breadboard = getBreadboardInstance(scene, breadboardId)
+      return breadboard
+        ? getBreadboardWorldBoundsMm(
+            breadboard.model,
+            breadboard.anchorMm,
+            breadboard.rotationQuarterTurns,
+          )
+        : undefined
+    }),
+    ...highlightSelection.componentIds.map((componentId) => {
+      const component = scene.components.find((candidate) => candidate.id === componentId)
+      return component
+        ? inspectSceneComponentPlacement(scene, component).supportBoundsMm
+        : undefined
+    }),
+    ...highlightSelection.annotationIds.map((annotationId) => {
+      const annotation = scene.annotations.find((candidate) => candidate.id === annotationId)
+      return annotation ? getAnnotationBoundsMm(annotation) : undefined
+    }),
+  ].filter((boundsMm): boundsMm is BoundsMm => Boolean(boundsMm)))
 }
 
 function applyMountVisibilityDefault(
@@ -1754,6 +1935,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   viewport: createViewportForScene(initialScene),
   renderMode: initialRenderMode,
   warningFilters: initialWarningFilters,
+  simpleGlyphAppearances: {},
   mountVisibilityDefaults: initialMountVisibilityDefaults,
   openToolbarMenu: undefined,
   interaction: createInteractionForScene({
@@ -1787,7 +1969,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
                 workspaceViewMode: 'board-focus',
               })
             : state.viewport,
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeHostSurfaceId: nextSurfaceId,
           editingTextAnnotationId: undefined,
@@ -1796,7 +1978,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: undefined,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
-        },
+        }),
       }
     })
   },
@@ -1804,7 +1986,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   selectOpticalTable: () => {
     set((state) => ({
       selection: { type: 'optical-table' },
-      interaction: {
+      interaction: clearHighlightInteractionState({
         ...state.interaction,
         activeHostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
         editingTextAnnotationId: undefined,
@@ -1812,7 +1994,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         notice: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
-      },
+      }),
     }))
   },
 
@@ -1839,7 +2021,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
                 workspaceViewMode: 'board-focus',
               })
             : state.viewport,
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeHostSurfaceId:
             component?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
@@ -1849,7 +2031,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: undefined,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
-        },
+        }),
       }
     })
   },
@@ -1857,7 +2039,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   selectAnnotation: (annotationId) => {
     set((state) => ({
       selection: { type: 'annotation', annotationId },
-      interaction: {
+      interaction: clearHighlightInteractionState({
         ...state.interaction,
         activeDragComponentId: undefined,
         dragPreview: undefined,
@@ -1866,7 +2048,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         notice: undefined,
         pendingPlacement: undefined,
         pendingBreadboardPlacement: undefined,
-      },
+      }),
     }))
   },
 
@@ -1877,7 +2059,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
   setActiveTool: (tool) => {
     set((state) => ({
       interaction: {
-        ...state.interaction,
+        ...(tool === 'highlight'
+          ? {
+              ...state.interaction,
+              highlightDragBoundsMm: undefined,
+              highlightDragStartMm: undefined,
+            }
+          : clearHighlightInteractionState(state.interaction)),
         activeTool: tool,
         editingTextAnnotationId:
           tool === 'text' ? state.interaction.editingTextAnnotationId : undefined,
@@ -1978,6 +2166,81 @@ export const useEditorStore = create<EditorStore>((set) => ({
     set({ openToolbarMenu: menu })
   },
 
+  beginHighlightDrag: (startMm) => {
+    set((state) => ({
+      interaction: {
+        ...state.interaction,
+        highlightDragBoundsMm: {
+          x: startMm.x,
+          y: startMm.y,
+          width: 0,
+          height: 0,
+        },
+        highlightDragStartMm: startMm,
+        highlightSelection: undefined,
+        notice: undefined,
+      },
+    }))
+  },
+
+  updateHighlightDrag: (pointMm) => {
+    set((state) => {
+      if (!state.interaction.highlightDragStartMm) {
+        return state
+      }
+
+      return {
+        interaction: {
+          ...state.interaction,
+          highlightDragBoundsMm: boundsFromPointsMm(
+            state.interaction.highlightDragStartMm,
+            pointMm,
+          ),
+        },
+      }
+    })
+  },
+
+  commitHighlightDrag: (pointMm) => {
+    set((state) => {
+      const startMm = state.interaction.highlightDragStartMm
+
+      if (!startMm) {
+        return state
+      }
+
+      const captureBoundsMm = boundsFromPointsMm(pointMm ?? startMm, startMm)
+      const hasMeaningfulArea = captureBoundsMm.width >= 4 || captureBoundsMm.height >= 4
+      const highlightSelection = hasMeaningfulArea
+        ? createHighlightSelectionFromBounds(state.scene, captureBoundsMm)
+        : undefined
+
+      return {
+        interaction: {
+          ...state.interaction,
+          highlightDragBoundsMm: undefined,
+          highlightDragStartMm: undefined,
+          highlightSelection,
+          notice: highlightSelection
+            ? `${highlightSelection.breadboardIds.length + highlightSelection.componentIds.length + highlightSelection.annotationIds.length} items highlighted.`
+            : undefined,
+        },
+      }
+    })
+  },
+
+  clearHighlightSelection: () => {
+    set((state) => ({
+      interaction: clearHighlightInteractionState({
+        ...state.interaction,
+        notice:
+          state.interaction.highlightSelection || state.interaction.highlightDragBoundsMm
+            ? undefined
+            : state.interaction.notice,
+      }),
+    }))
+  },
+
   selectBeamSegment: (segmentId, pathId, interactionId) => {
     set((state) => ({
       interaction: {
@@ -2058,39 +2321,76 @@ export const useEditorStore = create<EditorStore>((set) => ({
   },
 
   setViewportSize: (canvasSizePx) => {
-    set((state) => ({
-      viewport: {
-        ...state.viewport,
-        canvasSizePx,
-      },
-    }))
+    set((state) => {
+      const nextViewport = clampViewportForActiveWorkspace({
+        interaction: state.interaction,
+        scene: state.scene,
+        selection: state.selection,
+        viewport: {
+          ...state.viewport,
+          canvasSizePx,
+        },
+      })
+
+      return {
+        viewport: nextViewport,
+      }
+    })
   },
 
   setViewport: (viewport) => {
-    set({ viewport })
+    set((state) => ({
+      viewport: clampViewportForActiveWorkspace({
+        interaction: state.interaction,
+        scene: state.scene,
+        selection: state.selection,
+        viewport,
+      }),
+    }))
   },
 
   panViewportByScreenDelta: (deltaPx) => {
-    set((state) => ({
-      viewport: panViewportByDelta(state.viewport, deltaPx),
-    }))
+    set((state) => {
+      const nextViewport = clampViewportForActiveWorkspace({
+        interaction: state.interaction,
+        scene: state.scene,
+        selection: state.selection,
+        viewport: panViewportByDelta(state.viewport, deltaPx),
+      })
+
+      return { viewport: nextViewport }
+    })
   },
 
   applyPinchViewport: (previousMidpointPx, nextMidpointPx, zoomFactor) => {
-    set((state) => ({
-      viewport: applyPinchViewportTransform(
-        state.viewport,
-        previousMidpointPx,
-        nextMidpointPx,
-        zoomFactor,
-      ),
-    }))
+    set((state) => {
+      const nextViewport = clampViewportForActiveWorkspace({
+        interaction: state.interaction,
+        scene: state.scene,
+        selection: state.selection,
+        viewport: applyPinchViewportTransform(
+          state.viewport,
+          previousMidpointPx,
+          nextMidpointPx,
+          zoomFactor,
+        ),
+      })
+
+      return { viewport: nextViewport }
+    })
   },
 
   zoomAtScreenPoint: (pointPx, zoomFactor) => {
-    set((state) => ({
-      viewport: zoomViewportAtScreenPoint(state.viewport, pointPx, zoomFactor),
-    }))
+    set((state) => {
+      const nextViewport = clampViewportForActiveWorkspace({
+        interaction: state.interaction,
+        scene: state.scene,
+        selection: state.selection,
+        viewport: zoomViewportAtScreenPoint(state.viewport, pointPx, zoomFactor),
+      })
+
+      return { viewport: nextViewport }
+    })
   },
 
   resetViewport: () => {
@@ -2114,7 +2414,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       return {
         selection: getDefaultSelection(state.scene),
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeTool: 'select' as const,
           activeHostSurfaceId: draft.hostSurfaceId,
@@ -2128,7 +2428,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           selectedBeamPathId: undefined,
           selectedBeamSegmentId: undefined,
           notice: undefined,
-        },
+        }),
       }
     })
   },
@@ -2148,7 +2448,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           annotations: [...state.scene.annotations, nextAnnotation],
         },
         selection: { type: 'annotation', annotationId: nextAnnotation.id },
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeTool: 'select',
           editingTextAnnotationId: nextAnnotation.id,
@@ -2157,7 +2457,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: undefined,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
-        },
+        }),
       })
     })
   },
@@ -2177,7 +2477,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           annotations: [...state.scene.annotations, nextAnnotation],
         },
         selection: { type: 'annotation', annotationId: nextAnnotation.id },
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeTool: 'select',
           editingTextAnnotationId: undefined,
@@ -2186,7 +2486,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: undefined,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
-        },
+        }),
       })
     })
   },
@@ -2204,7 +2504,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       return {
         selection: { type: 'optical-table' as const },
-        interaction: {
+        interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeTool: 'select' as const,
           lineDrawStartMm: undefined,
@@ -2215,7 +2515,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           selectedBeamPathId: undefined,
           selectedBeamSegmentId: undefined,
           notice: undefined,
-        },
+        }),
       }
     })
   },
@@ -2682,7 +2982,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   cancelActiveInteraction: () => {
     set((state) => ({
-      interaction: {
+      interaction: clearHighlightInteractionState({
         ...state.interaction,
         activeDragComponentId: undefined,
         breadboardDragPreview: undefined,
@@ -2699,7 +2999,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         selectedWarningId: undefined,
         lineDrawStartMm: undefined,
         notice: undefined,
-      },
+      }),
     }))
   },
 
@@ -4531,6 +4831,31 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  setSimpleGlyphAppearance: (componentId, update) => {
+    set((state) => {
+      const previous =
+        state.simpleGlyphAppearances[componentId] ?? DEFAULT_SIMPLE_GLYPH_APPEARANCE
+      const next: SimpleGlyphAppearanceState = {
+        color: update.color ?? previous.color,
+        scale:
+          update.scale !== undefined
+            ? clampSimpleGlyphAppearanceScale(update.scale)
+            : previous.scale,
+        weight:
+          update.weight !== undefined
+            ? clampSimpleGlyphAppearanceWeight(update.weight)
+            : previous.weight,
+      }
+
+      return {
+        simpleGlyphAppearances: {
+          ...state.simpleGlyphAppearances,
+          [componentId]: next,
+        },
+      }
+    })
+  },
+
   applySupportToType: (type, includeMount) => {
     set((state) =>
       withCommittedScene(state, {
@@ -4711,6 +5036,101 @@ export const useEditorStore = create<EditorStore>((set) => ({
           notice: describePlacementReason(placement.reason),
         },
       })
+    })
+  },
+
+  rotateHighlightSelection: (direction) => {
+    set((state) => {
+      const highlightSelection = state.interaction.highlightSelection
+
+      if (!highlightSelection) {
+        return state
+      }
+
+      const quarterTurns = normalizeQuarterTurns(direction) as QuarterTurn
+      const centerMm = getBoundsCenterMm(highlightSelection.boundsMm)
+      const highlightedBreadboardIds = new Set(highlightSelection.breadboardIds)
+      const highlightedComponentIds = new Set(highlightSelection.componentIds)
+      const highlightedAnnotationIds = new Set(highlightSelection.annotationIds)
+
+      const nextWorkspace =
+        state.scene.workspace.kind === 'optical-table'
+          ? {
+              ...state.scene.workspace,
+              breadboards: state.scene.workspace.breadboards.map((breadboard) =>
+                highlightedBreadboardIds.has(breadboard.id)
+                  ? {
+                      ...breadboard,
+                      anchorMm: rotatePointAroundCenterQuarterTurns(
+                        breadboard.anchorMm,
+                        centerMm,
+                        quarterTurns,
+                      ),
+                      rotationQuarterTurns: normalizeQuarterTurns(
+                        breadboard.rotationQuarterTurns + direction,
+                      ) as QuarterTurn,
+                    }
+                  : breadboard,
+              ),
+            }
+          : state.scene.workspace
+
+      const nextComponents = state.scene.components.map((component) => {
+        if (!highlightedComponentIds.has(component.id)) {
+          return component
+        }
+
+        const resolvedSpec = getResolvedComponentSpec(component.type, component.variantId)
+        const nextRotationQuarterTurns =
+          resolvedSpec.mount.mode === 'external-source'
+            ? component.rotationQuarterTurns
+            : (normalizeQuarterTurns(
+                component.rotationQuarterTurns + direction,
+              ) as QuarterTurn)
+
+        return {
+          ...component,
+          anchorMm: rotatePointAroundCenterQuarterTurns(
+            component.anchorMm,
+            centerMm,
+            quarterTurns,
+          ),
+          rotationQuarterTurns: nextRotationQuarterTurns,
+        }
+      })
+
+      const nextAnnotations = state.scene.annotations.map((annotation) =>
+        highlightedAnnotationIds.has(annotation.id)
+          ? rotateAnnotationAroundCenterQuarterTurns(annotation, centerMm, quarterTurns)
+          : annotation,
+      )
+      const nextScene: SceneDocument = {
+        ...state.scene,
+        components: nextComponents,
+        annotations: nextAnnotations,
+        workspace: nextWorkspace,
+      }
+      const nextBoundsMm = getHighlightSelectionBounds(nextScene, highlightSelection)
+
+      return withCommittedScene(
+        state,
+        {
+          scene: nextScene,
+          interaction: {
+            ...state.interaction,
+            highlightSelection: nextBoundsMm
+              ? {
+                  ...highlightSelection,
+                  boundsMm: nextBoundsMm,
+                }
+              : undefined,
+            notice: 'Highlight rotated.',
+          },
+        },
+        {
+          mergeKey: 'highlight-rotate',
+        },
+      )
     })
   },
 
@@ -5309,6 +5729,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const patch = {
         scene: nextScene,
         selection: nextSelection,
+        simpleGlyphAppearances: {},
         viewport: createViewportForScene(nextScene, state.viewport.canvasSizePx, {
           focusedBreadboardId: nextInteraction.focusedBreadboardId,
           workspaceViewMode: nextInteraction.workspaceViewMode,

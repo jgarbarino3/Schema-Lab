@@ -6,6 +6,7 @@ import {
   getEffectiveSupportBoundsMm,
   getResolvedComponentSpecForInstance,
   isPostMountedType,
+  supportsSimpleGlyphAppearance,
   shouldIncludeDefaultMount,
 } from '../domain/componentCatalog'
 import { quarterTurnsToDegrees, worldToScreen } from '../domain/geometry'
@@ -19,6 +20,7 @@ import type {
 import { ComponentGlyph } from './ComponentGlyph'
 import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
+import { useEditorStore } from '../state/editorStore'
 
 interface ComponentNodeProps {
   instance: ComponentInstance
@@ -33,6 +35,10 @@ interface ComponentNodeProps {
   onDragMove?: (componentId: string, screenPointPx: ScreenPointPx) => void
   onDragStart?: (componentId: string) => void
   onHoverChange?: (componentId?: string) => void
+  onOpenContextMenu?: (
+    componentId: string,
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => void
   onResize?: (
     componentId: string,
     update: { widthMm?: number; heightMm?: number },
@@ -62,6 +68,46 @@ function getPlacementAccent(status: PlacementStatus | undefined) {
   }
 }
 
+function applyAlpha(hexColor: string, alpha: number) {
+  const normalized = hexColor.replace('#', '')
+  if (![3, 6].includes(normalized.length)) {
+    return hexColor
+  }
+
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((character) => `${character}${character}`)
+          .join('')
+      : normalized
+  const numericValue = Number.parseInt(expanded, 16)
+
+  if (!Number.isFinite(numericValue)) {
+    return hexColor
+  }
+
+  const red = (numericValue >> 16) & 255
+  const green = (numericValue >> 8) & 255
+  const blue = numericValue & 255
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function scaleBoundsAboutCenter(
+  boundsMm: { x: number; y: number; width: number; height: number },
+  scale: number,
+) {
+  const scaledWidth = boundsMm.width * scale
+  const scaledHeight = boundsMm.height * scale
+  return {
+    x: boundsMm.x + (boundsMm.width - scaledWidth) / 2,
+    y: boundsMm.y + (boundsMm.height - scaledHeight) / 2,
+    width: scaledWidth,
+    height: scaledHeight,
+  }
+}
+
 export function ComponentNode({
   instance,
   isDragEnabled = true,
@@ -75,6 +121,7 @@ export function ComponentNode({
   onDragMove,
   onDragStart,
   onHoverChange,
+  onOpenContextMenu,
   onResize,
   onSelect,
   placementStatus,
@@ -84,6 +131,9 @@ export function ComponentNode({
   viewport,
 }: ComponentNodeProps) {
   const spec = getResolvedComponentSpecForInstance(instance)
+  const simpleGlyphAppearance = useEditorStore(
+    (state) => state.simpleGlyphAppearances[instance.id],
+  )
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
   const bodyBoundsMm = spec.visualBodyBoundsMm
   const footprintBoundsMm = spec.footprintBoundsMm
@@ -131,9 +181,31 @@ export function ComponentNode({
     compensationOuterRadiusMm - (renderMode === 'realistic' ? 1.2 : 1.6),
   )
   const isEnabledSource = instance.config.source?.isEnabled && spec.renderHint.glyph === 'laser'
+  const isSimpleSourceCard =
+    renderMode === 'simple' &&
+    instance.type === 'laser-source' &&
+    spec.renderHint.glyph === 'laser'
+  const supportsSimpleAppearance = supportsSimpleGlyphAppearance(spec)
+  const effectiveSimpleGlyphColor = simpleGlyphAppearance?.color ?? stroke
+  const effectiveSimpleGlyphScale = simpleGlyphAppearance?.scale ?? 1
+  const effectiveSimpleGlyphWeight = simpleGlyphAppearance?.weight ?? 1
+  const simpleGlyphBoundsMm =
+    renderMode === 'simple' && supportsSimpleAppearance
+      ? scaleBoundsAboutCenter(bodyBoundsMm, effectiveSimpleGlyphScale)
+      : bodyBoundsMm
+  const simpleGlyphFill =
+    renderMode === 'simple' && supportsSimpleAppearance
+      ? applyAlpha(effectiveSimpleGlyphColor, 0.14)
+      : spec.renderHint.fill
   const sourceGlowColor = isEnabledSource
     ? wavelengthToHex(instance.config.source?.wavelengthNm ?? 0)
     : 'transparent'
+  const simpleSourceCardWidthMm = Math.max(
+    bodyBoundsMm.width + 18,
+    spec.shortVariantLabel.length * 3.7,
+    40,
+  )
+  const simpleSourceCardHeightMm = Math.max(bodyBoundsMm.height + 11, 18)
 
   const handleSelect = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
@@ -227,6 +299,15 @@ export function ComponentNode({
         if (isDragEnabled || onSelect || onResize) {
           event.cancelBubble = true
         }
+      }}
+      onContextMenu={(event) => {
+        if (!onOpenContextMenu) {
+          return
+        }
+
+        event.cancelBubble = true
+        event.evt.preventDefault()
+        onOpenContextMenu(instance.id, event)
       }}
       onMouseEnter={() => {
         onHoverChange?.(instance.id)
@@ -358,13 +439,72 @@ export function ComponentNode({
             },
           )
         : (
-            <ComponentGlyph
-              boundsMm={bodyBoundsMm}
-              fill={spec.renderHint.fill}
-              glyph={spec.renderHint.glyph}
-              isConvex={instance.config.curvedMirror?.isConvex}
-              stroke={stroke}
-            />
+            <>
+              {isSimpleSourceCard ? (
+                <>
+                  <Rect
+                    cornerRadius={3.2}
+                    fill={isEnabledSource ? 'rgba(9, 13, 18, 0.97)' : 'rgba(12, 17, 22, 0.94)'}
+                    listening={false}
+                    shadowBlur={12}
+                    shadowColor={sourceGlowColor}
+                    shadowOpacity={isEnabledSource ? 0.22 : 0.12}
+                    stroke={isEnabledSource ? sourceGlowColor : '#d7e5ec'}
+                    strokeWidth={0.95}
+                    width={simpleSourceCardWidthMm}
+                    x={-simpleSourceCardWidthMm / 2}
+                    y={-simpleSourceCardHeightMm / 2}
+                    height={simpleSourceCardHeightMm}
+                  />
+                  <Rect
+                    cornerRadius={1.3}
+                    fill={isEnabledSource ? sourceGlowColor : 'rgba(217, 245, 255, 0.72)'}
+                    listening={false}
+                    opacity={isEnabledSource ? 0.88 : 0.62}
+                    width={simpleSourceCardWidthMm - 10}
+                    x={-simpleSourceCardWidthMm / 2 + 5}
+                    y={-simpleSourceCardHeightMm / 2 + 3.4}
+                    height={1.05}
+                  />
+                  {showLabels ? (
+                    <Text
+                      align="center"
+                      fill={isEnabledSource ? '#f7fbff' : '#e2edf3'}
+                      fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
+                      fontSize={5.45}
+                      fontStyle="bold"
+                      listening={false}
+                      text={spec.shortVariantLabel}
+                      width={simpleSourceCardWidthMm - 8}
+                      x={-simpleSourceCardWidthMm / 2 + 4}
+                      y={-2.95}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+              <ComponentGlyph
+                boundsMm={
+                  isSimpleSourceCard
+                    ? {
+                        ...bodyBoundsMm,
+                        width: Math.max(bodyBoundsMm.width, 12),
+                        x: bodyBoundsMm.x,
+                      }
+                    : simpleGlyphBoundsMm
+                }
+                fill={isSimpleSourceCard ? 'transparent' : simpleGlyphFill}
+                glyph={spec.renderHint.glyph}
+                isConvex={instance.config.curvedMirror?.isConvex}
+                stroke={
+                  isSimpleSourceCard
+                    ? '#f4fbff'
+                    : renderMode === 'simple' && supportsSimpleAppearance
+                      ? effectiveSimpleGlyphColor
+                      : stroke
+                }
+                strokeScale={renderMode === 'simple' ? effectiveSimpleGlyphWeight : 1}
+              />
+            </>
           )}
 
       {renderMode === 'simple' && isHovered && !isSelected && !isPreview ? (
@@ -526,13 +666,16 @@ export function ComponentNode({
           align="center"
           fill={
             isSelected
-              ? 'rgba(244, 251, 255, 0.8)'
+              ? 'rgba(244, 251, 255, 0.86)'
               : isHighlighted
-                ? 'rgba(255, 242, 198, 0.78)'
-                : 'rgba(230, 237, 242, 0.68)'
+                ? 'rgba(255, 242, 198, 0.84)'
+                : renderMode === 'simple'
+                  ? 'rgba(236, 242, 247, 0.88)'
+                  : 'rgba(230, 237, 242, 0.76)'
           }
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-          fontSize={isSelected || isHighlighted ? 5.4 : 5.0}
+          fontSize={isSelected || isHighlighted ? 6.05 : renderMode === 'simple' ? 5.8 : 5.35}
+          fontStyle={renderMode === 'simple' || isSelected || isHighlighted ? 'bold' : 'normal'}
           listening={false}
           text={instance.label}
           width={labelWidth}

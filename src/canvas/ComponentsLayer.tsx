@@ -48,6 +48,10 @@ interface ComponentsLayerProps {
     anchorMm?: { x: number; y: number },
   ) => void
   onHoverComponent: (componentId?: string) => void
+  onOpenComponentContextMenu?: (
+    componentId: string,
+    pointPx: ScreenPointPx,
+  ) => void
   onLineToolClick?: (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => void
@@ -109,6 +113,7 @@ export function ComponentsLayer({
   onBeginComponentDrag,
   onCommitComponentDrag,
   onHoverComponent,
+  onOpenComponentContextMenu,
   onLineToolClick,
   onResizeComponent,
   onSelectComponent,
@@ -230,6 +235,20 @@ export function ComponentsLayer({
           }}
           onDragStart={onBeginComponentDrag}
           onHoverChange={isPanMode ? undefined : onHoverComponent}
+          onOpenContextMenu={
+            onOpenComponentContextMenu
+              ? (componentId, event) => {
+                  if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
+                    return
+                  }
+
+                  onOpenComponentContextMenu(componentId, {
+                    x: event.evt.clientX,
+                    y: event.evt.clientY,
+                  })
+                }
+              : undefined
+          }
           onResize={isPanMode || isLineTool ? undefined : onResizeComponent}
           onSelect={
             isPanMode

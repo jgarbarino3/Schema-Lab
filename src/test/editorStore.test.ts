@@ -31,13 +31,13 @@ describe('editor store pending placement', () => {
 
     expect(useEditorStore.getState().scene.components).toHaveLength(0)
     expect(useEditorStore.getState().interaction.pendingPlacement?.draft.label).toBe(
-      'Mirror 1',
+      'Planar Mirror 1',
     )
 
     useEditorStore.getState().commitPendingPlacement({ x: 112.5, y: 112.5 })
 
     expect(useEditorStore.getState().scene.components).toHaveLength(1)
-    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Mirror 1')
+    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Planar Mirror 1')
     expect(useEditorStore.getState().interaction.pendingPlacement).toBeUndefined()
   })
 
@@ -53,7 +53,7 @@ describe('editor store pending placement', () => {
 
     expect(
       useEditorStore.getState().scene.components.map((component) => component.label),
-    ).toEqual(['Mirror 1', 'Mirror 2'])
+    ).toEqual(['Planar Mirror 1', 'Planar Mirror 2'])
   })
 
   it('cancels an armed pending placement cleanly', () => {
@@ -157,7 +157,7 @@ describe('editor store scene history', () => {
 
     store.undo()
 
-    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Mirror 1')
+    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Planar Mirror 1')
   })
 })
 

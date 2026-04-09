@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
@@ -146,10 +146,15 @@ function resolveAlignmentForAxis(
 
 interface SchemaStageProps {
   beamTrace: BeamTraceResult
+  highlightedAnnotationIds?: string[]
   gaussianTrace: GaussianTraceResult
+  highlightedBreadboardIds?: string[]
   highlightedComponentIds?: string[]
   highlightedInteractionIds?: string[]
   highlightedPathIds?: string[]
+  onOpenAnnotationContextMenu?: (pointPx: ScreenPointPx) => void
+  onOpenCanvasContextMenu?: (pointPx: ScreenPointPx) => void
+  onOpenComponentContextMenu?: (pointPx: ScreenPointPx) => void
   showLabels?: boolean
   showPostHolders?: boolean
   onStageReady?: (stage: Konva.Stage | null) => void
@@ -158,9 +163,14 @@ interface SchemaStageProps {
 export function SchemaStage({
   beamTrace,
   gaussianTrace,
+  highlightedAnnotationIds = [],
+  highlightedBreadboardIds = [],
   highlightedComponentIds = [],
   highlightedInteractionIds = [],
   highlightedPathIds = [],
+  onOpenAnnotationContextMenu,
+  onOpenCanvasContextMenu,
+  onOpenComponentContextMenu,
   showLabels = true,
   showPostHolders = false,
   onStageReady,
@@ -199,6 +209,9 @@ export function SchemaStage({
   const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
+  const beginHighlightDrag = useEditorStore((state) => state.beginHighlightDrag)
+  const updateHighlightDrag = useEditorStore((state) => state.updateHighlightDrag)
+  const commitHighlightDrag = useEditorStore((state) => state.commitHighlightDrag)
   const beginComponentDrag = useEditorStore((state) => state.beginComponentDrag)
   const addShapeAnnotationAt = useEditorStore((state) => state.addShapeAnnotationAt)
   const addTextAnnotationAt = useEditorStore((state) => state.addTextAnnotationAt)
@@ -295,6 +308,8 @@ export function SchemaStage({
   }, [setViewportSize])
 
   const isPanMode = interaction.activeTool === 'pan' || interaction.isSpacePanning
+  const isHighlightTool =
+    interaction.activeTool === 'highlight' && !interaction.isSpacePanning
   const isLineTool = interaction.activeTool === 'line' && !interaction.isSpacePanning
   const isTextTool = interaction.activeTool === 'text' && !interaction.isSpacePanning
   const isShapeTool = interaction.activeTool === 'shape' && !interaction.isSpacePanning
@@ -852,6 +867,22 @@ export function SchemaStage({
 
     updateCursorFromStage(event)
 
+    if (isHighlightTool) {
+      if (event.evt instanceof MouseEvent && event.evt.button !== 0) {
+        return
+      }
+
+      const pointerMm = getStagePointerWorldMm(event)
+
+      if (!pointerMm) {
+        return
+      }
+
+      event.evt.preventDefault()
+      beginHighlightDrag(pointerMm)
+      return
+    }
+
     if (
       event.evt instanceof TouchEvent &&
       !isPanMode &&
@@ -879,6 +910,16 @@ export function SchemaStage({
     }
 
     updateCursorFromStage(event)
+
+    if (isHighlightTool) {
+      const pointerMm = getStagePointerWorldMm(event)
+
+      if (pointerMm && interaction.highlightDragStartMm) {
+        updateHighlightDrag(pointerMm)
+      }
+
+      return
+    }
 
     if (
       !interaction.isPointerPanning &&
@@ -935,6 +976,12 @@ export function SchemaStage({
       updateCursorFromStage(event)
     }
 
+    if (isHighlightTool && interaction.highlightDragStartMm) {
+      commitHighlightDrag(getStagePointerWorldMm(event))
+      clearAnnotationGuides()
+      return
+    }
+
     if (!interaction.isPointerPanning) {
       return
     }
@@ -983,6 +1030,10 @@ export function SchemaStage({
       return
     }
 
+    if (isHighlightTool) {
+      return
+    }
+
     if (isAnnotationPlacementTool) {
       handleAnnotationToolClick(event)
       return
@@ -1014,6 +1065,10 @@ export function SchemaStage({
   const handleOpticalTableSelect = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
+    if (isHighlightTool) {
+      return
+    }
+
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
@@ -1045,6 +1100,10 @@ export function SchemaStage({
     surfaceId: string,
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
+    if (isHighlightTool) {
+      return
+    }
+
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
@@ -1064,6 +1123,93 @@ export function SchemaStage({
     clearBeamInspectionSelection()
     clearAnnotationGuides()
     selectBreadboard(surfaceId)
+  }
+
+  const handleLineAnnotationSelect = (
+    annotationId: string,
+    event?: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (isPanMode || panStateRef.current.didMove) {
+      panStateRef.current.didMove = false
+      return
+    }
+
+    if (isAnnotationPlacementTool) {
+      handleAnnotationToolClick(event)
+      return
+    }
+
+    clearBeamInspectionSelection()
+    clearAnnotationGuides()
+    selectAnnotation(annotationId)
+  }
+
+  const handleLineAnnotationContextMenu = (
+    annotationId: string,
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
+      return
+    }
+
+    event.cancelBubble = true
+    event.evt.preventDefault()
+    clearBeamInspectionSelection()
+    clearAnnotationGuides()
+    selectAnnotation(annotationId)
+    onOpenAnnotationContextMenu?.({
+      x: event.evt.clientX,
+      y: event.evt.clientY,
+    })
+  }
+
+  const handleHighlightPointerDown = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (!isHighlightTool) {
+      return
+    }
+
+    const pointerMm = getStagePointerWorldMm(event)
+
+    if (!pointerMm) {
+      return
+    }
+
+    event.cancelBubble = true
+    beginHighlightDrag(pointerMm)
+  }
+
+  const handleHighlightPointerMove = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (!isHighlightTool) {
+      return
+    }
+
+    updateCursorFromStage(event)
+
+    const pointerMm = getStagePointerWorldMm(event)
+
+    if (!pointerMm || !interaction.highlightDragStartMm) {
+      return
+    }
+
+    event.cancelBubble = true
+    updateHighlightDrag(pointerMm)
+  }
+
+  const handleHighlightPointerUp = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>,
+  ) => {
+    if (!isHighlightTool || !interaction.highlightDragStartMm) {
+      return
+    }
+
+    const pointerMm = getStagePointerWorldMm(event)
+
+    event.cancelBubble = true
+    commitHighlightDrag(pointerMm)
   }
 
   const opticalTableBoard =
@@ -1092,6 +1238,20 @@ export function SchemaStage({
           height={viewport.canvasSizePx.height}
           onContextMenu={(event) => {
             event.evt.preventDefault()
+
+            if (
+              !onOpenCanvasContextMenu ||
+              !isBackgroundPanTarget(event) ||
+              !('clientX' in event.evt) ||
+              !('clientY' in event.evt)
+            ) {
+              return
+            }
+
+            onOpenCanvasContextMenu({
+              x: event.evt.clientX,
+              y: event.evt.clientY,
+            })
           }}
           onMouseDown={handleStagePointerDown}
           onMouseLeave={() => {
@@ -1129,6 +1289,7 @@ export function SchemaStage({
                 anchorMm={{ x: 0, y: 0 }}
                 breadboard={opticalTableBoard}
                 isFocused={false}
+                isHighlighted={false}
                 isSelected={selection.type === 'optical-table'}
                 onSelect={(event) => handleOpticalTableSelect(event)}
                 palette={{
@@ -1147,6 +1308,7 @@ export function SchemaStage({
                 anchorMm={{ x: 0, y: 0 }}
                 breadboard={primaryBreadboard}
                 isFocused
+                isHighlighted={Boolean(interaction.highlightSelection)}
                 isSelected={
                   selection.type === 'breadboard' &&
                   selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
@@ -1173,6 +1335,7 @@ export function SchemaStage({
                 }}
                 draggable={!isPanMode && !isAnnotationPlacementTool}
                 isFocused={interaction.focusedBreadboardId === breadboard.id}
+                isHighlighted={highlightedBreadboardIds.includes(breadboard.id)}
                 isSelected={
                   selection.type === 'breadboard' &&
                   selection.surfaceId === breadboard.id
@@ -1197,6 +1360,7 @@ export function SchemaStage({
               <BreadboardLayer
                 anchorMm={interaction.pendingBreadboardPlacement.candidateAnchorMm}
                 breadboard={interaction.pendingBreadboardPlacement.model}
+                isHighlighted={false}
                 isSelected
                 onSelect={() => undefined}
                 opacity={0.72}
@@ -1250,19 +1414,46 @@ export function SchemaStage({
                 .map((line) => {
                 const startPx = worldToScreen(line.startMm, viewport)
                 const endPx = worldToScreen(line.endMm, viewport)
+                const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
+                const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
+                const isSelected = selection.type === 'annotation' && selection.annotationId === line.id
 
                 return (
-                  <Line
-                    key={line.id}
-                    lineCap="round"
-                    listening={false}
-                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                    shadowBlur={4}
-                    shadowColor={line.color}
-                    shadowOpacity={0.3}
-                    stroke={line.color}
-                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
-                  />
+                  <Fragment key={line.id}>
+                    <Line
+                      lineCap="round"
+                      opacity={0.001}
+                      points={linePoints}
+                      stroke="#ffffff"
+                      strokeWidth={Math.max(14, strokeWidth + 10)}
+                      onClick={(event) => handleLineAnnotationSelect(line.id, event)}
+                      onContextMenu={(event) =>
+                        handleLineAnnotationContextMenu(line.id, event)
+                      }
+                      onTap={(event) => handleLineAnnotationSelect(line.id, event)}
+                    />
+                    {isSelected ? (
+                      <Line
+                        key={`${line.id}-selection`}
+                        lineCap="round"
+                        listening={false}
+                        points={linePoints}
+                        stroke="#8ecedf"
+                        strokeWidth={strokeWidth + 4}
+                        opacity={0.24}
+                      />
+                    ) : null}
+                    <Line
+                      lineCap="round"
+                      listening={false}
+                      points={linePoints}
+                      shadowBlur={4}
+                      shadowColor={line.color}
+                      shadowOpacity={0.3}
+                      stroke={line.color}
+                      strokeWidth={strokeWidth}
+                    />
+                  </Fragment>
                 )
               })}
               {interaction.lineDrawStartMm && interaction.cursorWorldMm ? (() => {
@@ -1340,6 +1531,12 @@ export function SchemaStage({
             onBeginComponentDrag={beginComponentDrag}
             onCommitComponentDrag={commitComponentDrag}
             onHoverComponent={setHoveredComponentId}
+            onOpenComponentContextMenu={(componentId, pointPx) => {
+              clearBeamInspectionSelection()
+              clearAnnotationGuides()
+              selectComponent(componentId)
+              onOpenComponentContextMenu?.(pointPx)
+            }}
             onLineToolClick={handleAnnotationToolClick}
             onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
             onSelectComponent={selectComponent}
@@ -1361,7 +1558,14 @@ export function SchemaStage({
             annotations={belowBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
             editingTextAnnotationId={interaction.editingTextAnnotationId}
             editingTextDraftText={interaction.editingTextDraftText}
+            highlightedAnnotationIds={highlightedAnnotationIds}
             onAnnotationToolClick={handleAnnotationToolClick}
+            onOpenContextMenu={(annotationId, pointPx) => {
+              clearBeamInspectionSelection()
+              clearAnnotationGuides()
+              selectAnnotation(annotationId)
+              onOpenAnnotationContextMenu?.(pointPx)
+            }}
             onResizeSelectedShape={updateSelectedShapeAnnotation}
             onUpdateSelectedText={(update) =>
               updateSelectedTextAnnotation(update)
@@ -1392,19 +1596,47 @@ export function SchemaStage({
                 .map((line) => {
                   const startPx = worldToScreen(line.startMm, viewport)
                   const endPx = worldToScreen(line.endMm, viewport)
+                  const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
+                  const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
+                  const isSelected = selection.type === 'annotation' && selection.annotationId === line.id
+                  const isHighlighted = highlightedAnnotationIds.includes(line.id)
 
                   return (
-                    <Line
-                      key={line.id}
-                      lineCap="round"
-                      listening={false}
-                      points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                      shadowBlur={4}
-                      shadowColor={line.color}
-                      shadowOpacity={0.3}
-                      stroke={line.color}
-                      strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
-                    />
+                    <Fragment key={line.id}>
+                      <Line
+                        lineCap="round"
+                        opacity={0.001}
+                        points={linePoints}
+                        stroke="#ffffff"
+                        strokeWidth={Math.max(14, strokeWidth + 10)}
+                        onClick={(event) => handleLineAnnotationSelect(line.id, event)}
+                        onContextMenu={(event) =>
+                          handleLineAnnotationContextMenu(line.id, event)
+                        }
+                        onTap={(event) => handleLineAnnotationSelect(line.id, event)}
+                      />
+                      {isSelected || isHighlighted ? (
+                        <Line
+                          key={`${line.id}-selection`}
+                          lineCap="round"
+                          listening={false}
+                          points={linePoints}
+                          stroke={isSelected ? '#8ecedf' : '#f0cb87'}
+                          strokeWidth={strokeWidth + 4}
+                          opacity={0.24}
+                        />
+                      ) : null}
+                      <Line
+                        lineCap="round"
+                        listening={false}
+                        points={linePoints}
+                        shadowBlur={4}
+                        shadowColor={line.color}
+                        shadowOpacity={0.3}
+                        stroke={line.color}
+                        strokeWidth={strokeWidth}
+                      />
+                    </Fragment>
                   )
                 })}
             </Layer>
@@ -1415,7 +1647,14 @@ export function SchemaStage({
             annotations={aboveBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
             editingTextAnnotationId={interaction.editingTextAnnotationId}
             editingTextDraftText={interaction.editingTextDraftText}
+            highlightedAnnotationIds={highlightedAnnotationIds}
             onAnnotationToolClick={handleAnnotationToolClick}
+            onOpenContextMenu={(annotationId, pointPx) => {
+              clearBeamInspectionSelection()
+              clearAnnotationGuides()
+              selectAnnotation(annotationId)
+              onOpenAnnotationContextMenu?.(pointPx)
+            }}
             onResizeSelectedShape={updateSelectedShapeAnnotation}
             onUpdateSelectedText={(update) =>
               updateSelectedTextAnnotation(update)
@@ -1438,6 +1677,83 @@ export function SchemaStage({
             }
             viewport={viewport}
           />
+
+          {isHighlightTool ||
+          interaction.highlightDragBoundsMm ||
+          interaction.highlightSelection ? (
+            <Layer>
+              {interaction.highlightSelection ? (() => {
+                const selectionTopLeftPx = worldToScreen(
+                  {
+                    x: interaction.highlightSelection.boundsMm.x,
+                    y: interaction.highlightSelection.boundsMm.y,
+                  },
+                  viewport,
+                )
+
+                return (
+                  <Rect
+                    dash={[10, 6]}
+                    fill="rgba(240, 202, 138, 0.08)"
+                    height={interaction.highlightSelection.boundsMm.height * viewport.zoomPxPerMm}
+                    listening={false}
+                    shadowBlur={10}
+                    shadowColor="#f0cb87"
+                    shadowOpacity={0.14}
+                    stroke="#f0cb87"
+                    strokeWidth={1.5}
+                    width={interaction.highlightSelection.boundsMm.width * viewport.zoomPxPerMm}
+                    x={selectionTopLeftPx.x}
+                    y={selectionTopLeftPx.y}
+                  />
+                )
+              })() : null}
+
+              {interaction.highlightDragBoundsMm ? (() => {
+                const dragTopLeftPx = worldToScreen(
+                  {
+                    x: interaction.highlightDragBoundsMm.x,
+                    y: interaction.highlightDragBoundsMm.y,
+                  },
+                  viewport,
+                )
+
+                return (
+                  <Rect
+                    dash={[8, 5]}
+                    fill="rgba(125, 200, 228, 0.08)"
+                    height={interaction.highlightDragBoundsMm.height * viewport.zoomPxPerMm}
+                    listening={false}
+                    shadowBlur={10}
+                    shadowColor="#7dc8e4"
+                    shadowOpacity={0.16}
+                    stroke="#9adcf0"
+                    strokeWidth={1.25}
+                    width={interaction.highlightDragBoundsMm.width * viewport.zoomPxPerMm}
+                    x={dragTopLeftPx.x}
+                    y={dragTopLeftPx.y}
+                  />
+                )
+              })() : null}
+
+              {isHighlightTool ? (
+                <Rect
+                  fill="rgba(0, 0, 0, 0.001)"
+                  height={viewport.canvasSizePx.height}
+                  onMouseDown={handleHighlightPointerDown}
+                  onMouseMove={handleHighlightPointerMove}
+                  onMouseUp={handleHighlightPointerUp}
+                  onTap={handleHighlightPointerDown}
+                  onTouchEnd={handleHighlightPointerUp}
+                  onTouchMove={handleHighlightPointerMove}
+                  onTouchStart={handleHighlightPointerDown}
+                  width={viewport.canvasSizePx.width}
+                  x={0}
+                  y={0}
+                />
+              ) : null}
+            </Layer>
+          ) : null}
 
           <RulerLayer 
             cursorScreenPx={

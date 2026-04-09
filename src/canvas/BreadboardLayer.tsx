@@ -21,6 +21,7 @@ interface BreadboardLayerProps {
   breadboard: BreadboardModel
   draggable?: boolean
   isFocused?: boolean
+  isHighlighted?: boolean
   isSelected: boolean
   onDragEnd?: (screenPointPx: ScreenPointPx) => void
   onDragMove?: (screenPointPx: ScreenPointPx) => void
@@ -45,6 +46,7 @@ export function BreadboardLayer({
   breadboard,
   draggable = false,
   isFocused = false,
+  isHighlighted = false,
   isSelected,
   onDragEnd,
   onDragMove,
@@ -78,6 +80,8 @@ export function BreadboardLayer({
   const boardLabelText = `${breadboard.label}  •  ${breadboard.widthMm.toFixed(0)} × ${breadboard.heightMm.toFixed(0)} mm  •  ${holeCounts.xCount} × ${holeCounts.yCount} holes  •  ${effectivePitchMm.toFixed(1)} mm pitch`
   const boardAccentStroke = isSelected
     ? '#7aaebf'
+    : isHighlighted
+      ? '#f0cb87'
     : isFocused
       ? '#334d58'
       : boardStroke
@@ -138,11 +142,11 @@ export function BreadboardLayer({
           fill={boardFill}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 8 : isFocused ? 4 : 6}
-          shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
+          shadowBlur={isHighlighted && !isSelected ? 10 : isSelected ? 8 : isFocused ? 4 : 6}
+          shadowColor={isSelected || isHighlighted || isFocused ? boardAccentStroke : '#000000'}
+          shadowOpacity={isHighlighted ? 0.14 : isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
+          strokeWidth={isSelected ? 1.12 : isHighlighted ? 1.02 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}
         />
       ) : (
@@ -153,11 +157,11 @@ export function BreadboardLayer({
           fillLinearGradientColorStops={[0, '#b8c2ca', 0.4, '#d0d8de', 0.7, '#c4cdd4', 1, '#bbc5cc']}
           height={breadboard.heightMm}
           name="breadboard-hit"
-          shadowBlur={isSelected ? 8 : isFocused ? 4 : 6}
-          shadowColor={isSelected || isFocused ? boardAccentStroke : '#000000'}
-          shadowOpacity={isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
+          shadowBlur={isHighlighted && !isSelected ? 10 : isSelected ? 8 : isFocused ? 4 : 6}
+          shadowColor={isSelected || isHighlighted || isFocused ? boardAccentStroke : '#000000'}
+          shadowOpacity={isHighlighted ? 0.14 : isSelected ? 0.18 : isFocused ? 0.08 : 0.22}
           stroke={boardAccentStroke}
-          strokeWidth={isSelected ? 1.12 : isFocused ? 0.95 : 0.8}
+          strokeWidth={isSelected ? 1.12 : isHighlighted ? 1.02 : isFocused ? 0.95 : 0.8}
           width={breadboard.widthMm}
         />
       )}
@@ -203,7 +207,8 @@ export function BreadboardLayer({
         <Text
           fill={labelColor}
           fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
-          fontSize={6.4}
+          fontSize={7}
+          fontStyle={isSelected || isHighlighted ? 'bold' : 'normal'}
           listening={false}
           text={boardLabelText}
           x={2}

@@ -7,6 +7,7 @@ interface ComponentGlyphProps {
   glyph: ComponentGlyphType
   isConvex?: boolean
   stroke: string
+  strokeScale?: number
 }
 
 export function ComponentGlyph({
@@ -15,6 +16,7 @@ export function ComponentGlyph({
   glyph,
   isConvex,
   stroke,
+  strokeScale = 1,
 }: ComponentGlyphProps) {
   const centerX = boundsMm.x + boundsMm.width / 2
   const centerY = boundsMm.y + boundsMm.height / 2
@@ -22,6 +24,7 @@ export function ComponentGlyph({
   const width = boundsMm.width
   const height = boundsMm.height
   const opticRadius = Math.max(2.8, Math.min(width, height) * 0.26)
+  const strokeWidth = (base: number) => base * strokeScale
 
   switch (glyph) {
     case 'laser':
@@ -36,7 +39,7 @@ export function ComponentGlyph({
               centerY,
             ]}
             stroke={stroke}
-            strokeWidth={1.25}
+            strokeWidth={strokeWidth(1.25)}
           />
           <Line
             lineCap="round"
@@ -50,7 +53,7 @@ export function ComponentGlyph({
               centerY + 3,
             ]}
             stroke={stroke}
-            strokeWidth={1.2}
+            strokeWidth={strokeWidth(1.2)}
           />
         </>
       )
@@ -65,7 +68,7 @@ export function ComponentGlyph({
             boundsMm.y + height - inset,
           ]}
           stroke={stroke}
-          strokeWidth={1.75}
+          strokeWidth={strokeWidth(1.75)}
         />
       )
     case 'curved-mirror': {
@@ -89,7 +92,7 @@ export function ComponentGlyph({
           lineCap="round"
           points={pts}
           stroke={stroke}
-          strokeWidth={1.75}
+          strokeWidth={strokeWidth(1.75)}
           tension={0.4}
         />
       )
@@ -103,7 +106,7 @@ export function ComponentGlyph({
             height={bsSize}
             rotation={45}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             width={bsSize}
             x={centerX}
             y={centerY - bsSize * 0.707}
@@ -117,7 +120,7 @@ export function ComponentGlyph({
               centerY - bsSize * 0.5,
             ]}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
           />
         </>
       )
@@ -129,7 +132,7 @@ export function ComponentGlyph({
           radiusX={Math.max(2.2, width * 0.12)}
           radiusY={Math.max(5, height * 0.38)}
           stroke={stroke}
-          strokeWidth={1}
+          strokeWidth={strokeWidth(1)}
           x={centerX}
           y={centerY}
         />
@@ -142,7 +145,7 @@ export function ComponentGlyph({
             height={Math.max(8, height * 0.5)}
             rotation={45}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
             width={Math.max(8, width * 0.5)}
             x={centerX - Math.max(8, width * 0.5) / 2}
             y={centerY - Math.max(8, width * 0.5) / 2}
@@ -156,7 +159,7 @@ export function ComponentGlyph({
               boundsMm.y + height * 0.25,
             ]}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
           />
         </>
       )
@@ -177,7 +180,7 @@ export function ComponentGlyph({
             centerY + wedgeH * 0.5,
           ]}
           stroke={stroke}
-          strokeWidth={1.1}
+          strokeWidth={strokeWidth(1.1)}
         />
       )
     }
@@ -189,7 +192,7 @@ export function ComponentGlyph({
           <Circle
             radius={pr}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
             x={centerX}
             y={centerY}
           />
@@ -202,7 +205,7 @@ export function ComponentGlyph({
               centerY - pr * ax,
             ]}
             stroke={stroke}
-            strokeWidth={1.05}
+            strokeWidth={strokeWidth(1.05)}
           />
           <Line
             lineCap="round"
@@ -216,7 +219,7 @@ export function ComponentGlyph({
               centerY - pr * ax + pr * 0.3,
             ]}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
           />
         </>
       )
@@ -230,7 +233,7 @@ export function ComponentGlyph({
           <Circle
             radius={wr}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
             x={centerX}
             y={centerY}
           />
@@ -243,7 +246,7 @@ export function ComponentGlyph({
               centerY - wr * wax,
             ]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
           />
           <Line
             lineCap="round"
@@ -254,7 +257,7 @@ export function ComponentGlyph({
               centerY + tickLen * wax,
             ]}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
           />
         </>
       )
@@ -268,13 +271,13 @@ export function ComponentGlyph({
             lineCap="round"
             points={[centerX, centerY - irisHalf, centerX, centerY - irisGap]}
             stroke={stroke}
-            strokeWidth={1.4}
+            strokeWidth={strokeWidth(1.4)}
           />
           <Line
             lineCap="round"
             points={[centerX, centerY + irisGap, centerX, centerY + irisHalf]}
             stroke={stroke}
-            strokeWidth={1.4}
+            strokeWidth={strokeWidth(1.4)}
           />
           <Line
             lineCap="round"
@@ -288,7 +291,7 @@ export function ComponentGlyph({
               centerY - irisGap * 1.5,
             ]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
           />
           <Line
             lineCap="round"
@@ -302,7 +305,7 @@ export function ComponentGlyph({
               centerY + irisGap * 1.5,
             ]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
           />
         </>
       )
@@ -324,7 +327,7 @@ export function ComponentGlyph({
             centerY + 7,
           ]}
           stroke={stroke}
-          strokeWidth={1}
+          strokeWidth={strokeWidth(1)}
         />
       )
     case 'telescope':
@@ -334,7 +337,7 @@ export function ComponentGlyph({
             radiusX={Math.max(2.2, width * 0.08)}
             radiusY={Math.max(5, height * 0.28)}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             x={centerX - width * 0.18}
             y={centerY}
           />
@@ -342,14 +345,14 @@ export function ComponentGlyph({
             radiusX={Math.max(2.2, width * 0.08)}
             radiusY={Math.max(5, height * 0.28)}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             x={centerX + width * 0.18}
             y={centerY}
           />
           <Line
             points={[centerX - width * 0.08, centerY, centerX + width * 0.08, centerY]}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
           />
         </>
       )
@@ -361,7 +364,7 @@ export function ComponentGlyph({
             fill={fill ?? 'rgba(255, 255, 255, 0.08)'}
             height={Math.max(10, height * 0.42)}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
             width={Math.max(18, width * 0.5)}
             x={centerX - Math.max(18, width * 0.5) / 2}
             y={centerY - Math.max(10, height * 0.42) / 2}
@@ -369,12 +372,12 @@ export function ComponentGlyph({
           <Line
             points={[boundsMm.x + inset, centerY, centerX - width * 0.25, centerY]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
           />
           <Line
             points={[centerX + width * 0.25, centerY, boundsMm.x + width - inset, centerY]}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
           />
         </>
       )
@@ -383,7 +386,7 @@ export function ComponentGlyph({
         <Rect
           height={Math.max(12, height * 0.5)}
           stroke={stroke}
-          strokeWidth={1}
+          strokeWidth={strokeWidth(1)}
           width={Math.max(18, width * 0.56)}
           x={centerX - Math.max(18, width * 0.56) / 2}
           y={centerY - Math.max(12, height * 0.5) / 2}
@@ -395,14 +398,14 @@ export function ComponentGlyph({
           <Circle
             radius={Math.max(3, Math.min(width, height) * 0.18)}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             x={centerX - 5}
             y={centerY}
           />
           <Line
             points={[centerX - 2, centerY, centerX + 8, centerY]}
             stroke={stroke}
-            strokeWidth={1.2}
+            strokeWidth={strokeWidth(1.2)}
           />
         </>
       )
@@ -414,7 +417,7 @@ export function ComponentGlyph({
             fill={fill ?? 'rgba(188, 214, 223, 0.1)'}
             height={Math.max(14, height * 0.42)}
             stroke={stroke}
-            strokeWidth={0.9}
+            strokeWidth={strokeWidth(0.9)}
             width={Math.max(18, width * 0.58)}
             x={centerX - Math.max(18, width * 0.58) / 2}
             y={centerY - Math.max(14, height * 0.42) / 2}
@@ -422,14 +425,14 @@ export function ComponentGlyph({
           <Circle
             radius={2.4}
             stroke={stroke}
-            strokeWidth={0.8}
+            strokeWidth={strokeWidth(0.8)}
             x={centerX - 4}
             y={centerY}
           />
           <Circle
             radius={2.4}
             stroke={stroke}
-            strokeWidth={0.8}
+            strokeWidth={strokeWidth(0.8)}
             x={centerX + 4}
             y={centerY}
           />
@@ -445,7 +448,7 @@ export function ComponentGlyph({
             outerRadius={dr}
             rotation={-90}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
             x={centerX + dr * 0.15}
             y={centerY}
           />
@@ -458,7 +461,7 @@ export function ComponentGlyph({
               centerY + dr,
             ]}
             stroke={stroke}
-            strokeWidth={1.1}
+            strokeWidth={strokeWidth(1.1)}
           />
         </>
       )
@@ -475,7 +478,7 @@ export function ComponentGlyph({
             fill={fill ?? 'rgba(80, 64, 52, 0.18)'}
             height={bdH}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             width={bdW}
             x={bdX}
             y={bdY}
@@ -492,7 +495,7 @@ export function ComponentGlyph({
               ]}
               opacity={0.7}
               stroke={stroke}
-              strokeWidth={0.7}
+              strokeWidth={strokeWidth(0.7)}
             />
           ))}
         </>
@@ -504,7 +507,7 @@ export function ComponentGlyph({
           <Circle
             radius={Math.max(6, Math.min(width, height) * 0.28)}
             stroke={stroke}
-            strokeWidth={1}
+            strokeWidth={strokeWidth(1)}
             x={centerX}
             y={centerY}
           />
@@ -512,7 +515,7 @@ export function ComponentGlyph({
             fill={fill ?? 'rgba(255, 255, 255, 0.08)'}
             radius={2.8}
             stroke={stroke}
-            strokeWidth={0.8}
+            strokeWidth={strokeWidth(0.8)}
             x={centerX}
             y={centerY}
           />
@@ -525,7 +528,7 @@ export function ComponentGlyph({
           fill={fill ?? 'rgba(255, 255, 255, 0.06)'}
           height={Math.max(10, height * 0.32)}
           stroke={stroke}
-          strokeWidth={1}
+          strokeWidth={strokeWidth(1)}
           width={Math.max(14, width * 0.45)}
           x={centerX - Math.max(14, width * 0.45) / 2}
           y={centerY - Math.max(10, height * 0.32) / 2}

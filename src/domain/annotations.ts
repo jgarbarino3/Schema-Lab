@@ -1,4 +1,9 @@
-import { roundMm } from './geometry'
+import {
+  getBoundsCenterMm,
+  normalizeQuarterTurns,
+  rotatePointAroundCenterQuarterTurns,
+  roundMm,
+} from './geometry'
 import type {
   AnnotationFontFamily,
   AnnotationLayerBand,
@@ -524,6 +529,94 @@ export function translateAnnotation(
           x: roundMm(annotation.boundsMm.x + deltaMm.x),
           y: roundMm(annotation.boundsMm.y + deltaMm.y),
         },
+      }
+  }
+}
+
+export function rotateAnnotationAroundCenterQuarterTurns(
+  annotation: SceneAnnotation,
+  centerMm: Vector2Mm,
+  quarterTurns: 0 | 1 | 2 | 3,
+): SceneAnnotation {
+  const normalizedQuarterTurns = normalizeQuarterTurns(quarterTurns)
+
+  if (normalizedQuarterTurns === 0) {
+    return annotation
+  }
+
+  switch (annotation.kind) {
+    case 'line':
+      return {
+        ...annotation,
+        startMm: rotatePointAroundCenterQuarterTurns(
+          annotation.startMm,
+          centerMm,
+          normalizedQuarterTurns,
+        ),
+        endMm: rotatePointAroundCenterQuarterTurns(
+          annotation.endMm,
+          centerMm,
+          normalizedQuarterTurns,
+        ),
+      }
+    case 'text':
+      return {
+        ...annotation,
+        anchorMm: rotatePointAroundCenterQuarterTurns(
+          annotation.anchorMm,
+          centerMm,
+          normalizedQuarterTurns,
+        ),
+        tailMm: annotation.tailMm
+          ? rotatePointAroundCenterQuarterTurns(
+              annotation.tailMm,
+              centerMm,
+              normalizedQuarterTurns,
+            )
+          : undefined,
+      }
+    case 'shape':
+      if (annotation.shapeKind === 'arrow') {
+        return {
+          ...annotation,
+          startMm: rotatePointAroundCenterQuarterTurns(
+            annotation.startMm,
+            centerMm,
+            normalizedQuarterTurns,
+          ),
+          endMm: rotatePointAroundCenterQuarterTurns(
+            annotation.endMm,
+            centerMm,
+            normalizedQuarterTurns,
+          ),
+        }
+      }
+
+      {
+        const boundsCenter = getBoundsCenterMm(annotation.boundsMm)
+        const rotatedCenter = rotatePointAroundCenterQuarterTurns(
+          boundsCenter,
+          centerMm,
+          normalizedQuarterTurns,
+        )
+        const nextWidth =
+          normalizedQuarterTurns % 2 === 1
+            ? annotation.boundsMm.height
+            : annotation.boundsMm.width
+        const nextHeight =
+          normalizedQuarterTurns % 2 === 1
+            ? annotation.boundsMm.width
+            : annotation.boundsMm.height
+
+        return {
+          ...annotation,
+          boundsMm: {
+            x: roundMm(rotatedCenter.x - nextWidth / 2),
+            y: roundMm(rotatedCenter.y - nextHeight / 2),
+            width: roundMm(nextWidth),
+            height: roundMm(nextHeight),
+          },
+        }
       }
   }
 }

@@ -57,7 +57,7 @@ export type PlacementReason =
   | 'occupied'
   | 'snap-preview'
   | 'outside-source-lane'
-export type ActiveTool = 'select' | 'pan' | 'line' | 'text' | 'shape'
+export type ActiveTool = 'select' | 'pan' | 'line' | 'text' | 'shape' | 'highlight'
 
 export type AnnotationKind = 'line' | 'text' | 'shape'
 export type AnnotationFontFamily = 'clean-sans' | 'serif' | 'mono' | 'soft-display'
@@ -170,7 +170,13 @@ export type SceneAnnotation = AnnotationLine | AnnotationText | ShapeAnnotation
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
-export type ToolbarMenu = 'import' | 'export' | 'beam'
+export type ToolbarMenu =
+  | 'import'
+  | 'export'
+  | 'beam'
+  | 'learn'
+  | 'more'
+  | 'canvas-tools'
 export type WorkspaceSurfaceKind = 'breadboard' | 'optical-table'
 export type SourcePresetId =
   | 'ti-sapphire'
@@ -600,6 +606,7 @@ export type ComponentBeamPhysics =
 export interface ComponentVariant {
   id: string
   label: string
+  shortLabel?: string
   vendor?: string
   sku?: string
   description: string
@@ -807,6 +814,13 @@ export interface ViewportState {
   canvasSizePx: CanvasSizePx
 }
 
+export interface HighlightSelectionState {
+  annotationIds: string[]
+  boundsMm: BoundsMm
+  breadboardIds: string[]
+  componentIds: string[]
+}
+
 export interface ResolvedComponentSpec {
   type: ComponentType
   category: ComponentCategory
@@ -814,6 +828,7 @@ export interface ResolvedComponentSpec {
   defaultLabel: string
   variantId: string
   variantLabel: string
+  shortVariantLabel: string
   vendor?: string
   sku?: string
   description: string

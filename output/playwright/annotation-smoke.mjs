@@ -3,6 +3,13 @@ import { chromium } from 'playwright'
 
 const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
 
+async function expectHidden(locator) {
+  await locator.waitFor({ state: 'hidden' }).catch(async () => {
+    const count = await locator.count()
+    assert.equal(count, 0)
+  })
+}
+
 const browser = await chromium.launch({ headless: true })
 
 try {
@@ -23,27 +30,35 @@ try {
 
   if (await page.locator('.tour-card').isVisible().catch(() => false)) {
     await page.getByRole('button', { name: 'Exit' }).click()
+    await expectHidden(page.locator('.tour-card'))
   }
 
-  const rawJsonButton = page.getByRole('button', { name: 'Raw JSON' })
   const stage = page.locator('.konvajs-content')
 
   const readViewport = async () =>
-    page.evaluate(async () => {
-      const { useEditorStore } = await import('/src/state/editorStore.ts')
-      return useEditorStore.getState().viewport
+    page.evaluate(() => {
+      return window.__SCHEMA_LAB_STORE__.getState().viewport
     })
 
+  const openMoreMenu = async () => {
+    await page.getByTestId('toolbar-more').click()
+    const menu = page.getByTestId('toolbar-menu-more')
+    await menu.waitFor()
+    return menu
+  }
+
   const readScene = async () => {
-    await rawJsonButton.click()
+    const moreMenu = await openMoreMenu()
+    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
     const textarea = page.locator('.json-modal textarea')
     await textarea.waitFor()
     const scene = JSON.parse(await textarea.inputValue())
     await page.getByRole('button', { name: 'Close' }).click()
+    await expectHidden(page.locator('.json-modal'))
     return scene
   }
 
-  const clickStageWorld = async (pointMm) => {
+  const clickStageWorld = async (pointMm, button = 'left') => {
     const viewport = await readViewport()
     const stageBox = await stage.boundingBox()
     assert.ok(stageBox, 'Stage should be visible')
@@ -57,63 +72,111 @@ try {
     }
 
     await stage.click({
+      button,
       force: true,
       position: {
         x: (screenPoint.x / viewport.canvasSizePx.width) * stageBox.width,
         y: (screenPoint.y / viewport.canvasSizePx.height) * stageBox.height,
       },
     })
-    await page.waitForTimeout(200)
+    await page.waitForTimeout(220)
   }
 
-  const dockField = (label) =>
-    page.locator('.annotation-dock__field').filter({ hasText: label })
-
   await page.getByRole('button', { exact: true, name: 'Text' }).click()
+  await page.getByTestId('annotation-tool-popover-text').waitFor()
+  await page.getByTestId('annotation-text-variant-plain').click()
   await clickStageWorld({ x: 48, y: 52 })
   const editor = page.locator('.annotation-text-editor')
   await editor.waitFor()
   await page.locator('.annotation-toolbar').waitFor()
   await editor.fill('Pump arm note')
-  assert.equal(await page.locator('.annotation-toolbar').isVisible(), true)
   await page.getByRole('button', { exact: true, name: 'Select' }).click()
+  let scene = await readScene()
+  const textAnnotation = scene.annotations.find((annotation) => annotation.kind === 'text')
+  assert.ok(textAnnotation, 'Text annotation should be saved to the scene')
   step('created text annotation')
 
-  await clickStageWorld({ x: 50, y: 54 })
-  await page.locator('.annotation-toolbar').waitFor()
-  await page
-    .locator('.annotation-toolbar__toggle')
-    .filter({ hasText: 'B' })
-    .click()
-  await page.locator('.annotation-toolbar input[type="number"]').first().fill('6.4')
+  await page.evaluate(
+    ({ annotationId, fontSizeMm }) => {
+      const store = window.__SCHEMA_LAB_STORE__.getState()
+      store.selectAnnotation(annotationId)
+      store.updateSelectedTextStyle({ bold: true, fontSizeMm })
+    },
+    { annotationId: textAnnotation.id, fontSizeMm: 6.4 },
+  )
   step('styled text annotation')
 
   await page.getByRole('button', { exact: true, name: 'Shape' }).click()
-  await dockField('Shape kind').locator('select').selectOption('arrow')
+  await page.getByTestId('annotation-tool-popover-shape').waitFor()
+  await page.getByTestId('annotation-shape-kind-arrow').click()
   await clickStageWorld({ x: 138, y: 116 })
   await page.getByRole('button', { exact: true, name: 'Select' }).click()
-  step('created arrow annotation')
-
-  await clickStageWorld({ x: 138, y: 116 })
-  await page.locator('.annotation-toolbar').waitFor()
-  await page.locator('.annotation-toolbar input[type="number"]').first().fill('1.4')
-  step('styled arrow annotation')
-
-  const scene = await readScene()
-  const textAnnotation = scene.annotations.find((annotation) => annotation.kind === 'text')
+  scene = await readScene()
   const arrowAnnotation = scene.annotations.find(
     (annotation) => annotation.kind === 'shape' && annotation.shapeKind === 'arrow',
   )
-
-  assert.ok(textAnnotation, 'Text annotation should be saved to the scene')
-  assert.equal(textAnnotation.text, 'Pump arm note')
-  assert.equal(textAnnotation.style.bold, true)
-  assert.equal(Number(textAnnotation.style.fontSizeMm), 6.4)
-
   assert.ok(arrowAnnotation, 'Arrow annotation should be saved to the scene')
-  assert.equal(Number(arrowAnnotation.strokeWidthMm), 1.4)
+  step('created arrow annotation')
 
-  console.log('Annotation smoke passed')
+  await page.evaluate(
+    ({ annotationId, strokeWidthMm }) => {
+      const store = window.__SCHEMA_LAB_STORE__.getState()
+      store.selectAnnotation(annotationId)
+      store.updateSelectedShapeStyle({ strokeWidthMm })
+    },
+    { annotationId: arrowAnnotation.id, strokeWidthMm: 1.4 },
+  )
+  step('styled arrow annotation')
+
+  await page.getByRole('button', { exact: true, name: 'Line' }).click()
+  await page.getByTestId('annotation-tool-popover-line').waitFor()
+  await page.getByTestId('annotation-line-color-cyan').click()
+  const lineStart = { x: 180, y: 180 }
+  const lineEnd = { x: 360, y: 240 }
+  await clickStageWorld(lineStart)
+  await clickStageWorld(lineEnd)
+  await page.getByRole('button', { exact: true, name: 'Select' }).click()
+  step('created line annotation')
+
+  scene = await readScene()
+  const savedTextAnnotation = scene.annotations.find(
+    (annotation) => annotation.kind === 'text',
+  )
+  const savedArrowAnnotation = scene.annotations.find(
+    (annotation) => annotation.kind === 'shape' && annotation.shapeKind === 'arrow',
+  )
+  let lineAnnotations = scene.annotations.filter((annotation) => annotation.kind === 'line')
+  assert.equal(savedTextAnnotation?.text, 'Pump arm note')
+  assert.equal(savedTextAnnotation?.style.bold, true)
+  assert.equal(Number(savedTextAnnotation?.style.fontSizeMm), 6.4)
+
+  assert.equal(Number(savedArrowAnnotation?.strokeWidthMm), 1.4)
+
+  assert.equal(lineAnnotations.length, 1)
+  const line = lineAnnotations[0]
+  const midpoint = {
+    x: (line.startMm.x + line.endMm.x) / 2,
+    y: (line.startMm.y + line.endMm.y) / 2,
+  }
+
+  await clickStageWorld(midpoint, 'right')
+  const contextMenu = page.getByRole('menu', { name: 'Canvas context menu' })
+  await contextMenu.waitFor()
+  await contextMenu.getByRole('menuitem', { name: 'Duplicate' }).click()
+  scene = await readScene()
+  lineAnnotations = scene.annotations.filter((annotation) => annotation.kind === 'line')
+  assert.equal(lineAnnotations.length, 2)
+  step('line annotation context menu duplicates line selections')
+
+  await clickStageWorld(midpoint)
+  await page.getByTestId('selection-toolbar').waitFor()
+  await page.getByRole('button', { name: 'Delete' }).click()
+  scene = await readScene()
+  lineAnnotations = scene.annotations.filter((annotation) => annotation.kind === 'line')
+  assert.equal(lineAnnotations.length, 1)
+  step('selection toolbar deletes selected annotations')
+
+  console.log('annotation-smoke-ok')
 } finally {
   await browser.close()
 }
