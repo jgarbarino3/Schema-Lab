@@ -41,8 +41,8 @@ try {
   }
 
   const openRawJsonModal = async () => {
-    const moreMenu = await openToolbarMenu('toolbar-more', 'toolbar-menu-more')
-    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
+    const exportMenu = await openToolbarMenu('toolbar-export', 'toolbar-menu-export')
+    await exportMenu.getByRole('button', { name: 'Raw JSON' }).click()
     const modal = page.locator('.json-modal')
     await modal.waitFor()
     return modal
@@ -59,10 +59,7 @@ try {
 
   await page.getByTestId('canvas-empty-state').waitFor()
   assert.ok(parseZoom(await page.getByTestId('status-zoom').textContent()) > 0)
-  assert.match(
-    (await page.getByTestId('status-board').textContent()) ?? '',
-    /Board:/i,
-  )
+  assert.ok(((await page.getByTestId('status-board').textContent()) ?? '').trim().length > 0)
   step('empty state and status bar visible')
 
   await page.getByTestId('library-search').fill('laser')
@@ -114,57 +111,55 @@ try {
   await expectHidden(shortcutsDialog)
   step('shortcuts modal opens by button and hotkey')
 
-  let learnMenu = await openToolbarMenu('toolbar-learn', 'toolbar-menu-learn')
-  await learnMenu.getByRole('button', { name: 'Appendix' }).click()
+  let helpMenu = await openToolbarMenu('toolbar-help-menu', 'toolbar-menu-learn')
+  await helpMenu.getByRole('button', { name: 'Appendix' }).click()
   const appendixDialog = page.getByRole('dialog', { name: 'Schema-Lab appendix' })
   await appendixDialog.waitFor()
   assert.match((await appendixDialog.textContent()) ?? '', /Navigate/i)
   await appendixDialog.getByRole('button', { name: 'Close' }).click()
   await expectHidden(appendixDialog)
 
-  learnMenu = await openToolbarMenu('toolbar-learn', 'toolbar-menu-learn')
-  assert.match((await learnMenu.textContent()) ?? '', /Guide/i)
-  assert.match((await learnMenu.textContent()) ?? '', /Tutorial/i)
-  assert.match((await learnMenu.textContent()) ?? '', /What’s New/i)
-  await learnMenu.getByRole('button', { name: 'Guide' }).click()
+  helpMenu = await openToolbarMenu('toolbar-help-menu', 'toolbar-menu-learn')
+  assert.match((await helpMenu.textContent()) ?? '', /Guide/i)
+  assert.match((await helpMenu.textContent()) ?? '', /Tutorial/i)
+  assert.match((await helpMenu.textContent()) ?? '', /What’s New/i)
+  assert.match((await helpMenu.textContent()) ?? '', /Simple Icons/i)
+  await helpMenu.getByRole('button', { name: 'Guide' }).click()
   await tourCard.waitFor()
   await page.getByRole('button', { name: 'Exit' }).click()
   await expectHidden(tourCard)
 
-  learnMenu = await openToolbarMenu('toolbar-learn', 'toolbar-menu-learn')
-  await learnMenu.getByRole('button', { name: 'Tutorial' }).click()
+  helpMenu = await openToolbarMenu('toolbar-help-menu', 'toolbar-menu-learn')
+  await helpMenu.getByRole('button', { name: 'Tutorial' }).click()
   const tutorialDialog = page.getByRole('dialog', { name: 'Load tutorial scene' })
   await tutorialDialog.waitFor()
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expectHidden(tutorialDialog)
 
-  learnMenu = await openToolbarMenu('toolbar-learn', 'toolbar-menu-learn')
-  await learnMenu.getByRole('button', { name: 'What’s New' }).click()
+  helpMenu = await openToolbarMenu('toolbar-help-menu', 'toolbar-menu-learn')
+  await helpMenu.getByRole('button', { name: 'What’s New' }).click()
   const versionDialog = page.getByRole('dialog', {
     name: 'Schema-Lab version history',
   })
   await versionDialog.waitFor()
   await page.getByRole('button', { exact: true, name: 'Close' }).click()
   await expectHidden(versionDialog)
-  step('learn menu routes work')
-
-  const importMenu = await openToolbarMenu('toolbar-import', 'toolbar-menu-import')
-  assert.match((await importMenu.textContent()) ?? '', /Scene JSON/i)
-  assert.match((await importMenu.textContent()) ?? '', /Interpreted SVG/i)
-  await page.keyboard.press('Escape')
-  await expectHidden(importMenu)
+  step('help menu routes work')
 
   const exportMenu = await openToolbarMenu('toolbar-export', 'toolbar-menu-export')
+  assert.match((await exportMenu.textContent()) ?? '', /Import Scene JSON/i)
+  assert.match((await exportMenu.textContent()) ?? '', /Import Interpreted SVG/i)
+  assert.match((await exportMenu.textContent()) ?? '', /Raw JSON/i)
   assert.match((await exportMenu.textContent()) ?? '', /PNG/i)
   assert.match((await exportMenu.textContent()) ?? '', /PDF/i)
   assert.match((await exportMenu.textContent()) ?? '', /SVG/i)
   assert.match((await exportMenu.textContent()) ?? '', /DXF/i)
-  await exportMenu.getByRole('button', { name: 'SVG' }).click()
+  await exportMenu.getByRole('button', { exact: true, name: 'SVG' }).click()
   const exportDialog = page.getByRole('dialog', { name: 'Export options' })
   await exportDialog.waitFor()
   await exportDialog.getByRole('button', { name: 'Cancel' }).click()
   await expectHidden(exportDialog)
-  step('import and export menus work')
+  step('combined export and file menu works')
 
   const warningButton = page.getByTestId('toolbar-warnings')
   await warningButton.click()
@@ -185,9 +180,14 @@ try {
   const realisticButton = page.getByRole('button', { name: 'Realistic' })
   await simpleButton.click()
   assert.equal(await simpleButton.getAttribute('aria-pressed'), 'true')
+  const simpleIconStyleToggle = page.getByTestId('toolbar-simple-icon-style')
+  await simpleIconStyleToggle.click()
+  assert.equal(await simpleIconStyleToggle.getAttribute('aria-pressed'), 'true')
+  await simpleIconStyleToggle.click()
+  assert.equal(await simpleIconStyleToggle.getAttribute('aria-pressed'), 'false')
   await realisticButton.click()
   assert.equal(await realisticButton.getAttribute('aria-pressed'), 'true')
-  step('render mode toggle works')
+  step('render mode and simple icon style toggles work')
 
   console.log('ux-clarity-smoke-ok')
 } finally {

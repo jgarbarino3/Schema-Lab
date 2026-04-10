@@ -57,6 +57,7 @@ interface ComponentNodeProps {
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
   simpleGlyphAppearance?: SimpleGlyphAppearance
+  simpleIconStyle?: 'clean' | 'classic'
   surfaceSupportCompensationMm?: number
   viewport: ViewportState
 }
@@ -135,6 +136,7 @@ export function ComponentNodeView({
   renderMode,
   resolveDragPositionPx,
   simpleGlyphAppearance,
+  simpleIconStyle = 'clean',
   surfaceSupportCompensationMm = 0,
   viewport,
 }: ComponentNodeProps) {
@@ -508,6 +510,7 @@ export function ComponentNodeView({
                       : stroke
                 }
                 strokeScale={renderMode === 'simple' ? effectiveSimpleGlyphWeight : 1}
+                style={renderMode === 'simple' ? simpleIconStyle : 'clean'}
               />
             </>
           )}
@@ -696,6 +699,13 @@ export const ComponentNode = memo(function ComponentNode(props: ComponentNodePro
   const simpleGlyphAppearance = useEditorStore(
     (state) => state.simpleGlyphAppearances[props.instance.id],
   )
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
 
-  return <ComponentNodeView {...props} simpleGlyphAppearance={simpleGlyphAppearance} />
+  return (
+    <ComponentNodeView
+      {...props}
+      simpleGlyphAppearance={simpleGlyphAppearance}
+      simpleIconStyle={simpleIconStyle}
+    />
+  )
 })

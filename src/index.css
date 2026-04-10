@@ -326,7 +326,7 @@ textarea {
 
 .toolbar__help-popover section {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.28rem;
 }
 
 .toolbar__warning-popover {
@@ -335,6 +335,11 @@ textarea {
 
 .toolbar__menu-popover {
   gap: 0.6rem;
+}
+
+.toolbar__menu-popover section {
+  display: grid;
+  gap: 0.38rem;
 }
 
 .toolbar__help-popover h3 {
@@ -350,6 +355,21 @@ textarea {
   color: var(--muted);
   font-size: 0.81rem;
   line-height: 1.42;
+}
+
+.toolbar__help-popover kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.38rem;
+  border: 1px solid rgba(147, 207, 228, 0.18);
+  border-radius: 8px;
+  background: rgba(18, 30, 36, 0.72);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .toolbar__warning-popover-header {
@@ -448,6 +468,15 @@ textarea {
   color: var(--accent);
   font-size: 0.8rem;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.toolbar__menu-popover section h3 {
+  margin: 0;
+  color: rgba(191, 208, 218, 0.72);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -2379,22 +2408,22 @@ textarea {
 }
 
 .toolbar {
-  gap: 0.72rem;
-  padding: 1rem 1.3rem 0.95rem;
+  gap: 0.54rem;
+  padding: 0.88rem 1.2rem 0.72rem;
   border-bottom: 1px solid rgba(145, 168, 182, 0.14);
   background: rgba(7, 10, 14, 0.82);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
 }
 
 .toolbar__row {
-  gap: 0.9rem;
+  gap: 0.72rem;
 }
 
 .toolbar__row--secondary {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  gap: 1.15rem;
-  padding-top: 0.2rem;
+  gap: 0.9rem;
+  padding-top: 0.12rem;
   border-top: 1px solid rgba(145, 168, 182, 0.1);
 }
 
@@ -2416,7 +2445,7 @@ textarea {
 }
 
 .toolbar__controls {
-  gap: 0.65rem;
+  gap: 0.5rem;
 }
 
 .toolbar__controls--primary {
@@ -2428,7 +2457,7 @@ textarea {
   flex: 0 0 auto;
   margin-left: auto;
   justify-content: flex-end;
-  gap: 1rem;
+  gap: 0.72rem;
 }
 
 .toolbar__tool-dock {
@@ -2437,30 +2466,30 @@ textarea {
   justify-content: center;
   min-width: 0;
   grid-column: 2;
-  transform: translateX(-2.4rem);
+  transform: none;
 }
 
 .toolbar__tool-group {
-  gap: 0.65rem;
+  gap: 0.48rem;
   align-items: center;
 }
 
 .toolbar__tool-group--compact {
-  gap: 0.52rem;
-  padding-left: 1rem;
-  margin-left: 0.35rem;
+  gap: 0.36rem;
+  padding-left: 0.72rem;
+  margin-left: 0.18rem;
   border-left: 1px solid rgba(145, 168, 182, 0.14);
 }
 
 .toolbar__tool-group--segmented {
-  padding: 0.22rem;
+  padding: 0.16rem;
   border-color: rgba(145, 168, 182, 0.16);
   background: rgba(11, 16, 21, 0.88);
 }
 
 .toolbar__tool-group--segmented button {
   min-width: 0;
-  padding: 0.56rem 0.9rem;
+  padding: 0.46rem 0.76rem;
   border-color: transparent;
   background: transparent;
   color: var(--muted);
@@ -2514,9 +2543,9 @@ textarea {
 }
 
 .toolbar__icon-button {
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: 12px;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
   background: rgba(13, 18, 23, 0.88);
 }
 
@@ -2530,12 +2559,66 @@ textarea {
   color: #fff1cb;
 }
 
+.toolbar__warning-toggle.is-quiet {
+  border-color: rgba(145, 168, 182, 0.16);
+  background: linear-gradient(180deg, rgba(23, 31, 39, 0.96), rgba(14, 20, 26, 0.96));
+  color: rgba(214, 226, 234, 0.84);
+}
+
 .toolbar__help-button {
-  width: 2.35rem;
-  min-width: 2.35rem;
+  width: 2.1rem;
+  min-width: 2.1rem;
   padding: 0;
-  font-size: 1rem;
+  font-size: 0.94rem;
   font-weight: 700;
+}
+
+.toolbar__button-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.48rem;
+}
+
+.toolbar__button-icon {
+  width: 0.98rem;
+  height: 0.98rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar__button-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.toolbar__button-label {
+  line-height: 1;
+}
+
+.toolbar__view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.66rem;
+  border-radius: 11px;
+  border: 1px solid rgba(145, 168, 182, 0.14);
+  background: rgba(13, 18, 23, 0.82);
+  color: rgba(220, 230, 236, 0.82);
+  box-shadow: none;
+}
+
+.toolbar__view-toggle-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar__view-toggle-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .toolbar__brand-mark {
@@ -2749,11 +2832,13 @@ textarea {
 }
 
 .toolbar__menu-popover > button,
+.toolbar__menu-popover section button,
 .toolbar__warning-item-main {
   text-align: left;
 }
 
 .toolbar__menu-popover > button,
+.toolbar__menu-popover section button,
 .toolbar__warning-item-main,
 .toolbar__warning-item-actions button {
   justify-content: flex-start;
@@ -2771,6 +2856,7 @@ textarea {
 }
 
 .toolbar__menu-popover > button,
+.toolbar__menu-popover section button,
 .toolbar__warning-filter-group button,
 .toolbar__warning-item-actions button {
   padding: 0.52rem 0.68rem;
@@ -3017,15 +3103,18 @@ textarea {
 
 .component-library__group-body {
   display: grid;
-  gap: 0.55rem;
-  padding: 0.5rem 0 0;
+  gap: 0.45rem;
+  padding: 0.38rem 0 0;
 }
 
 .component-library__item {
-  gap: 0.35rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.68rem;
   margin-bottom: 0;
-  padding: 0.82rem 0.88rem;
-  border-radius: 16px;
+  padding: 0.62rem 0.72rem;
+  border-radius: 14px;
   border: 1px solid rgba(145, 168, 182, 0.12);
   background: linear-gradient(180deg, rgba(17, 22, 28, 0.94), rgba(12, 16, 21, 0.94));
 }
@@ -3035,17 +3124,47 @@ textarea {
   background: linear-gradient(180deg, rgba(22, 30, 37, 0.96), rgba(14, 20, 25, 0.96));
 }
 
+.component-library__preview {
+  width: 3rem !important;
+  height: 2.2rem !important;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid rgba(145, 168, 182, 0.12);
+  background: linear-gradient(180deg, rgba(10, 14, 18, 0.9), rgba(14, 19, 24, 0.82));
+}
+
+.component-library__preview > div,
+.component-library__preview canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.component-library__preview--compact {
+  width: 2.55rem !important;
+  height: 1.9rem !important;
+  border-radius: 9px;
+}
+
+.component-library__item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.14rem;
+  justify-items: start;
+}
+
 .component-library__item-title {
-  font-size: 0.92rem;
+  font-size: 0.86rem;
+  line-height: 1.2;
 }
 
 .component-library__item-meta {
   color: var(--muted);
-  font-size: 0.77rem;
+  font-size: 0.72rem;
 }
 
 .component-library__item-state {
   display: inline-flex;
+  align-self: center;
   padding: 0.16rem 0.45rem;
   border-radius: 999px;
   background: rgba(125, 200, 228, 0.1);
@@ -3373,6 +3492,7 @@ textarea {
 
 .toolbar__row--secondary {
   align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 }
 
 .toolbar__selection-slot {
@@ -3389,8 +3509,8 @@ textarea {
 
 .toolbar__tool-dock-cluster {
   display: inline-flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.58rem;
   position: relative;
   z-index: 2;
 }
@@ -3404,8 +3524,8 @@ textarea {
 .toolbar__workspace-mode-wrap {
   position: relative;
   display: inline-flex;
-  padding-bottom: 0.6rem;
-  margin-bottom: -0.6rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: -0.5rem;
 }
 
 .toolbar__workspace-mode-wrap::after {
@@ -3414,7 +3534,7 @@ textarea {
   left: 0;
   right: 0;
   top: 100%;
-  height: 0.7rem;
+  height: 0.56rem;
 }
 
 .toolbar__workspace-flyout {
@@ -3523,8 +3643,8 @@ textarea {
 }
 
 .component-library__item--recent {
-  gap: 0.18rem;
-  padding: 0.6rem 0.76rem;
+  gap: 0.54rem;
+  padding: 0.48rem 0.6rem;
   border-color: rgba(240, 202, 138, 0.08);
   background:
     linear-gradient(180deg, rgba(14, 18, 23, 0.76), rgba(10, 14, 18, 0.84)),
@@ -3532,7 +3652,7 @@ textarea {
 }
 
 .component-library__item--recent .component-library__item-title {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 650;
   color: rgba(224, 232, 238, 0.82);
 }
@@ -3545,12 +3665,12 @@ textarea {
 
 .component-library__recent-toggle {
   justify-content: center;
-  margin-top: 0.2rem;
-  padding: 0.46rem 0.72rem;
+  margin-top: 0.12rem;
+  padding: 0.38rem 0.64rem;
   border-color: rgba(145, 168, 182, 0.12);
   background: rgba(11, 15, 19, 0.72);
   color: rgba(201, 214, 221, 0.78);
-  font-size: 0.72rem;
+  font-size: 0.69rem;
 }
 
 .component-library__group-note {
@@ -3764,14 +3884,14 @@ textarea {
 .selection-toolbar {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.45rem;
+  gap: 0.32rem;
 }
 
 .selection-toolbar--inline {
   align-items: center;
-  padding: 0.3rem;
+  padding: 0.22rem;
   border: 1px solid rgba(147, 207, 228, 0.12);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(10, 14, 18, 0.76);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
@@ -3786,16 +3906,16 @@ textarea {
 
 .selection-toolbar__icon-button {
   position: relative;
-  width: 2.2rem;
-  height: 2.2rem;
+  width: 2rem;
+  height: 2rem;
   padding: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   flex: 0 0 auto;
 }
 
 .selection-toolbar__icon-button svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .selection-toolbar__icon-button::after {

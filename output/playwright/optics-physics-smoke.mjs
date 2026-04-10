@@ -40,11 +40,11 @@ try {
   await page.goto(targetUrl, { waitUntil: 'networkidle' })
 
   const openRawJsonModal = async () => {
-    const moreMenuButton = page.getByTestId('toolbar-more')
-    await moreMenuButton.click()
-    const moreMenu = page.getByTestId('toolbar-menu-more')
-    await moreMenu.waitFor()
-    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
+    const exportMenuButton = page.getByTestId('toolbar-export')
+    await exportMenuButton.click()
+    const exportMenu = page.getByTestId('toolbar-menu-export')
+    await exportMenu.waitFor()
+    await exportMenu.getByRole('button', { name: 'Raw JSON' }).click()
     const modal = page.locator('.json-modal')
     await modal.waitFor()
     return modal
@@ -58,9 +58,14 @@ try {
     page.getByRole('heading', { name, exact: true }).first()
 
   const readScene = async () => {
+    await page.waitForTimeout(220)
     const modal = await openRawJsonModal()
     const textarea = modal.locator('textarea')
     await textarea.waitFor()
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.json-modal textarea')
+      return !!element && element.value.trim().length > 0
+    })
     const scene = JSON.parse(await textarea.inputValue())
     await page.getByRole('button', { name: 'Close' }).click()
     await expectHidden(modal)
@@ -71,6 +76,10 @@ try {
     const modal = await openRawJsonModal()
     const textarea = modal.locator('textarea')
     await textarea.waitFor()
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.json-modal textarea')
+      return !!element
+    })
     await textarea.fill(JSON.stringify(scene, null, 2))
     await page.getByRole('button', { name: 'Load Scene' }).click()
     await expectHidden(modal)

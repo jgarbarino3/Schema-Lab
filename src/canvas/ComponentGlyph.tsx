@@ -1,6 +1,8 @@
 import { Arc, Circle, Ellipse, Line, Rect } from 'react-konva'
 import type { BoundsMm, ComponentGlyph as ComponentGlyphType } from '../domain/types'
 
+export type ComponentGlyphStyle = 'clean' | 'classic'
+
 interface ComponentGlyphProps {
   boundsMm: BoundsMm
   fill?: string
@@ -8,6 +10,7 @@ interface ComponentGlyphProps {
   isConvex?: boolean
   stroke: string
   strokeScale?: number
+  style?: ComponentGlyphStyle
 }
 
 export function ComponentGlyph({
@@ -17,7 +20,19 @@ export function ComponentGlyph({
   isConvex,
   stroke,
   strokeScale = 1,
+  style = 'clean',
 }: ComponentGlyphProps) {
+  if (style === 'classic') {
+    return renderClassicComponentGlyph({
+      boundsMm,
+      fill,
+      glyph,
+      isConvex,
+      stroke,
+      strokeScale,
+    })
+  }
+
   const centerX = boundsMm.x + boundsMm.width / 2
   const centerY = boundsMm.y + boundsMm.height / 2
   const inset = 2.5
@@ -533,6 +548,643 @@ export function ComponentGlyph({
           x={centerX - Math.max(14, width * 0.45) / 2}
           y={centerY - Math.max(10, height * 0.32) / 2}
         />
+      )
+  }
+}
+
+interface ComponentGlyphRenderArgs {
+  boundsMm: BoundsMm
+  fill?: string
+  glyph: ComponentGlyphType
+  isConvex?: boolean
+  stroke: string
+  strokeScale: number
+}
+
+function renderClassicComponentGlyph({
+  boundsMm,
+  fill,
+  glyph,
+  isConvex,
+  stroke,
+  strokeScale,
+}: ComponentGlyphRenderArgs) {
+  const centerX = boundsMm.x + boundsMm.width / 2
+  const centerY = boundsMm.y + boundsMm.height / 2
+  const inset = 2.5
+  const width = boundsMm.width
+  const height = boundsMm.height
+  const strokeWidth = (base: number) => base * strokeScale
+  const left = boundsMm.x + inset
+  const right = boundsMm.x + width - inset
+  const top = boundsMm.y + inset
+  const bottom = boundsMm.y + height - inset
+  const primaryFill = fill ?? 'rgba(255, 255, 255, 0.08)'
+
+  switch (glyph) {
+    case 'laser':
+      return (
+        <>
+          <Circle
+            radius={Math.max(3.2, Math.min(width, height) * 0.16)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={left + Math.max(3.2, Math.min(width, height) * 0.16)}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[left + Math.max(3.2, Math.min(width, height) * 0.3), centerY, right - 6, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.15)}
+          />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[right - 9, centerY - 3, right - 3, centerY, right - 9, centerY + 3]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.05)}
+          />
+        </>
+      )
+    case 'mirror':
+      return (
+        <>
+          <Line
+            lineCap="round"
+            points={[right, top, left, bottom]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.65)}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.12, bottom - height * 0.12, left + width * 0.24, bottom]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        </>
+      )
+    case 'curved-mirror': {
+      const sign = isConvex ? 1 : -1
+      const bow = Math.min(width, height) * 0.08 * sign
+      const x0 = right
+      const y0 = top
+      const x1 = left
+      const y1 = bottom
+      const steps = 12
+      const pts: number[] = []
+      for (let i = 0; i <= steps; i += 1) {
+        const t = i / steps
+        const curve = 4 * t * (1 - t)
+        pts.push(x0 + (x1 - x0) * t + bow * curve, y0 + (y1 - y0) * t + bow * curve)
+      }
+      return (
+        <>
+          <Line
+            lineCap="round"
+            points={pts}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.65)}
+            tension={0.2}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.12, bottom - height * 0.12, left + width * 0.22, bottom]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        </>
+      )
+    }
+    case 'beamsplitter': {
+      const bsSize = Math.max(8, Math.min(width, height) * 0.42)
+      return (
+        <>
+          <Rect
+            fill={primaryFill}
+            height={bsSize}
+            rotation={45}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            width={bsSize}
+            x={centerX}
+            y={centerY - bsSize * 0.707}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.22, bottom - height * 0.22, right - width * 0.22, top + height * 0.22]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.05)}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX - width * 0.18, centerY + height * 0.18, centerX + width * 0.18, centerY - height * 0.18]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+          />
+        </>
+      )
+    }
+    case 'lens':
+      return (
+        <>
+          <Ellipse
+            fill={primaryFill}
+            radiusX={Math.max(2.2, width * 0.09)}
+            radiusY={Math.max(5, height * 0.38)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, top + height * 0.14, centerX, bottom - height * 0.14]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+        </>
+      )
+    case 'filter':
+      return (
+        <>
+          <Rect
+            fill={primaryFill}
+            height={Math.max(8, height * 0.46)}
+            rotation={45}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+            width={Math.max(8, width * 0.46)}
+            x={centerX - Math.max(8, width * 0.46) / 2}
+            y={centerY - Math.max(8, width * 0.46) / 2}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.18, bottom - height * 0.18, right - width * 0.18, top + height * 0.18]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[right - 8, centerY - 3, right - 2, centerY, right - 8, centerY + 3]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+          />
+        </>
+      )
+    case 'attenuator':
+      return (
+        <>
+          <Line
+            closed
+            fill={primaryFill}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.2,
+              centerY + height * 0.22,
+              centerX,
+              centerY - height * 0.22,
+              centerX + width * 0.2,
+              centerY + height * 0.22,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.05)}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.12, centerY, centerX - width * 0.2, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX + width * 0.2, centerY, right - width * 0.12, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        </>
+      )
+    case 'polarizer':
+      return (
+        <>
+          <Circle
+            radius={Math.max(4.5, Math.min(width, height) * 0.24)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - width * 0.18,
+              centerY + height * 0.18,
+              centerX + width * 0.18,
+              centerY - height * 0.18,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX + width * 0.1,
+              centerY + height * 0.16,
+              centerX + width * 0.1,
+              centerY - height * 0.16,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+        </>
+      )
+    case 'waveplate':
+      return (
+        <>
+          <Circle
+            radius={Math.max(4.5, Math.min(width, height) * 0.24)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - width * 0.17,
+              centerY + height * 0.17,
+              centerX + width * 0.17,
+              centerY - height * 0.17,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - width * 0.17,
+              centerY - height * 0.17,
+              centerX + width * 0.17,
+              centerY + height * 0.17,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+          />
+        </>
+      )
+    case 'iris':
+      return (
+        <>
+          <Circle
+            radius={Math.max(5, Math.min(width, height) * 0.28)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, top + height * 0.12, centerX, centerY - height * 0.14]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, centerY + height * 0.14, centerX, bottom - height * 0.12]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[
+              centerX - width * 0.12,
+              centerY - height * 0.12,
+              centerX,
+              centerY - height * 0.02,
+              centerX + width * 0.12,
+              centerY - height * 0.12,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+          />
+          <Line
+            lineCap="round"
+            lineJoin="round"
+            points={[
+              centerX - width * 0.12,
+              centerY + height * 0.12,
+              centerX,
+              centerY + height * 0.02,
+              centerX + width * 0.12,
+              centerY + height * 0.12,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+          />
+        </>
+      )
+    case 'bbo':
+      return (
+        <>
+          <Line
+            closed
+            fill={primaryFill}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.2,
+              centerY,
+              centerX,
+              centerY - height * 0.22,
+              centerX + width * 0.2,
+              centerY,
+              centerX,
+              centerY + height * 0.22,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.16, centerY, right - width * 0.16, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+          />
+        </>
+      )
+    case 'telescope':
+      return (
+        <>
+          <Rect
+            fill={primaryFill}
+            height={Math.max(8, height * 0.28)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+            width={Math.max(16, width * 0.56)}
+            x={centerX - Math.max(16, width * 0.56) / 2}
+            y={centerY - Math.max(8, height * 0.28) / 2}
+          />
+          <Circle
+            radius={Math.max(3, Math.min(width, height) * 0.16)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={left + Math.max(3, Math.min(width, height) * 0.16)}
+            y={centerY}
+          />
+          <Circle
+            radius={Math.max(3, Math.min(width, height) * 0.16)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={right - Math.max(3, Math.min(width, height) * 0.16)}
+            y={centerY}
+          />
+        </>
+      )
+    case 'opa':
+      return (
+        <>
+          <Rect
+            cornerRadius={2.5}
+            fill={primaryFill}
+            height={Math.max(10, height * 0.42)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+            width={Math.max(18, width * 0.54)}
+            x={centerX - Math.max(18, width * 0.54) / 2}
+            y={centerY - Math.max(10, height * 0.42) / 2}
+          />
+          <Line
+            points={[left + 1, centerY, centerX - width * 0.22, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            points={[centerX + width * 0.22, centerY, right - 1, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            closed
+            fill={fill ?? 'rgba(255, 255, 255, 0.16)'}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.08,
+              centerY - height * 0.12,
+              centerX + width * 0.08,
+              centerY,
+              centerX - width * 0.08,
+              centerY + height * 0.12,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+          />
+        </>
+      )
+    case 'sample':
+      return (
+        <>
+          <Rect
+            fill={primaryFill}
+            height={Math.max(12, height * 0.46)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+            width={Math.max(18, width * 0.56)}
+            x={centerX - Math.max(18, width * 0.56) / 2}
+            y={centerY - Math.max(12, height * 0.46) / 2}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX - width * 0.18, centerY - height * 0.1, centerX + width * 0.18, centerY + height * 0.1]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+        </>
+      )
+    case 'fiber':
+      return (
+        <>
+          <Circle
+            radius={Math.max(3, Math.min(width, height) * 0.16)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={left + Math.max(3, Math.min(width, height) * 0.16)}
+            y={centerY}
+          />
+          <Circle
+            radius={Math.max(3, Math.min(width, height) * 0.16)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={right - Math.max(3, Math.min(width, height) * 0.16)}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              left + Math.max(3, Math.min(width, height) * 0.32),
+              centerY,
+              right - Math.max(3, Math.min(width, height) * 0.32),
+              centerY,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.05)}
+          />
+        </>
+      )
+    case 'spectrometer':
+      return (
+        <>
+          <Rect
+            cornerRadius={2}
+            fill={primaryFill}
+            height={Math.max(14, height * 0.42)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+            width={Math.max(18, width * 0.56)}
+            x={centerX - Math.max(18, width * 0.56) / 2}
+            y={centerY - Math.max(14, height * 0.42) / 2}
+          />
+          <Line
+            closed
+            fill={fill ?? 'rgba(255, 255, 255, 0.16)'}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.08,
+              centerY - height * 0.1,
+              centerX,
+              centerY + height * 0.12,
+              centerX + width * 0.08,
+              centerY - height * 0.1,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+          />
+          <Line
+            lineCap="round"
+            points={[right - 7, centerY - 3, right - 1, centerY, right - 7, centerY + 3]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+        </>
+      )
+    case 'detector':
+      return (
+        <>
+          <Arc
+            angle={180}
+            innerRadius={0}
+            outerRadius={Math.max(4.5, Math.min(width, height) * 0.24)}
+            rotation={-90}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX + 2}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX + 2, centerY - 8, centerX + 2, centerY + 8]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.22, centerY, centerX - 4, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        </>
+      )
+    case 'beam-dump': {
+      const bdW = Math.max(10, width * 0.42)
+      const bdH = Math.max(10, height * 0.42)
+      const bdX = centerX - bdW / 2
+      const bdY = centerY - bdH / 2
+      return (
+        <>
+          <Rect
+            cornerRadius={1.5}
+            fill={fill ?? 'rgba(80, 64, 52, 0.24)'}
+            height={bdH}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            width={bdW}
+            x={bdX}
+            y={bdY}
+          />
+          {[0.2, 0.5, 0.8].map((fraction) => (
+            <Line
+              key={fraction}
+              lineCap="round"
+              points={[
+                bdX + bdW * fraction - bdH * 0.16,
+                bdY,
+                bdX + bdW * fraction + bdH * 0.16,
+                bdY + bdH,
+              ]}
+              opacity={0.75}
+              stroke={stroke}
+              strokeWidth={strokeWidth(0.75)}
+            />
+          ))}
+        </>
+      )
+    }
+    case 'mount':
+      return (
+        <>
+          <Circle
+            radius={Math.max(6, Math.min(width, height) * 0.3)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            x={centerX}
+            y={centerY}
+          />
+          <Circle
+            fill={fill ?? 'rgba(255, 255, 255, 0.08)'}
+            radius={2.6}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.8)}
+            x={centerX}
+            y={centerY}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, top + height * 0.18, centerX, bottom - height * 0.18]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+          <Line
+            lineCap="round"
+            points={[left + width * 0.18, centerY, right - width * 0.18, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+          />
+        </>
+      )
+    case 'support':
+      return (
+        <>
+          <Rect
+            cornerRadius={2}
+            fill={primaryFill}
+            height={Math.max(10, height * 0.3)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+            width={Math.max(14, width * 0.42)}
+            x={centerX - Math.max(14, width * 0.42) / 2}
+            y={centerY - Math.max(10, height * 0.3) / 2}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - width * 0.16,
+              bottom - height * 0.12,
+              centerX + width * 0.16,
+              bottom - height * 0.12,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        </>
       )
   }
 }

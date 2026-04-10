@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
-import { COMPONENT_DEFINITIONS } from '../domain/componentCatalog'
-import type { ComponentCategory, ComponentDefinition, ComponentType } from '../domain/types'
+import { COMPONENT_DEFINITIONS, getResolvedComponentSpec } from '../domain/componentCatalog'
+import type {
+  ComponentCategory,
+  ComponentDefinition,
+  ComponentGlyph as ComponentGlyphType,
+  ComponentType,
+} from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
+import { LibraryGlyphPreview } from './LibraryGlyphPreview'
 
 const RECENT_LIBRARY_KEY = 'schema-lab.ui.library-recent'
 const MAX_RECENT_ITEMS = 6
@@ -23,6 +29,10 @@ interface LibraryComponentEntry {
   familyLabel: string
   key: string
   mountMode: string
+  previewFill: string
+  previewGlyph: ComponentGlyphType
+  previewIsConvex?: boolean
+  previewStroke: string
   recentLabel: string
   searchText: string
   testId: string
@@ -118,6 +128,7 @@ function buildLibraryComponentEntries(
 ): LibraryComponentEntry[] {
   const mountMode = describeMountMode(definition.mount.mode)
   const variantLabels = definition.variants.map((variant) => variant.label).join(' ')
+  const defaultSpec = getResolvedComponentSpec(definition.type)
 
   if (definition.type !== 'mirror') {
     return [
@@ -126,6 +137,13 @@ function buildLibraryComponentEntries(
         familyLabel: definition.familyLabel,
         key: definition.type,
         mountMode,
+        previewFill: defaultSpec.renderHint.fill,
+        previewGlyph: defaultSpec.renderHint.glyph,
+        previewIsConvex:
+          definition.type === 'curved-mirror' && defaultSpec.variantId.includes('convex')
+            ? true
+            : undefined,
+        previewStroke: defaultSpec.renderHint.stroke,
         recentLabel: getRecentComponentLabel(definition),
         searchText: [
           definition.familyLabel,
@@ -143,12 +161,16 @@ function buildLibraryComponentEntries(
 
   const planarVariants = definition.variants.filter((variant) => variant.id !== 'flip-mirror')
   const flipVariant = definition.variants.find((variant) => variant.id === 'flip-mirror')
+  const flipSpec = flipVariant ? getResolvedComponentSpec(definition.type, flipVariant.id) : undefined
   const entries: LibraryComponentEntry[] = [
     {
       category: definition.category,
       familyLabel: 'Planar Mirror',
       key: definition.type,
       mountMode,
+      previewFill: defaultSpec.renderHint.fill,
+      previewGlyph: defaultSpec.renderHint.glyph,
+      previewStroke: defaultSpec.renderHint.stroke,
       recentLabel: getRecentComponentLabel(definition),
       searchText: [
         'Planar Mirror',
@@ -170,6 +192,9 @@ function buildLibraryComponentEntries(
       familyLabel: 'Flip Mirror',
       key: `${definition.type}-${flipVariant.id}`,
       mountMode,
+      previewFill: flipSpec?.renderHint.fill ?? defaultSpec.renderHint.fill,
+      previewGlyph: flipSpec?.renderHint.glyph ?? defaultSpec.renderHint.glyph,
+      previewStroke: flipSpec?.renderHint.stroke ?? defaultSpec.renderHint.stroke,
       recentLabel: getRecentComponentLabel(definition, flipVariant.id),
       searchText: [
         'Flip Mirror',
@@ -190,6 +215,7 @@ function buildLibraryComponentEntries(
 export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const addComponent = useEditorStore((state) => state.addComponent)
   const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   const workspaceKind = useEditorStore((state) => state.scene.workspace.kind)
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
@@ -299,11 +325,19 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             armed: pendingBreadboardPresetId === preset.id,
             id: `breadboard-${preset.id}`,
             label: preset.label,
-            meta: 'Breadboard preset · optical table',
+            meta: 'Breadboard preset',
             onClick: () => {
               rememberRecent({ kind: 'breadboard', id: preset.id })
               addBreadboardInstance(preset.id)
             },
+            preview: (
+              <LibraryGlyphPreview
+                breadboard={preset.breadboard}
+                className="component-library__preview component-library__preview--compact"
+                kind="breadboard"
+                style={simpleIconStyle}
+              />
+            ),
             testId: `library-recent-breadboard-${preset.id}`,
           }
         }
@@ -341,6 +375,17 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             })
             addComponent(componentEntry.type, componentEntry.variantId)
           },
+          preview: (
+            <LibraryGlyphPreview
+              className="component-library__preview component-library__preview--compact"
+              fill={componentEntry.previewFill}
+              glyph={componentEntry.previewGlyph}
+              isConvex={componentEntry.previewIsConvex}
+              kind="component"
+              stroke={componentEntry.previewStroke}
+              style={simpleIconStyle}
+            />
+          ),
           testId:
             componentEntry.variantId === 'flip-mirror'
               ? 'library-recent-component-flip-mirror'
@@ -356,6 +401,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     pendingPlacementType,
     pendingPlacementVariantId,
     recentEntries,
+    simpleIconStyle,
   ])
   const visibleRecentCards = isRecentExpanded
     ? recentCards
@@ -407,10 +453,13 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                   onClick={entry.onClick}
                   type="button"
                 >
-                  <span className="component-library__item-title">{entry.label}</span>
-                  {entry.meta ? (
-                    <span className="component-library__item-meta">{entry.meta}</span>
-                  ) : null}
+                  {entry.preview}
+                  <span className="component-library__item-copy">
+                    <span className="component-library__item-title">{entry.label}</span>
+                    {entry.meta ? (
+                      <span className="component-library__item-meta">{entry.meta}</span>
+                    ) : null}
+                  </span>
                   {entry.armed ? (
                     <span className="component-library__item-state">Armed</span>
                   ) : null}
@@ -470,9 +519,15 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                     }}
                     type="button"
                   >
-                    <span className="component-library__item-title">{preset.label}</span>
-                    <span className="component-library__item-meta">
-                      Breadboard preset · optical table
+                    <LibraryGlyphPreview
+                      breadboard={preset.breadboard}
+                      className="component-library__preview"
+                      kind="breadboard"
+                      style={simpleIconStyle}
+                    />
+                    <span className="component-library__item-copy">
+                      <span className="component-library__item-title">{preset.label}</span>
+                      <span className="component-library__item-meta">Breadboard preset</span>
                     </span>
                     {pendingBreadboardPresetId === preset.id ? (
                       <span className="component-library__item-state">Armed</span>
@@ -544,12 +599,23 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                       }}
                       type="button"
                     >
-                      <span className="component-library__item-title">
-                        {entry.familyLabel}
-                      </span>
-                      <span className="component-library__item-meta">
-                        {entry.variantCount} variant
-                        {entry.variantCount === 1 ? '' : 's'} · {entry.mountMode}
+                      <LibraryGlyphPreview
+                        className="component-library__preview"
+                        fill={entry.previewFill}
+                        glyph={entry.previewGlyph}
+                        isConvex={entry.previewIsConvex}
+                        kind="component"
+                        stroke={entry.previewStroke}
+                        style={simpleIconStyle}
+                      />
+                      <span className="component-library__item-copy">
+                        <span className="component-library__item-title">
+                          {entry.familyLabel}
+                        </span>
+                        <span className="component-library__item-meta">
+                          {entry.variantCount} variant
+                          {entry.variantCount === 1 ? '' : 's'}
+                        </span>
                       </span>
                       {isComponentEntryArmed(entry) ? (
                         <span className="component-library__item-state">Armed</span>

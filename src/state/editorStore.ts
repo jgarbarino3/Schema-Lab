@@ -77,6 +77,11 @@ import {
   surfaceLocalToWorld,
   translateComponentWorld,
 } from '../domain/workspace'
+import {
+  DEFAULT_SIMPLE_ICON_STYLE,
+  isSimpleIconStyle,
+  type SimpleIconStyle,
+} from './uiPreferences'
 import type {
   ActiveTool,
   AnnotationLayerBand,
@@ -240,6 +245,7 @@ export interface EditorStore {
   snapMode: SnapMode
   viewport: ViewportState
   renderMode: RenderMode
+  simpleIconStyle: SimpleIconStyle
   warningFilters: WarningFilters
   simpleGlyphAppearances: Record<string, SimpleGlyphAppearanceState>
   openToolbarMenu?: ToolbarMenu
@@ -262,6 +268,7 @@ export interface EditorStore {
   setShowBeamDetails: (showBeamDetails: boolean) => void
   setShowGaussianEnvelope: (showGaussianEnvelope: boolean) => void
   setRenderMode: (renderMode: RenderMode) => void
+  setSimpleIconStyle: (simpleIconStyle: SimpleIconStyle) => void
   setWarningFilter: (tier: keyof WarningFilters, isEnabled: boolean) => void
   setOpenToolbarMenu: (menu?: ToolbarMenu) => void
   beginHighlightDrag: (startMm: Vector2Mm) => void
@@ -417,6 +424,7 @@ const initialScene = createEmptyScene()
 const MAX_SCENE_HISTORY_ENTRIES = 100
 const HISTORY_COALESCE_WINDOW_MS = 750
 const RENDER_MODE_STORAGE_KEY = 'schema-lab.render-mode'
+const SIMPLE_ICON_STYLE_STORAGE_KEY = 'schema-lab.simple-icon-style'
 const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
 const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
 const VIEWPORT_SIDE_PADDING_PX = 88
@@ -461,6 +469,12 @@ function readRenderMode() {
   const value = readLocalStorageValue(RENDER_MODE_STORAGE_KEY)
 
   return value === 'realistic' ? 'realistic' : 'simple'
+}
+
+function readSimpleIconStyle(): SimpleIconStyle {
+  const value = readLocalStorageValue(SIMPLE_ICON_STYLE_STORAGE_KEY)
+
+  return isSimpleIconStyle(value) ? value : DEFAULT_SIMPLE_ICON_STYLE
 }
 
 function readWarningFilters(): WarningFilters {
@@ -1938,6 +1952,7 @@ const initialInteraction: InteractionState = {
   showGaussianEnvelope: false,
 }
 const initialRenderMode = readRenderMode()
+const initialSimpleIconStyle = readSimpleIconStyle()
 const initialWarningFilters = readWarningFilters()
 const initialMountVisibilityDefaults = readMountVisibilityDefaults()
 
@@ -1947,6 +1962,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
   snapMode: 'onDrop',
   viewport: createViewportForScene(initialScene),
   renderMode: initialRenderMode,
+  simpleIconStyle: initialSimpleIconStyle,
   warningFilters: initialWarningFilters,
   simpleGlyphAppearances: {},
   mountVisibilityDefaults: initialMountVisibilityDefaults,
@@ -2155,6 +2171,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
   setRenderMode: (renderMode) => {
     writeLocalStorageValue(RENDER_MODE_STORAGE_KEY, renderMode)
     set({ renderMode })
+  },
+
+  setSimpleIconStyle: (simpleIconStyle) => {
+    writeLocalStorageValue(SIMPLE_ICON_STYLE_STORAGE_KEY, simpleIconStyle)
+    set({ simpleIconStyle })
   },
 
   setWarningFilter: (tier, isEnabled) => {

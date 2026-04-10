@@ -208,10 +208,8 @@ export function Toolbar({
   const warningButtonRef = useRef<HTMLButtonElement | null>(null)
   const warningPopoverRef = useRef<HTMLDivElement | null>(null)
   const beamButtonRef = useRef<HTMLButtonElement | null>(null)
-  const importButtonRef = useRef<HTMLButtonElement | null>(null)
   const exportButtonRef = useRef<HTMLButtonElement | null>(null)
   const learnButtonRef = useRef<HTMLButtonElement | null>(null)
-  const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const canvasToolsButtonRef = useRef<HTMLButtonElement | null>(null)
   const menuPopoverRef = useRef<HTMLDivElement | null>(null)
   const [warningStyle, setWarningStyle] = useState<CSSProperties>()
@@ -222,6 +220,7 @@ export function Toolbar({
   const { hasBreadboards } = useToolbarWorkspaceState()
   const beamSettings = useEditorStore((state) => state.scene.beamSettings)
   const renderMode = useEditorStore((state) => state.renderMode)
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const {
@@ -233,6 +232,7 @@ export function Toolbar({
     showGaussianEnvelope,
   } = useToolbarInteractionState()
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
+  const setSimpleIconStyle = useEditorStore((state) => state.setSimpleIconStyle)
   const setWarningFilter = useEditorStore((state) => state.setWarningFilter)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
@@ -312,16 +312,12 @@ export function Toolbar({
         return beamButtonRef
       case 'export':
         return exportButtonRef
-      case 'import':
-        return importButtonRef
       case 'learn':
         return learnButtonRef
-      case 'more':
-        return moreButtonRef
       case 'canvas-tools':
         return canvasToolsButtonRef
       default:
-        return moreButtonRef
+        return exportButtonRef
     }
   }
 
@@ -397,10 +393,8 @@ export function Toolbar({
         warningButtonRef.current?.contains(target) ||
         warningPopoverRef.current?.contains(target) ||
         beamButtonRef.current?.contains(target) ||
-        importButtonRef.current?.contains(target) ||
         exportButtonRef.current?.contains(target) ||
         learnButtonRef.current?.contains(target) ||
-        moreButtonRef.current?.contains(target) ||
         canvasToolsButtonRef.current?.contains(target) ||
         menuPopoverRef.current?.contains(target)
       ) {
@@ -626,8 +620,12 @@ export function Toolbar({
   const menuPopover =
     openToolbarMenu && activeMenuStyle
       ? createPortal(
-          <div
-            className="toolbar__menu-popover"
+        <div
+            className={
+              openToolbarMenu === 'learn'
+                ? 'toolbar__menu-popover toolbar__help-popover'
+                : 'toolbar__menu-popover'
+            }
             data-testid={`toolbar-menu-${openToolbarMenu}`}
             ref={menuPopoverRef}
             role="dialog"
@@ -674,37 +672,44 @@ export function Toolbar({
               </>
             ) : null}
 
-            {openToolbarMenu === 'import' ? (
-              <>
-                <div className="toolbar__menu-header">
-                  <strong>Import</strong>
-                </div>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onImportSceneJson()
-                  }}
-                  type="button"
-                >
-                  Scene JSON
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onImportSvg()
-                  }}
-                  type="button"
-                >
-                  Interpreted SVG
-                </button>
-              </>
-            ) : null}
-
             {openToolbarMenu === 'export' ? (
               <>
                 <div className="toolbar__menu-header">
-                  <strong>Export</strong>
+                  <strong>Export &amp; Files</strong>
                 </div>
+                <section>
+                  <h3>Import</h3>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onImportSceneJson()
+                    }}
+                    type="button"
+                  >
+                    Import Scene JSON
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onImportSvg()
+                    }}
+                    type="button"
+                  >
+                    Import Interpreted SVG
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onOpenJson()
+                    }}
+                    type="button"
+                  >
+                    Raw JSON
+                  </button>
+                </section>
+
+                <section>
+                  <h3>Export</h3>
                 {(['png', 'pdf', 'svg', 'dxf', 'pptx'] as const).map((format) => (
                   <button
                     key={format}
@@ -717,14 +722,97 @@ export function Toolbar({
                     {format.toUpperCase()}
                   </button>
                 ))}
+                </section>
+                {workspaceKind === 'single-breadboard' ? (
+                  <section>
+                    <h3>Table</h3>
+                    <button
+                      onClick={() => {
+                        setOpenToolbarMenu(undefined)
+                        onRestoreSavedTable()
+                      }}
+                      type="button"
+                    >
+                      Restore Saved Table
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOpenToolbarMenu(undefined)
+                        onStartFreshTable()
+                      }}
+                      type="button"
+                    >
+                      Start Fresh Table
+                    </button>
+                  </section>
+                ) : null}
+                {workspaceKind === 'optical-table' ? (
+                  <section>
+                    <h3>Workspace</h3>
+                    <button
+                      onClick={() => {
+                        setOpenToolbarMenu(undefined)
+                        onRequestSingleBoard()
+                      }}
+                      type="button"
+                    >
+                      Make Standalone Board
+                    </button>
+                  </section>
+                ) : null}
               </>
             ) : null}
 
             {openToolbarMenu === 'learn' ? (
               <>
                 <div className="toolbar__menu-header">
-                  <strong>Learn</strong>
+                  <strong>Help</strong>
                 </div>
+                <section>
+                  <h3>Canvas</h3>
+                  <p>
+                    Board Focus is for close work. Table View keeps the broader layout visible.
+                  </p>
+                  <p>
+                    Placement stays direct: click the active surface, press <kbd>R</kbd> to rotate,
+                    and <kbd>Esc</kbd> to cancel.
+                  </p>
+                </section>
+                <section>
+                  <h3>Output</h3>
+                  <p>
+                    Use Export for imports, vector output, raster output, raw JSON, and table
+                    helpers.
+                  </p>
+                </section>
+                <section>
+                  <h3>Simple Icons</h3>
+                  <p>
+                    Toggle between clean symbols and classic optics symbols from the row-two view
+                    controls.
+                  </p>
+                </section>
+                <div className="toolbar__menu-actions">
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onOpenOnboarding()
+                    }}
+                    type="button"
+                  >
+                    Guide
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      setHelpOpen(true)
+                    }}
+                    type="button"
+                  >
+                    Keyboard shortcuts
+                  </button>
+                </div>
+                <div className="toolbar__menu-actions">
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)
@@ -735,15 +823,6 @@ export function Toolbar({
                   type="button"
                 >
                   Appendix
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onOpenOnboarding()
-                  }}
-                  type="button"
-                >
-                  Guide
                 </button>
                 <button
                   onClick={() => {
@@ -763,56 +842,7 @@ export function Toolbar({
                 >
                   What’s New
                 </button>
-              </>
-            ) : null}
-
-            {openToolbarMenu === 'more' ? (
-              <>
-                <div className="toolbar__menu-header">
-                  <strong>More</strong>
                 </div>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onOpenJson()
-                  }}
-                  type="button"
-                >
-                  Raw JSON
-                </button>
-                {workspaceKind === 'single-breadboard' ? (
-                  <>
-                    <button
-                      onClick={() => {
-                        setOpenToolbarMenu(undefined)
-                        onRestoreSavedTable()
-                      }}
-                      type="button"
-                    >
-                      Restore Saved Table
-                    </button>
-                    <button
-                      onClick={() => {
-                        setOpenToolbarMenu(undefined)
-                        onStartFreshTable()
-                      }}
-                      type="button"
-                    >
-                      Start Fresh Table
-                    </button>
-                  </>
-                ) : null}
-                {workspaceKind === 'optical-table' ? (
-                  <button
-                    onClick={() => {
-                      setOpenToolbarMenu(undefined)
-                      onRequestSingleBoard()
-                    }}
-                    type="button"
-                  >
-                    Make Standalone Board
-                  </button>
-                ) : null}
               </>
             ) : null}
 
@@ -965,55 +995,62 @@ export function Toolbar({
             </button>
 
             <button
-              aria-expanded={openToolbarMenu === 'import'}
-              className={openToolbarMenu === 'import' ? 'is-active-tool' : undefined}
-              data-testid="toolbar-import"
-              onClick={(event) => toggleToolbarMenu('import', event)}
-              ref={importButtonRef}
-              type="button"
-            >
-              Import
-            </button>
-
-            <button
               aria-expanded={openToolbarMenu === 'export'}
-              className={openToolbarMenu === 'export' ? 'is-active-tool' : undefined}
+              className={`toolbar__button-with-icon${openToolbarMenu === 'export' ? ' is-active-tool' : ''}`}
               data-testid="toolbar-export"
               data-tour="toolbar-export"
               onClick={(event) => toggleToolbarMenu('export', event)}
               ref={exportButtonRef}
               type="button"
             >
-              Export
+              <span aria-hidden="true" className="toolbar__button-icon">
+                <svg fill="none" viewBox="0 0 24 24">
+                  <path
+                    d="M8.4 5.6h6.2l3.2 3.2v9.6a1.8 1.8 0 0 1-1.8 1.8H8.4a1.8 1.8 0 0 1-1.8-1.8V7.4a1.8 1.8 0 0 1 1.8-1.8Z"
+                    stroke="currentColor"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M14.6 5.6v3.3h3.2"
+                    stroke="currentColor"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M12 10.2v5.9"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="m9.6 13.8 2.4 2.4 2.4-2.4"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                </svg>
+              </span>
+              <span className="toolbar__button-label">Export</span>
             </button>
 
             <button
               aria-expanded={openToolbarMenu === 'learn'}
               className={openToolbarMenu === 'learn' ? 'is-active-tool' : undefined}
-              data-testid="toolbar-learn"
-              data-tour="toolbar-learn"
+              data-testid="toolbar-help-menu"
+              data-tour="toolbar-help-menu"
               onClick={(event) => toggleToolbarMenu('learn', event)}
               ref={learnButtonRef}
               type="button"
             >
-              Learn
-            </button>
-
-            <button
-              aria-expanded={openToolbarMenu === 'more'}
-              className={openToolbarMenu === 'more' ? 'is-active-tool' : undefined}
-              data-testid="toolbar-more"
-              onClick={(event) => toggleToolbarMenu('more', event)}
-              ref={moreButtonRef}
-              type="button"
-            >
-              ⋯
+              Help
             </button>
 
             <button
               aria-expanded={isWarningsOpen}
               aria-haspopup="dialog"
-              className={`toolbar__warning-toggle${isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
+              className={`toolbar__warning-toggle${warningCount === 0 ? ' is-quiet' : ''}${isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
               data-testid="toolbar-warnings"
               onClick={() => {
                 const nextIsOpen = !isWarningsOpen
@@ -1168,6 +1205,37 @@ export function Toolbar({
                 type="button"
               >
                 Simple
+              </button>
+            </div>
+
+            <div className="toolbar__tool-group toolbar__tool-group--compact toolbar__tool-group--view-style">
+              <button
+                aria-pressed={simpleIconStyle === 'classic'}
+                className={`toolbar__view-toggle${simpleIconStyle === 'classic' ? ' is-active-tool' : ''}`}
+                data-testid="toolbar-simple-icon-style"
+                data-tooltip={
+                  simpleIconStyle === 'classic'
+                    ? 'Switch to clean symbols'
+                    : 'Switch to classic optics symbols'
+                }
+                onClick={() =>
+                  setSimpleIconStyle(simpleIconStyle === 'classic' ? 'clean' : 'classic')
+                }
+                type="button"
+              >
+                <span aria-hidden="true" className="toolbar__view-toggle-icon">
+                  <svg fill="none" viewBox="0 0 24 24">
+                    <circle cx="9" cy="12" r="2.75" stroke="currentColor" strokeWidth="1.7" />
+                    <path
+                      d="M12.2 12h5.1M15.7 9.2l2.6 2.8-2.6 2.8"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.7"
+                    />
+                  </svg>
+                </span>
+                <span>Classic</span>
               </button>
             </div>
 

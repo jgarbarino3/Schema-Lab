@@ -40,18 +40,23 @@ try {
       return window.__SCHEMA_LAB_STORE__.getState().viewport
     })
 
-  const openMoreMenu = async () => {
-    await page.getByTestId('toolbar-more').click()
-    const menu = page.getByTestId('toolbar-menu-more')
+  const openExportMenu = async () => {
+    await page.getByTestId('toolbar-export').click()
+    const menu = page.getByTestId('toolbar-menu-export')
     await menu.waitFor()
     return menu
   }
 
   const readScene = async () => {
-    const moreMenu = await openMoreMenu()
-    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
+    await page.waitForTimeout(220)
+    const exportMenu = await openExportMenu()
+    await exportMenu.getByRole('button', { name: 'Raw JSON' }).click()
     const textarea = page.locator('.json-modal textarea')
     await textarea.waitFor()
+    await page.waitForFunction(() => {
+      const element = document.querySelector('.json-modal textarea')
+      return !!element && element.value.trim().length > 0
+    })
     const scene = JSON.parse(await textarea.inputValue())
     await page.getByRole('button', { name: 'Close' }).click()
     await expectHidden(page.locator('.json-modal'))

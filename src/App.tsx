@@ -571,16 +571,16 @@ function App() {
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
-            <p>Choose a format from Export, confirm scope in the follow-up dialog, and Schema-Lab will still stop for unresolved warnings before download.</p>
+            <p>Use Export for file actions, imports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
           </>
         ),
       },
       {
-        title: 'Learn Menu',
-        selector: '[data-tour=\"toolbar-learn\"]',
+        title: 'Help Menu',
+        selector: '[data-tour=\"toolbar-help-menu\"]',
         body: (
           <>
-            <p>Use Learn to reopen this guide, load the tutorial scene, or check what changed in recent versions.</p>
+            <p>Use Help to reopen this guide, review shortcuts, launch the tutorial, or check recent product updates without leaving the editor.</p>
           </>
         ),
       },
@@ -2026,7 +2026,7 @@ function App() {
               </strong>
               <span>
                 {pendingBreadboardPlacement
-                  ? 'click to place on the optical table'
+                  ? 'click to place on the active workspace'
                   : scene.workspace.kind === 'optical-table'
                     ? 'click to place on the active surface'
                     : 'click to place on the board'}

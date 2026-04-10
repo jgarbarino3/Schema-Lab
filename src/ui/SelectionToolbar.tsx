@@ -62,18 +62,25 @@ export function SelectionToolbar({
         <SelectionActionButton label="Rotate +90°" onClick={onRotate}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M12 5.25a6.75 6.75 0 1 1-5.18 2.42"
+              d="M12.2 5.1a6.95 6.95 0 1 1-6.15 3.75"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
             />
             <path
-              d="M5.2 5.6v4.95h4.95"
+              d="M6.05 5.15v5.3h5.3"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
+            />
+            <path
+              d="M14.9 8.2v3.1h3.1"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.45"
             />
           </svg>
         </SelectionActionButton>
@@ -82,22 +89,29 @@ export function SelectionToolbar({
         <SelectionActionButton label="Duplicate" onClick={onDuplicate}>
           <svg fill="none" viewBox="0 0 24 24">
             <rect
-              height="8.5"
+              height="8.2"
               rx="1.75"
               stroke="currentColor"
               strokeWidth="1.75"
-              width="8.5"
-              x="10.1"
-              y="9.4"
+              width="8.2"
+              x="10.35"
+              y="9.55"
             />
             <rect
-              height="8.5"
+              height="8.2"
               rx="1.75"
               stroke="currentColor"
               strokeWidth="1.75"
-              width="8.5"
-              x="5.4"
-              y="6.1"
+              width="8.2"
+              x="5.45"
+              y="6.25"
+            />
+            <path
+              d="M15 5.2v3.2M13.4 6.8h3.2"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.45"
             />
           </svg>
         </SelectionActionButton>
@@ -106,28 +120,28 @@ export function SelectionToolbar({
         <SelectionActionButton destructive label="Delete" onClick={onDelete}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M6.4 7.35h11.2"
+              d="M6.2 7.2h11.6"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
             />
             <path
-              d="M9.45 5.15h5.1"
+              d="M9.55 5.1h4.9"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
             />
             <path
-              d="M8.55 7.35v9.95a2 2 0 0 0 2 2h2.9a2 2 0 0 0 2-2V7.35"
+              d="M8.25 7.2v10.15a1.9 1.9 0 0 0 1.9 1.9h3.7a1.9 1.9 0 0 0 1.9-1.9V7.2"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
             />
             <path
-              d="M10.75 10.2v5.8M13.25 10.2v5.8"
+              d="M10.55 10.05v5.95M13.45 10.05v5.95"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -140,14 +154,21 @@ export function SelectionToolbar({
         <SelectionActionButton label="Center Selection" onClick={onCenter}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M12 5v3.05M12 15.95V19M5 12h3.05M15.95 12H19"
+              d="M7.2 5.4H5.4v1.8M16.8 5.4h1.8v1.8M7.2 18.6H5.4v-1.8M16.8 18.6h1.8v-1.8"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth="1.75"
             />
-            <circle cx="12" cy="12" r="3.35" stroke="currentColor" strokeWidth="1.75" />
-            <circle cx="12" cy="12" fill="currentColor" r="0.9" strokeWidth="0" />
+            <path
+              d="M12 7.3v2.15M12 14.55v2.15M7.3 12h2.15M14.55 12h2.15"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.55"
+            />
+            <circle cx="12" cy="12" r="2.65" stroke="currentColor" strokeWidth="1.75" />
+            <circle cx="12" cy="12" fill="currentColor" r="0.95" strokeWidth="0" />
           </svg>
         </SelectionActionButton>
       ) : null}
