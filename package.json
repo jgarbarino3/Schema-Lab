@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "smoke:optical-table": "node scripts/playwright-smoke/optical-table-smoke.mjs",
+    "smoke:touch": "node scripts/playwright-smoke/touch-pinch-smoke.mjs",
+    "smoke:ux": "node scripts/playwright-smoke/ux-clarity-smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

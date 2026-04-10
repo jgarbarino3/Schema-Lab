@@ -60,6 +60,7 @@ import {
   SINGLE_BREADBOARD_SURFACE_ID,
 } from './domain/types'
 import { useEditorStore } from './state/editorStore'
+import { useAppInteractionState } from './state/editorSelectors'
 import { AnnotationDock } from './ui/AnnotationDock'
 import { AnnotationTextEditor } from './ui/AnnotationTextEditor'
 import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
@@ -118,11 +119,7 @@ interface SvgImportPendingAmbiguityState {
 }
 
 type WorkspaceModalState =
-  | {
-      mode: 'to-optical-table'
-      hasSavedSnapshot: boolean
-    }
-  | {
+  {
       mode: 'to-single-breadboard'
     }
 
@@ -240,7 +237,19 @@ function createTopBiasedViewportForBounds(
 function App() {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
-  const interaction = useEditorStore((state) => state.interaction)
+  const {
+    activeHostSurfaceId,
+    editingTextAnnotationId,
+    focusedBreadboardId,
+    isHelpOpen,
+    isWarningsOpen,
+    notice,
+    pendingBreadboardPlacement,
+    pendingPlacement,
+    selectedWarningId,
+    showGaussianEnvelope,
+    workspaceViewMode,
+  } = useAppInteractionState()
   const dismissedWarningIds = useEditorStore(
     (state) => state.interaction.dismissedWarningIds,
   )
@@ -384,8 +393,6 @@ function App() {
   const activeSources = scene.components.filter(
     (component) => component.config.source?.isEnabled,
   )
-  const pendingPlacement = interaction.pendingPlacement
-  const pendingBreadboardPlacement = interaction.pendingBreadboardPlacement
   const isWarningReviewOpen = pendingExportRequest !== undefined
   const isWorkspaceModalOpen = workspaceModalState !== undefined
   const isClearModalOpen = clearModalState !== undefined
@@ -397,9 +404,9 @@ function App() {
       ? SINGLE_BREADBOARD_SURFACE_ID
       : selection.type === 'breadboard'
         ? selection.surfaceId
-        : interaction.activeHostSurfaceId &&
-            interaction.activeHostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
-          ? interaction.activeHostSurfaceId
+        : activeHostSurfaceId &&
+            activeHostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+          ? activeHostSurfaceId
           : breadboardInstances[0]?.id
   const exportViewport = useMemo(() => {
     if (!rasterExportRequest) {
@@ -436,22 +443,22 @@ function App() {
   )
   const editingTextAnnotation = useMemo(
     () =>
-      interaction.editingTextAnnotationId
+      editingTextAnnotationId
         ? scene.annotations.find(
             (annotation): annotation is AnnotationText =>
-              annotation.id === interaction.editingTextAnnotationId &&
+              annotation.id === editingTextAnnotationId &&
               annotation.kind === 'text',
           )
         : undefined,
-    [interaction.editingTextAnnotationId, scene.annotations],
+    [editingTextAnnotationId, scene.annotations],
   )
   const activeDockAnnotation = editingTextAnnotation ?? selectedCanvasAnnotation
   const focusedBreadboardInstance = useMemo(
     () =>
       scene.workspace.kind === 'optical-table'
-        ? getBreadboardInstance(scene, interaction.focusedBreadboardId)
+        ? getBreadboardInstance(scene, focusedBreadboardId)
         : undefined,
-    [interaction.focusedBreadboardId, scene],
+    [focusedBreadboardId, scene],
   )
   const boardFocusAvailable =
     scene.workspace.kind === 'single-breadboard' || breadboardInstances.length > 0
@@ -466,14 +473,14 @@ function App() {
   )
   const selectedWarning =
     filteredSceneWarnings.find(
-      (warning) => warning.id === interaction.selectedWarningId,
+      (warning) => warning.id === selectedWarningId,
     ) ??
     visibleSceneWarnings.find(
-    (warning) => warning.id === interaction.selectedWarningId,
+    (warning) => warning.id === selectedWarningId,
   )
   const highlightedWarning =
     selectedWarning ??
-    (interaction.isWarningsOpen
+    (isWarningsOpen
       ? filteredSceneWarnings[0] ?? visibleSceneWarnings[0]
       : undefined)
   const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
@@ -651,9 +658,9 @@ function App() {
     }
 
     if (
-      interaction.selectedWarningId &&
+      selectedWarningId &&
       !visibleSceneWarnings.some(
-        (warning) => warning.id === interaction.selectedWarningId,
+        (warning) => warning.id === selectedWarningId,
       )
     ) {
       setSelectedWarningId(
@@ -662,7 +669,7 @@ function App() {
     }
   }, [
     filteredSceneWarnings,
-    interaction.selectedWarningId,
+    selectedWarningId,
     visibleSceneWarnings,
     setSelectedWarningId,
     setWarningsOpen,
@@ -733,7 +740,7 @@ function App() {
           renderMode,
           scene,
           scope: request.scope,
-          showGaussianEnvelope: interaction.showGaussianEnvelope,
+          showGaussianEnvelope,
           svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
         })
         const presetSuffix =
@@ -757,7 +764,7 @@ function App() {
           renderMode,
           scene,
           scope: request.scope,
-          showGaussianEnvelope: interaction.showGaussianEnvelope,
+          showGaussianEnvelope,
         })
 
         downloadBlob(
@@ -775,7 +782,7 @@ function App() {
       beamTrace,
       exportBreadboardSurfaceId,
       gaussianTrace,
-      interaction.showGaussianEnvelope,
+      showGaussianEnvelope,
       renderMode,
       scene,
     ],
@@ -814,10 +821,7 @@ function App() {
     }
 
     if (scene.workspace.kind === 'single-breadboard') {
-      setWorkspaceModalState({
-        mode: 'to-optical-table',
-        hasSavedSnapshot: Boolean(readStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY)),
-      })
+      convertWorkspaceToOpticalTable()
     }
   }
 
@@ -1085,13 +1089,13 @@ function App() {
 
   const handleClearCanvasSelection = useCallback(() => {
     if (scene.workspace.kind === 'optical-table') {
-      if (interaction.workspaceViewMode === 'table-view') {
+      if (workspaceViewMode === 'table-view') {
         selectOpticalTable()
         return
       }
 
-      if (interaction.focusedBreadboardId) {
-        selectBreadboard(interaction.focusedBreadboardId)
+      if (focusedBreadboardId) {
+        selectBreadboard(focusedBreadboardId)
         return
       }
 
@@ -1101,11 +1105,11 @@ function App() {
 
     selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
   }, [
-    interaction.focusedBreadboardId,
-    interaction.workspaceViewMode,
+    focusedBreadboardId,
     scene.workspace.kind,
     selectBreadboard,
     selectOpticalTable,
+    workspaceViewMode,
   ])
 
   const textEditorPosition = useMemo(() => {
@@ -1265,7 +1269,7 @@ function App() {
           return
         }
 
-        if (interaction.isHelpOpen) {
+        if (isHelpOpen) {
           event.preventDefault()
           setHelpOpen(false)
           return
@@ -1383,7 +1387,7 @@ function App() {
         return
       }
 
-      if (interaction.editingTextAnnotationId) {
+      if (editingTextAnnotationId) {
         return
       }
 
@@ -1515,11 +1519,12 @@ function App() {
     handleClearCanvasSelection,
     isClearModalOpen,
     contextMenuState,
-    interaction.isHelpOpen,
+    editingTextAnnotationId,
     isOnboardingOpen,
     isSvgAmbiguityOpen,
     isSvgCalibrationOpen,
     isSvgImportOptionsOpen,
+    isHelpOpen,
     isJsonModalOpen,
     isTutorialModalOpen,
     isVersionHistoryOpen,
@@ -1566,7 +1571,7 @@ function App() {
       const result = applySvgImportToScene({
         analysis: args.analysis,
         document: args.document,
-        hostSurfaceId: interaction.activeHostSurfaceId,
+        hostSurfaceId: activeHostSurfaceId,
         manualResolutions: args.manualResolutions,
         millimetersPerUnit: args.millimetersPerUnit,
         mode: args.mode,
@@ -1583,7 +1588,7 @@ function App() {
       setSvgCalibrationState(undefined)
       setSvgImportOptionsState(undefined)
     },
-    [interaction.activeHostSurfaceId, loadScene, scene],
+    [activeHostSurfaceId, loadScene, scene],
   )
 
   const runSvgImportAnalysis = useCallback(
@@ -1859,7 +1864,7 @@ function App() {
 
   const statusBoardLabel =
     scene.workspace.kind === 'optical-table'
-      ? interaction.workspaceViewMode === 'table-view'
+      ? workspaceViewMode === 'table-view'
         ? scene.workspace.table.label
         : focusedBreadboardInstance?.label ?? 'Focused breadboard'
       : primaryBreadboard.label
@@ -1952,12 +1957,14 @@ function App() {
         onImportSvg={() => svgFileInputRef.current?.click()}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
+        onRestoreSavedTable={handleRestoreSavedTable}
         onOpenTutorial={handleOpenTutorial}
         onOpenVersionHistory={() => setIsVersionHistoryOpen(true)}
         onRequestBoardFocus={handleRequestBoardFocus}
         onRequestSingleBoard={handleRequestStandaloneBoard}
         onRequestTableView={handleRequestTableView}
         onResetView={resetViewport}
+        onStartFreshTable={handleStartFreshTable}
         onToggleLabels={() => setShowComponentLabels((current) => !current)}
         onTogglePostHolders={() => setShowPostHolders((current) => !current)}
         selectionActions={
@@ -1991,7 +1998,7 @@ function App() {
         }
         warnings={visibleSceneWarnings}
         workspaceKind={scene.workspace.kind}
-        workspaceViewMode={interaction.workspaceViewMode}
+        workspaceViewMode={workspaceViewMode}
       />
 
       <div
@@ -2115,8 +2122,8 @@ function App() {
             </span>
             <span data-testid="status-board">Board: {statusBoardLabel}</span>
             <span data-testid="status-zoom">{viewport.zoomPxPerMm.toFixed(2)} px/mm</span>
-            {interaction.notice ? (
-              <span className="canvas-status__warning">{interaction.notice}</span>
+            {notice ? (
+              <span className="canvas-status__warning">{notice}</span>
             ) : null}
             {svgImportNotice ? (
               <span className="canvas-status__warning">{svgImportNotice}</span>
@@ -2281,12 +2288,9 @@ function App() {
       <WorkspaceModeModal
         isOpen={isWorkspaceModalOpen}
         onCancel={() => setWorkspaceModalState(undefined)}
-        onConvertCurrentToTable={handleConvertCurrentToOpticalTable}
         onConvertToSingleBreadboard={handleConvertToSingleBreadboard}
-        onRestoreSavedTable={handleRestoreSavedTable}
-        onStartFreshTable={handleStartFreshTable}
         state={
-          workspaceModalState?.mode === 'to-single-breadboard'
+          workspaceModalState
             ? {
                 mode: 'to-single-breadboard',
                 breadboards: breadboardInstances.map((breadboard) => ({
@@ -2295,7 +2299,7 @@ function App() {
                   dimensionsLabel: `${breadboard.model.widthMm.toFixed(0)} × ${breadboard.model.heightMm.toFixed(0)} mm`,
                 })),
               }
-            : workspaceModalState
+            : undefined
         }
       />
 
@@ -2315,7 +2319,7 @@ function App() {
           renderMode={renderMode}
           scene={scene}
           scope={rasterExportRequest.scope}
-          showGaussianEnvelope={interaction.showGaussianEnvelope}
+          showGaussianEnvelope={showGaussianEnvelope}
           showLabels={showComponentLabels}
           viewport={exportViewport}
         />

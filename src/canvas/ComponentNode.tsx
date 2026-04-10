@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Group, Line, Rect, Text } from 'react-konva'
 import {
@@ -21,6 +21,12 @@ import { ComponentGlyph } from './ComponentGlyph'
 import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
 import { useEditorStore } from '../state/editorStore'
+
+export interface SimpleGlyphAppearance {
+  color: string
+  scale: number
+  weight: number
+}
 
 interface ComponentNodeProps {
   instance: ComponentInstance
@@ -50,6 +56,7 @@ interface ComponentNodeProps {
   placementStatus?: PlacementStatus
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
+  simpleGlyphAppearance?: SimpleGlyphAppearance
   surfaceSupportCompensationMm?: number
   viewport: ViewportState
 }
@@ -108,7 +115,7 @@ function scaleBoundsAboutCenter(
   }
 }
 
-export function ComponentNode({
+export function ComponentNodeView({
   instance,
   isDragEnabled = true,
   isHighlighted = false,
@@ -127,13 +134,11 @@ export function ComponentNode({
   placementStatus,
   renderMode,
   resolveDragPositionPx,
+  simpleGlyphAppearance,
   surfaceSupportCompensationMm = 0,
   viewport,
 }: ComponentNodeProps) {
   const spec = getResolvedComponentSpecForInstance(instance)
-  const simpleGlyphAppearance = useEditorStore(
-    (state) => state.simpleGlyphAppearances[instance.id],
-  )
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
   const bodyBoundsMm = spec.visualBodyBoundsMm
   const footprintBoundsMm = spec.footprintBoundsMm
@@ -686,3 +691,11 @@ export function ComponentNode({
     </Group>
   )
 }
+
+export const ComponentNode = memo(function ComponentNode(props: ComponentNodeProps) {
+  const simpleGlyphAppearance = useEditorStore(
+    (state) => state.simpleGlyphAppearances[props.instance.id],
+  )
+
+  return <ComponentNodeView {...props} simpleGlyphAppearance={simpleGlyphAppearance} />
+})

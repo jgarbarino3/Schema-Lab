@@ -12,6 +12,7 @@ import {
 } from '../domain/annotations'
 import type { ActiveTool, AnnotationText, ShapeAnnotation } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
+import { useAnnotationToolState } from '../state/editorSelectors'
 import { AnnotationToolbar } from './AnnotationToolbar'
 
 interface AnnotationDockProps {
@@ -228,7 +229,7 @@ export function AnnotationDock({
   selectedAnnotation,
   onDone,
 }: AnnotationDockProps) {
-  const interaction = useEditorStore((state) => state.interaction)
+  const { activeTool, lineColor, shapeToolKind, textToolVariant } = useAnnotationToolState()
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setLineColor = useEditorStore((state) => state.setLineColor)
   const setShapeToolKind = useEditorStore((state) => state.setShapeToolKind)
@@ -241,11 +242,11 @@ export function AnnotationDock({
   useEffect(() => {
     if (
       selectedAnnotation ||
-      (openPopover && interaction.activeTool !== openPopover)
+      (openPopover && activeTool !== openPopover)
     ) {
       setOpenPopover(undefined)
     }
-  }, [interaction.activeTool, openPopover, selectedAnnotation])
+  }, [activeTool, openPopover, selectedAnnotation])
 
   const handleActivateTool = (tool: ActiveTool) => {
     onDone()
@@ -256,7 +257,7 @@ export function AnnotationDock({
       return
     }
 
-    const shouldToggleClosed = interaction.activeTool === tool && openPopover === tool
+    const shouldToggleClosed = activeTool === tool && openPopover === tool
     setActiveTool(tool)
     setOpenPopover(shouldToggleClosed ? undefined : tool)
   }
@@ -277,12 +278,10 @@ export function AnnotationDock({
   }
 
   const highlightedTool =
-    interaction.activeTool === 'select' || interaction.activeTool === 'pan'
-      ? interaction.activeTool
-      : interaction.activeTool === 'line' ||
-          interaction.activeTool === 'text' ||
-          interaction.activeTool === 'shape'
-        ? interaction.activeTool
+    activeTool === 'select' || activeTool === 'pan'
+      ? activeTool
+      : activeTool === 'line' || activeTool === 'text' || activeTool === 'shape'
+        ? activeTool
         : undefined
 
   return (
@@ -358,7 +357,7 @@ export function AnnotationDock({
             <span
               aria-hidden="true"
               className="annotation-dock__tool-badge annotation-dock__tool-badge--swatch"
-              style={{ '--annotation-badge-color': interaction.lineColor } as CSSProperties}
+              style={{ '--annotation-badge-color': lineColor } as CSSProperties}
             />
           ) : null}
         </button>
@@ -387,7 +386,7 @@ export function AnnotationDock({
           </svg>
           {highlightedTool === 'text' ? (
             <span aria-hidden="true" className="annotation-dock__tool-badge">
-              {getTextBadgeLabel(interaction.textToolVariant)}
+              {getTextBadgeLabel(textToolVariant)}
             </span>
           ) : null}
         </button>
@@ -415,7 +414,7 @@ export function AnnotationDock({
           </svg>
           {highlightedTool === 'shape' ? (
             <span aria-hidden="true" className="annotation-dock__tool-badge">
-              {getShapeBadgeLabel(interaction.shapeToolKind)}
+              {getShapeBadgeLabel(shapeToolKind)}
             </span>
           ) : null}
         </button>
@@ -441,8 +440,8 @@ export function AnnotationDock({
             {LINE_COLORS.map((entry) => (
               <button
                 aria-label={`${entry.label} line color`}
-                aria-pressed={interaction.lineColor === entry.color}
-                className={`toolbar__swatch${interaction.lineColor === entry.color ? ' is-active-swatch' : ''}`}
+                aria-pressed={lineColor === entry.color}
+                className={`toolbar__swatch${lineColor === entry.color ? ' is-active-swatch' : ''}`}
                 data-testid={`annotation-line-color-${entry.id}`}
                 key={entry.id}
                 onClick={() => handleLineColorSelect(entry.color)}
@@ -467,8 +466,8 @@ export function AnnotationDock({
           <div className="annotation-dock__option-grid annotation-dock__option-grid--text">
             {ANNOTATION_TEXT_VARIANT_OPTIONS.map((option) => (
               <button
-                aria-pressed={interaction.textToolVariant === option.id}
-                className={`annotation-dock__option-button${interaction.textToolVariant === option.id ? ' is-active' : ''}`}
+                aria-pressed={textToolVariant === option.id}
+                className={`annotation-dock__option-button${textToolVariant === option.id ? ' is-active' : ''}`}
                 data-testid={`annotation-text-variant-${option.id}`}
                 key={option.id}
                 onClick={() => handleTextVariantSelect(option.id)}
@@ -495,8 +494,8 @@ export function AnnotationDock({
           <div className="annotation-dock__option-grid annotation-dock__option-grid--shape">
             {ANNOTATION_SHAPE_OPTIONS.map((option) => (
               <button
-                aria-pressed={interaction.shapeToolKind === option.id}
-                className={`annotation-dock__option-button annotation-dock__option-button--shape${interaction.shapeToolKind === option.id ? ' is-active' : ''}`}
+                aria-pressed={shapeToolKind === option.id}
+                className={`annotation-dock__option-button annotation-dock__option-button--shape${shapeToolKind === option.id ? ' is-active' : ''}`}
                 data-testid={`annotation-shape-kind-${option.id}`}
                 key={option.id}
                 onClick={() => handleShapeKindSelect(option.id)}

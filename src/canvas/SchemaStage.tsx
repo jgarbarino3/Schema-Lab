@@ -1,22 +1,20 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import { Layer, Line, Rect, Stage } from 'react-konva'
-import { AnnotationsLayer } from './AnnotationsLayer'
+import { Layer, Rect, Stage } from 'react-konva'
 import {
   ANNOTATION_DRAG_GUIDE_THRESHOLD_MM,
   getAnnotationBoundsMm,
   getAnnotationOriginMm,
   translateAnnotation,
 } from '../domain/annotations'
-import { screenToWorld, worldToScreen } from '../domain/geometry'
+import { boundsFromPointsMm, screenToWorld, worldToScreen } from '../domain/geometry'
 import { sortAnnotationsByZIndex } from '../domain/annotations'
 import { getSourceGuideSnapshot, inspectSceneComponentPlacement } from '../domain/placement'
 import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
-  SceneAnnotation,
   ScreenPointPx,
   Vector2Mm,
 } from '../domain/types'
@@ -26,11 +24,8 @@ import {
   getOpticalTable,
   getWorkspacePrimaryBreadboard,
 } from '../domain/workspace'
-import { BeamLayer } from './BeamLayer'
-import { BreadboardLayer } from './BreadboardLayer'
-import { ComponentsLayer } from './ComponentsLayer'
-import { GaussianEnvelopeLayer } from './GaussianEnvelopeLayer'
-import { RulerLayer } from './RulerLayer'
+import { BoardFocusRenderer } from './renderers/BoardFocusRenderer'
+import { TableViewRenderer } from './renderers/TableViewRenderer'
 
 interface AlignmentReference {
   axis: 'horizontal' | 'vertical'
@@ -197,6 +192,9 @@ export function SchemaStage({
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
   const renderMode = useEditorStore((state) => state.renderMode)
+  const simpleGlyphAppearances = useEditorStore(
+    (state) => state.simpleGlyphAppearances,
+  )
   const viewport = useEditorStore((state) => state.viewport)
   const interaction = useEditorStore((state) => state.interaction)
   const setViewportSize = useEditorStore((state) => state.setViewportSize)
@@ -209,9 +207,9 @@ export function SchemaStage({
   const selectOpticalTable = useEditorStore((state) => state.selectOpticalTable)
   const selectComponent = useEditorStore((state) => state.selectComponent)
   const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
-  const beginHighlightDrag = useEditorStore((state) => state.beginHighlightDrag)
-  const updateHighlightDrag = useEditorStore((state) => state.updateHighlightDrag)
-  const commitHighlightDrag = useEditorStore((state) => state.commitHighlightDrag)
+  const commitHighlightSelectionBounds = useEditorStore(
+    (state) => state.commitHighlightSelectionBounds,
+  )
   const beginComponentDrag = useEditorStore((state) => state.beginComponentDrag)
   const addShapeAnnotationAt = useEditorStore((state) => state.addShapeAnnotationAt)
   const addTextAnnotationAt = useEditorStore((state) => state.addTextAnnotationAt)
@@ -227,7 +225,6 @@ export function SchemaStage({
   const commitPendingBreadboardPlacement = useEditorStore(
     (state) => state.commitPendingBreadboardPlacement,
   )
-  const updateComponentDrag = useEditorStore((state) => state.updateComponentDrag)
   const commitComponentDrag = useEditorStore((state) => state.commitComponentDrag)
   const updateSelectedGeometryOverride = useEditorStore(
     (state) => state.updateSelectedGeometryOverride,
@@ -244,23 +241,34 @@ export function SchemaStage({
   const startTextAnnotationEditing = useEditorStore(
     (state) => state.startTextAnnotationEditing,
   )
-  const setHoveredComponentId = useEditorStore(
-    (state) => state.setHoveredComponentId,
-  )
-  const setHoveredBeamSegmentId = useEditorStore(
-    (state) => state.setHoveredBeamSegmentId,
-  )
   const selectBeamSegment = useEditorStore((state) => state.selectBeamSegment)
   const clearBeamInspectionSelection = useEditorStore(
     (state) => state.clearBeamInspectionSelection,
   )
-  const setCursorWorldMm = useEditorStore((state) => state.setCursorWorldMm)
-  const setPointerPanning = useEditorStore((state) => state.setPointerPanning)
   const startLineDrawAt = useEditorStore((state) => state.startLineDrawAt)
   const commitLineDraw = useEditorStore((state) => state.commitLineDraw)
   const beginBreadboardDrag = useEditorStore((state) => state.beginBreadboardDrag)
-  const updateBreadboardDrag = useEditorStore((state) => state.updateBreadboardDrag)
   const commitBreadboardDrag = useEditorStore((state) => state.commitBreadboardDrag)
+  const [hoveredComponentId, setHoveredComponentId] = useState<string>()
+  const [hoveredBeamSegmentId, setHoveredBeamSegmentId] = useState<string>()
+  const [cursorWorldMm, setCursorWorldMm] = useState<Vector2Mm>()
+  const [isPointerPanning, setPointerPanning] = useState(false)
+  const [dragPreview, setDragPreview] = useState<{
+    componentId: string
+    candidateAnchorMm: Vector2Mm
+    hostSurfaceId?: string
+  }>()
+  const [breadboardDragPreview, setBreadboardDragPreview] = useState<{
+    breadboardId: string
+    candidateAnchorMm: Vector2Mm
+  }>()
+  const [highlightDragStartMm, setHighlightDragStartMm] = useState<Vector2Mm>()
+  const [highlightDragBoundsMm, setHighlightDragBoundsMm] = useState<{
+    height: number
+    width: number
+    x: number
+    y: number
+  }>()
   const [annotationGuideLines, setAnnotationGuideLines] = useState<
     Array<{ fromMm: Vector2Mm; toMm: Vector2Mm }>
   >([])
@@ -307,6 +315,8 @@ export function SchemaStage({
     }
   }, [setViewportSize])
 
+  const effectiveDragPreview = dragPreview
+  const effectiveBreadboardDragPreview = breadboardDragPreview
   const isPanMode = interaction.activeTool === 'pan' || interaction.isSpacePanning
   const isHighlightTool =
     interaction.activeTool === 'highlight' && !interaction.isSpacePanning
@@ -324,16 +334,16 @@ export function SchemaStage({
       })
     }
 
-    if (interaction.dragPreview) {
+    if (effectiveDragPreview) {
       const draggingSource = scene.components.find(
         (component) =>
-          component.id === interaction.dragPreview?.componentId &&
+          component.id === effectiveDragPreview.componentId &&
           component.config.source,
       )
 
       if (draggingSource?.config.source) {
         return getSourceGuideSnapshot({
-          candidateAnchorMm: interaction.dragPreview.candidateAnchorMm,
+          candidateAnchorMm: effectiveDragPreview.candidateAnchorMm,
           scene,
           source: draggingSource,
           targetId: draggingSource.config.source.firstTargetComponentId,
@@ -360,13 +370,13 @@ export function SchemaStage({
       targetId: selectedSource.config.source.firstTargetComponentId,
     })
   }, [
-    interaction.dragPreview,
+    effectiveDragPreview,
     interaction.pendingPlacement,
     scene,
     selection,
   ])
   const stageCursor = useMemo(() => {
-    if (interaction.isPointerPanning) {
+    if (isPointerPanning) {
       return 'grabbing'
     }
 
@@ -375,7 +385,53 @@ export function SchemaStage({
     }
 
     return 'crosshair'
-  }, [interaction.isPointerPanning, isPanMode])
+  }, [isPanMode, isPointerPanning])
+  const liveInteraction = useMemo(
+    () => ({
+      activeTool: interaction.activeTool,
+      breadboardDragPreview: effectiveBreadboardDragPreview,
+      cursorWorldMm,
+      dragPreview: effectiveDragPreview,
+      editingTextAnnotationId: interaction.editingTextAnnotationId,
+      editingTextDraftText: interaction.editingTextDraftText,
+      focusedBreadboardId: interaction.focusedBreadboardId,
+      highlightDragBoundsMm,
+      highlightSelection: interaction.highlightSelection,
+      hoveredBeamSegmentId,
+      hoveredComponentId,
+      isSpacePanning: interaction.isSpacePanning,
+      lineColor: interaction.lineColor,
+      lineDrawStartMm: interaction.lineDrawStartMm,
+      pendingBreadboardPlacement: interaction.pendingBreadboardPlacement,
+      pendingPlacement: interaction.pendingPlacement,
+      selectedBeamInteractionId: interaction.selectedBeamInteractionId,
+      selectedBeamPathId: interaction.selectedBeamPathId,
+      selectedBeamSegmentId: interaction.selectedBeamSegmentId,
+      showBeamDetails: interaction.showBeamDetails,
+    }),
+    [
+      cursorWorldMm,
+      effectiveBreadboardDragPreview,
+      effectiveDragPreview,
+      highlightDragBoundsMm,
+      hoveredBeamSegmentId,
+      hoveredComponentId,
+      interaction.activeTool,
+      interaction.editingTextAnnotationId,
+      interaction.editingTextDraftText,
+      interaction.focusedBreadboardId,
+      interaction.highlightSelection,
+      interaction.isSpacePanning,
+      interaction.lineColor,
+      interaction.lineDrawStartMm,
+      interaction.pendingBreadboardPlacement,
+      interaction.pendingPlacement,
+      interaction.selectedBeamInteractionId,
+      interaction.selectedBeamPathId,
+      interaction.selectedBeamSegmentId,
+      interaction.showBeamDetails,
+    ],
+  )
   const belowBandAnnotations = useMemo(
     () =>
       sortAnnotationsByZIndex(
@@ -745,7 +801,7 @@ export function SchemaStage({
       distancePx: number
       midpointPx: ScreenPointPx
     }) => {
-      if (interaction.isPointerPanning) {
+      if (isPointerPanning) {
         stopPointerPan()
       }
 
@@ -847,10 +903,9 @@ export function SchemaStage({
     }
   }, [
     applyPinchViewport,
-    interaction.isPointerPanning,
+    isPointerPanning,
     setHoveredBeamSegmentId,
     setHoveredComponentId,
-    setPointerPanning,
     viewport.canvasSizePx.height,
     viewport.canvasSizePx.width,
   ])
@@ -879,7 +934,13 @@ export function SchemaStage({
       }
 
       event.evt.preventDefault()
-      beginHighlightDrag(pointerMm)
+      setHighlightDragStartMm(pointerMm)
+      setHighlightDragBoundsMm({
+        x: pointerMm.x,
+        y: pointerMm.y,
+        width: 0,
+        height: 0,
+      })
       return
     }
 
@@ -914,15 +975,15 @@ export function SchemaStage({
     if (isHighlightTool) {
       const pointerMm = getStagePointerWorldMm(event)
 
-      if (pointerMm && interaction.highlightDragStartMm) {
-        updateHighlightDrag(pointerMm)
+      if (pointerMm && highlightDragStartMm) {
+        setHighlightDragBoundsMm(boundsFromPointsMm(highlightDragStartMm, pointerMm))
       }
 
       return
     }
 
     if (
-      !interaction.isPointerPanning &&
+      !isPointerPanning &&
       (interaction.pendingPlacement || interaction.pendingBreadboardPlacement) &&
       !isPanMode
     ) {
@@ -939,7 +1000,7 @@ export function SchemaStage({
       }
     }
 
-    if (!interaction.isPointerPanning) {
+    if (!isPointerPanning) {
       return
     }
 
@@ -976,13 +1037,15 @@ export function SchemaStage({
       updateCursorFromStage(event)
     }
 
-    if (isHighlightTool && interaction.highlightDragStartMm) {
-      commitHighlightDrag(getStagePointerWorldMm(event))
+    if (isHighlightTool && highlightDragStartMm) {
+      commitHighlightSelectionBounds(highlightDragStartMm, getStagePointerWorldMm(event))
+      setHighlightDragBoundsMm(undefined)
+      setHighlightDragStartMm(undefined)
       clearAnnotationGuides()
       return
     }
 
-    if (!interaction.isPointerPanning) {
+    if (!isPointerPanning) {
       return
     }
 
@@ -1125,107 +1188,124 @@ export function SchemaStage({
     selectBreadboard(surfaceId)
   }
 
-  const handleLineAnnotationSelect = (
-    annotationId: string,
-    event?: KonvaEventObject<MouseEvent | TouchEvent>,
-  ) => {
-    if (isPanMode || panStateRef.current.didMove) {
-      panStateRef.current.didMove = false
-      return
-    }
+  const handleBeginComponentDrag = useCallback(
+    (componentId: string) => {
+      beginComponentDrag(componentId)
+      const component = scene.components.find((item) => item.id === componentId)
 
-    if (isAnnotationPlacementTool) {
-      handleAnnotationToolClick(event)
-      return
-    }
+      if (!component) {
+        return
+      }
 
+      setDragPreview({
+        componentId,
+        candidateAnchorMm: component.anchorMm,
+        hostSurfaceId: component.hostSurfaceId,
+      })
+    },
+    [beginComponentDrag, scene.components],
+  )
+
+  const handleUpdateComponentDrag = useCallback(
+    (componentId: string, anchorMm: Vector2Mm) => {
+      setDragPreview({
+        componentId,
+        candidateAnchorMm: anchorMm,
+      })
+    },
+    [],
+  )
+
+  const handleCommitComponentDrag = useCallback(
+    (componentId: string, anchorMm?: Vector2Mm) => {
+      const nextAnchorMm =
+        anchorMm ??
+        (dragPreview?.componentId === componentId ? dragPreview.candidateAnchorMm : undefined)
+
+      commitComponentDrag(componentId, nextAnchorMm)
+      setDragPreview(undefined)
+    },
+    [commitComponentDrag, dragPreview],
+  )
+
+  const handleBeginBreadboardDrag = useCallback(
+    (breadboardId: string) => {
+      beginBreadboardDrag(breadboardId)
+      const breadboard = breadboardInstances.find((item) => item.id === breadboardId)
+
+      if (!breadboard) {
+        return
+      }
+
+      setBreadboardDragPreview({
+        breadboardId,
+        candidateAnchorMm: breadboard.anchorMm,
+      })
+    },
+    [beginBreadboardDrag, breadboardInstances],
+  )
+
+  const handleUpdateBreadboardDrag = useCallback(
+    (breadboardId: string, anchorMm: Vector2Mm) => {
+      setBreadboardDragPreview({
+        breadboardId,
+        candidateAnchorMm: anchorMm,
+      })
+    },
+    [],
+  )
+
+  const handleCommitBreadboardDrag = useCallback(
+    (breadboardId: string, anchorMm?: Vector2Mm) => {
+      const nextAnchorMm =
+        anchorMm ??
+        (breadboardDragPreview?.breadboardId === breadboardId
+          ? breadboardDragPreview.candidateAnchorMm
+          : undefined)
+
+      commitBreadboardDrag(breadboardId, nextAnchorMm)
+      setBreadboardDragPreview(undefined)
+    },
+    [breadboardDragPreview, commitBreadboardDrag],
+  )
+
+  useEffect(() => {
+    if (!isHighlightTool) {
+      setHighlightDragBoundsMm(undefined)
+      setHighlightDragStartMm(undefined)
+    }
+  }, [isHighlightTool])
+  const handleRendererAnnotationContextMenu = useCallback(
+    (pointPx: ScreenPointPx) => {
+      clearAnnotationGuides()
+      onOpenAnnotationContextMenu?.(pointPx)
+    },
+    [onOpenAnnotationContextMenu],
+  )
+  const handleRendererComponentContextMenu = useCallback(
+    (pointPx: ScreenPointPx) => {
+      clearAnnotationGuides()
+      onOpenComponentContextMenu?.(pointPx)
+    },
+    [onOpenComponentContextMenu],
+  )
+  const handleClearRendererInspectionState = useCallback(() => {
     clearBeamInspectionSelection()
     clearAnnotationGuides()
-    selectAnnotation(annotationId)
-  }
+  }, [clearBeamInspectionSelection])
+  const handleRendererTranslateAnnotation = useCallback(
+    (annotationId: string, deltaMm: Vector2Mm) => {
+      const selectedAnnotationId =
+        selection.type === 'annotation' ? selection.annotationId : undefined
 
-  const handleLineAnnotationContextMenu = (
-    annotationId: string,
-    event: KonvaEventObject<MouseEvent | TouchEvent>,
-  ) => {
-    if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
-      return
-    }
+      if (selectedAnnotationId !== annotationId) {
+        selectAnnotation(annotationId)
+      }
 
-    event.cancelBubble = true
-    event.evt.preventDefault()
-    clearBeamInspectionSelection()
-    clearAnnotationGuides()
-    selectAnnotation(annotationId)
-    onOpenAnnotationContextMenu?.({
-      x: event.evt.clientX,
-      y: event.evt.clientY,
-    })
-  }
-
-  const handleHighlightPointerDown = (
-    event: KonvaEventObject<MouseEvent | TouchEvent>,
-  ) => {
-    if (!isHighlightTool) {
-      return
-    }
-
-    const pointerMm = getStagePointerWorldMm(event)
-
-    if (!pointerMm) {
-      return
-    }
-
-    event.cancelBubble = true
-    beginHighlightDrag(pointerMm)
-  }
-
-  const handleHighlightPointerMove = (
-    event: KonvaEventObject<MouseEvent | TouchEvent>,
-  ) => {
-    if (!isHighlightTool) {
-      return
-    }
-
-    updateCursorFromStage(event)
-
-    const pointerMm = getStagePointerWorldMm(event)
-
-    if (!pointerMm || !interaction.highlightDragStartMm) {
-      return
-    }
-
-    event.cancelBubble = true
-    updateHighlightDrag(pointerMm)
-  }
-
-  const handleHighlightPointerUp = (
-    event: KonvaEventObject<MouseEvent | TouchEvent>,
-  ) => {
-    if (!isHighlightTool || !interaction.highlightDragStartMm) {
-      return
-    }
-
-    const pointerMm = getStagePointerWorldMm(event)
-
-    event.cancelBubble = true
-    commitHighlightDrag(pointerMm)
-  }
-
-  const opticalTableBoard =
-    opticalTable
-      ? {
-          label: opticalTable.label,
-          widthMm: opticalTable.widthMm,
-          heightMm: opticalTable.heightMm,
-          holeSpacingMm: opticalTable.holeSpacingMm,
-          edgeMarginMm: opticalTable.edgeMarginMm,
-          thicknessMm: opticalTable.thicknessMm,
-          finish: 'clear-anodized' as const,
-          holeDensity: opticalTable.holeDensity,
-          counterborePattern: opticalTable.counterborePattern,
-        }
-      : undefined
+      translateSelectedAnnotation(deltaMm)
+    },
+    [selectAnnotation, selection, translateSelectedAnnotation],
+  )
 
   return (
     <div className="schema-stage" ref={containerRef} style={{ cursor: stageCursor }}>
@@ -1259,6 +1339,10 @@ export function SchemaStage({
             setCursorWorldMm(undefined)
             setHoveredComponentId(undefined)
             setHoveredBeamSegmentId(undefined)
+            setDragPreview(undefined)
+            setBreadboardDragPreview(undefined)
+            setHighlightDragBoundsMm(undefined)
+            setHighlightDragStartMm(undefined)
           }}
           onMouseMove={handleStagePointerMove}
           onMouseUp={handleStagePointerUp}
@@ -1283,486 +1367,102 @@ export function SchemaStage({
               x={0}
               y={0}
             />
-
-            {opticalTableBoard ? (
-              <BreadboardLayer
-                anchorMm={{ x: 0, y: 0 }}
-                breadboard={opticalTableBoard}
-                isFocused={false}
-                isHighlighted={false}
-                isSelected={selection.type === 'optical-table'}
-                onSelect={(event) => handleOpticalTableSelect(event)}
-                palette={{
-                  boardFill: '#a8b0b6',
-                  boardStroke: '#d4dae0',
-                  holeFill: '#6f777f',
-                  labelColor: '#16202a',
-                }}
-                renderInLayer={false}
-                showLabels={showLabels}
-                showSourceLanes={false}
-                viewport={viewport}
-              />
-            ) : (
-              <BreadboardLayer
-                anchorMm={{ x: 0, y: 0 }}
-                breadboard={primaryBreadboard}
-                isFocused
-                isHighlighted={Boolean(interaction.highlightSelection)}
-                isSelected={
-                  selection.type === 'breadboard' &&
-                  selection.surfaceId === SINGLE_BREADBOARD_SURFACE_ID
-                }
-                onSelect={(event) => {
-                  handleBackgroundSelect(event)
-                }}
-                renderInLayer={false}
-                showLabels={showLabels}
-                viewport={viewport}
-              />
-            )}
-
-            {breadboardInstances.map((breadboard) => (
-              <BreadboardLayer
-                anchorMm={
-                  interaction.breadboardDragPreview?.breadboardId === breadboard.id
-                    ? interaction.breadboardDragPreview.candidateAnchorMm
-                    : breadboard.anchorMm
-                }
-                breadboard={{
-                  ...breadboard.model,
-                  label: breadboard.label,
-                }}
-                draggable={!isPanMode && !isAnnotationPlacementTool}
-                isFocused={interaction.focusedBreadboardId === breadboard.id}
-                isHighlighted={highlightedBreadboardIds.includes(breadboard.id)}
-                isSelected={
-                  selection.type === 'breadboard' &&
-                  selection.surfaceId === breadboard.id
-                }
-                key={breadboard.id}
-                onDragEnd={(screenPointPx) =>
-                  commitBreadboardDrag(breadboard.id, screenToWorld(screenPointPx, viewport))
-                }
-                onDragMove={(screenPointPx) =>
-                  updateBreadboardDrag(breadboard.id, screenToWorld(screenPointPx, viewport))
-                }
-                onDragStart={() => beginBreadboardDrag(breadboard.id)}
-                onSelect={(event) => handleBreadboardSelect(breadboard.id, event)}
-                renderInLayer={false}
-                rotationQuarterTurns={breadboard.rotationQuarterTurns}
-                showLabels={showLabels}
-                viewport={viewport}
-              />
-            ))}
-
-            {interaction.pendingBreadboardPlacement ? (
-              <BreadboardLayer
-                anchorMm={interaction.pendingBreadboardPlacement.candidateAnchorMm}
-                breadboard={interaction.pendingBreadboardPlacement.model}
-                isHighlighted={false}
-                isSelected
-                onSelect={() => undefined}
-                opacity={0.72}
-                palette={{
-                  boardFill: '#25313a',
-                  boardStroke: '#8fd4ef',
-                  holeFill: '#111820',
-                  labelColor: '#d7edf6',
-                }}
-                renderInLayer={false}
-                rotationQuarterTurns={
-                  interaction.pendingBreadboardPlacement.rotationQuarterTurns
-                }
-                showLabels={showLabels}
-                showSourceLanes={false}
-                viewport={viewport}
-              />
-            ) : null}
           </Layer>
 
-          {interaction.showGaussianEnvelope ? (
-            <GaussianEnvelopeLayer
+          {scene.workspace.kind === 'single-breadboard' ? (
+            <BoardFocusRenderer
+              annotationGuideLines={annotationGuideLines}
+              aboveBandAnnotations={aboveBandAnnotations}
               beamTrace={beamTrace}
+              belowBandAnnotations={belowBandAnnotations}
               gaussianTrace={gaussianTrace}
-              hoveredSegmentId={interaction.hoveredBeamSegmentId}
-              selectedPathId={interaction.selectedBeamPathId}
+              highlightedAnnotationIds={highlightedAnnotationIds}
+              highlightedComponentIds={highlightedComponentIds}
+              highlightedInteractionIds={highlightedInteractionIds}
+              highlightedPathIds={highlightedPathIds}
+              interaction={liveInteraction}
+              onAnnotationToolClick={handleAnnotationToolClick}
+              onBeginComponentDrag={handleBeginComponentDrag}
+              onCommitComponentDrag={handleCommitComponentDrag}
+              onClearAnnotationGuides={clearAnnotationGuides}
+              onClearBeamInspectionSelection={handleClearRendererInspectionState}
+              onHoverBeamSegment={setHoveredBeamSegmentId}
+              onHoverComponent={setHoveredComponentId}
+              onLineToolClick={handleAnnotationToolClick}
+              onOpenAnnotationContextMenu={handleRendererAnnotationContextMenu}
+              onOpenComponentContextMenu={handleRendererComponentContextMenu}
+              onSelectAnnotation={selectAnnotation}
+              onSelectBeamSegment={selectBeamSegment}
+              onSelectBreadboard={(_, event) => handleBackgroundSelect(event)}
+              onSelectComponent={selectComponent}
+              onStartTextEditing={startTextAnnotationEditing}
+              onTranslateAnnotation={handleRendererTranslateAnnotation}
+              onUpdateComponentDrag={handleUpdateComponentDrag}
+              resolveAnnotationDragPositionPx={resolveAnnotationDragPositionPx}
+              onUpdateSelectedGeometryOverride={updateSelectedGeometryOverride}
+              onUpdateSelectedShapeAnnotation={updateSelectedShapeAnnotation}
+              onUpdateSelectedTextAnnotation={updateSelectedTextAnnotation}
+              renderMode={renderMode}
+              scene={scene}
+              selection={selection}
+              showGaussianEnvelope={interaction.showGaussianEnvelope}
+              showLabels={showLabels}
+              showPostHolders={showPostHolders}
+              simpleGlyphAppearances={simpleGlyphAppearances}
+              sourceGuide={sourceGuide}
+              snapMode={snapMode}
               viewport={viewport}
             />
-          ) : null}
-
-          <BeamLayer
-            beamTrace={beamTrace}
-            gaussianTrace={gaussianTrace}
-            hoveredSegmentId={interaction.hoveredBeamSegmentId}
-            highlightedInteractionIds={highlightedInteractionIds}
-            highlightedPathIds={highlightedPathIds}
-            onHoverSegment={setHoveredBeamSegmentId}
-            onSelectSegment={selectBeamSegment}
-            selectedInteractionId={interaction.selectedBeamInteractionId}
-            selectedPathId={interaction.selectedBeamPathId}
-            selectedSegmentId={interaction.selectedBeamSegmentId}
-            showDetails={interaction.showBeamDetails}
-            viewport={viewport}
-          />
-
-          {belowBandAnnotations.some((annotation) => annotation.kind === 'line') ||
-          interaction.lineDrawStartMm ? (
-            <Layer>
-              {belowBandAnnotations
-                .filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
-                .map((line) => {
-                const startPx = worldToScreen(line.startMm, viewport)
-                const endPx = worldToScreen(line.endMm, viewport)
-                const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
-                const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
-                const isSelected = selection.type === 'annotation' && selection.annotationId === line.id
-
-                return (
-                  <Fragment key={line.id}>
-                    <Line
-                      lineCap="round"
-                      opacity={0.001}
-                      points={linePoints}
-                      stroke="#ffffff"
-                      strokeWidth={Math.max(14, strokeWidth + 10)}
-                      onClick={(event) => handleLineAnnotationSelect(line.id, event)}
-                      onContextMenu={(event) =>
-                        handleLineAnnotationContextMenu(line.id, event)
-                      }
-                      onTap={(event) => handleLineAnnotationSelect(line.id, event)}
-                    />
-                    {isSelected ? (
-                      <Line
-                        key={`${line.id}-selection`}
-                        lineCap="round"
-                        listening={false}
-                        points={linePoints}
-                        stroke="#8ecedf"
-                        strokeWidth={strokeWidth + 4}
-                        opacity={0.24}
-                      />
-                    ) : null}
-                    <Line
-                      lineCap="round"
-                      listening={false}
-                      points={linePoints}
-                      shadowBlur={4}
-                      shadowColor={line.color}
-                      shadowOpacity={0.3}
-                      stroke={line.color}
-                      strokeWidth={strokeWidth}
-                    />
-                  </Fragment>
-                )
-              })}
-              {interaction.lineDrawStartMm && interaction.cursorWorldMm ? (() => {
-                const startPx = worldToScreen(interaction.lineDrawStartMm, viewport)
-                const endPx = worldToScreen(interaction.cursorWorldMm, viewport)
-
-                return (
-                  <Line
-                    dash={[6, 4]}
-                    lineCap="round"
-                    listening={false}
-                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                    shadowBlur={4}
-                    shadowColor={interaction.lineColor}
-                    shadowOpacity={0.3}
-                    stroke={interaction.lineColor}
-                    strokeWidth={Math.max(1.5, 0.8 * viewport.zoomPxPerMm)}
-                  />
-                )
-              })() : null}
-            </Layer>
-          ) : null}
-
-          {sourceGuide ? (
-            <Layer listening={false}>
-              <Line
-                dash={sourceGuide.alignmentAxis ? [10, 5] : [7, 6]}
-                lineCap="round"
-                points={[
-                  worldToScreen(sourceGuide.sourcePointMm, viewport).x,
-                  worldToScreen(sourceGuide.sourcePointMm, viewport).y,
-                  worldToScreen(sourceGuide.targetPointMm, viewport).x,
-                  worldToScreen(sourceGuide.targetPointMm, viewport).y,
-                ]}
-                shadowBlur={sourceGuide.alignmentAxis ? 12 : 7}
-                shadowColor={sourceGuide.alignmentAxis ? '#7ad2ff' : '#61b8df'}
-                shadowOpacity={0.32}
-                stroke={sourceGuide.alignmentAxis ? '#8fe3ff' : '#5eb4da'}
-                strokeWidth={sourceGuide.alignmentAxis ? 2.6 : 1.8}
-              />
-            </Layer>
-          ) : null}
-
-          {annotationGuideLines.length > 0 ? (
-            <Layer listening={false}>
-              {annotationGuideLines.map((guide, index) => {
-                const startPx = worldToScreen(guide.fromMm, viewport)
-                const endPx = worldToScreen(guide.toMm, viewport)
-
-                return (
-                  <Line
-                    dash={[9, 5]}
-                    key={`${guide.fromMm.x}-${guide.fromMm.y}-${guide.toMm.x}-${guide.toMm.y}-${index}`}
-                    lineCap="round"
-                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                    shadowBlur={10}
-                    shadowColor="#7ad2ff"
-                    shadowOpacity={0.26}
-                    stroke="#8fe3ff"
-                    strokeWidth={1.8}
-                  />
-                )
-              })}
-            </Layer>
-          ) : null}
-
-          <ComponentsLayer
-            breadboardDragPreview={interaction.breadboardDragPreview}
-            components={scene.components}
-            dragPreview={interaction.dragPreview}
-            hoveredComponentId={interaction.hoveredComponentId}
-            highlightedComponentIds={highlightedComponentIds}
-            isLineTool={isAnnotationPlacementTool}
-            isPanMode={isPanMode}
-            onBeginComponentDrag={beginComponentDrag}
-            onCommitComponentDrag={commitComponentDrag}
-            onHoverComponent={setHoveredComponentId}
-            onOpenComponentContextMenu={(componentId, pointPx) => {
-              clearBeamInspectionSelection()
-              clearAnnotationGuides()
-              selectComponent(componentId)
-              onOpenComponentContextMenu?.(pointPx)
-            }}
-            onLineToolClick={handleAnnotationToolClick}
-            onResizeComponent={(_, update) => updateSelectedGeometryOverride(update)}
-            onSelectComponent={selectComponent}
-            onUpdateComponentDrag={updateComponentDrag}
-            pendingPlacement={interaction.pendingPlacement}
-            renderMode={renderMode}
-            scene={scene}
-            showLabels={showLabels}
-            showPostHolders={showPostHolders}
-            selectedComponentId={
-              selection.type === 'component' ? selection.componentId : undefined
-            }
-            snapMode={snapMode}
-            viewport={viewport}
-          />
-
-          <AnnotationsLayer
-            activeTool={interaction.activeTool}
-            annotations={belowBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
-            editingTextAnnotationId={interaction.editingTextAnnotationId}
-            editingTextDraftText={interaction.editingTextDraftText}
-            highlightedAnnotationIds={highlightedAnnotationIds}
-            onAnnotationToolClick={handleAnnotationToolClick}
-            onOpenContextMenu={(annotationId, pointPx) => {
-              clearBeamInspectionSelection()
-              clearAnnotationGuides()
-              selectAnnotation(annotationId)
-              onOpenAnnotationContextMenu?.(pointPx)
-            }}
-            onResizeSelectedShape={updateSelectedShapeAnnotation}
-            onUpdateSelectedText={(update) =>
-              updateSelectedTextAnnotation(update)
-            }
-            onSelectAnnotation={selectAnnotation}
-            onStartTextEditing={startTextAnnotationEditing}
-            onTranslateAnnotation={(annotationId, deltaMm) => {
-              const selectedAnnotationId =
-                selection.type === 'annotation' ? selection.annotationId : undefined
-
-              if (selectedAnnotationId !== annotationId) {
-                selectAnnotation(annotationId)
-              }
-              translateSelectedAnnotation(deltaMm)
-            }}
-            onClearGuides={clearAnnotationGuides}
-            resolveDragPositionPx={resolveAnnotationDragPositionPx}
-            selectedAnnotationId={
-              selection.type === 'annotation' ? selection.annotationId : undefined
-            }
-            viewport={viewport}
-          />
-
-          {aboveBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
-            <Layer>
-              {aboveBandAnnotations
-                .filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
-                .map((line) => {
-                  const startPx = worldToScreen(line.startMm, viewport)
-                  const endPx = worldToScreen(line.endMm, viewport)
-                  const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
-                  const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
-                  const isSelected = selection.type === 'annotation' && selection.annotationId === line.id
-                  const isHighlighted = highlightedAnnotationIds.includes(line.id)
-
-                  return (
-                    <Fragment key={line.id}>
-                      <Line
-                        lineCap="round"
-                        opacity={0.001}
-                        points={linePoints}
-                        stroke="#ffffff"
-                        strokeWidth={Math.max(14, strokeWidth + 10)}
-                        onClick={(event) => handleLineAnnotationSelect(line.id, event)}
-                        onContextMenu={(event) =>
-                          handleLineAnnotationContextMenu(line.id, event)
-                        }
-                        onTap={(event) => handleLineAnnotationSelect(line.id, event)}
-                      />
-                      {isSelected || isHighlighted ? (
-                        <Line
-                          key={`${line.id}-selection`}
-                          lineCap="round"
-                          listening={false}
-                          points={linePoints}
-                          stroke={isSelected ? '#8ecedf' : '#f0cb87'}
-                          strokeWidth={strokeWidth + 4}
-                          opacity={0.24}
-                        />
-                      ) : null}
-                      <Line
-                        lineCap="round"
-                        listening={false}
-                        points={linePoints}
-                        shadowBlur={4}
-                        shadowColor={line.color}
-                        shadowOpacity={0.3}
-                        stroke={line.color}
-                        strokeWidth={strokeWidth}
-                      />
-                    </Fragment>
-                  )
-                })}
-            </Layer>
-          ) : null}
-
-          <AnnotationsLayer
-            activeTool={interaction.activeTool}
-            annotations={aboveBandAnnotations.filter((annotation) => annotation.kind !== 'line')}
-            editingTextAnnotationId={interaction.editingTextAnnotationId}
-            editingTextDraftText={interaction.editingTextDraftText}
-            highlightedAnnotationIds={highlightedAnnotationIds}
-            onAnnotationToolClick={handleAnnotationToolClick}
-            onOpenContextMenu={(annotationId, pointPx) => {
-              clearBeamInspectionSelection()
-              clearAnnotationGuides()
-              selectAnnotation(annotationId)
-              onOpenAnnotationContextMenu?.(pointPx)
-            }}
-            onResizeSelectedShape={updateSelectedShapeAnnotation}
-            onUpdateSelectedText={(update) =>
-              updateSelectedTextAnnotation(update)
-            }
-            onSelectAnnotation={selectAnnotation}
-            onStartTextEditing={startTextAnnotationEditing}
-            onTranslateAnnotation={(annotationId, deltaMm) => {
-              const selectedAnnotationId =
-                selection.type === 'annotation' ? selection.annotationId : undefined
-
-              if (selectedAnnotationId !== annotationId) {
-                selectAnnotation(annotationId)
-              }
-              translateSelectedAnnotation(deltaMm)
-            }}
-            onClearGuides={clearAnnotationGuides}
-            resolveDragPositionPx={resolveAnnotationDragPositionPx}
-            selectedAnnotationId={
-              selection.type === 'annotation' ? selection.annotationId : undefined
-            }
-            viewport={viewport}
-          />
-
-          {isHighlightTool ||
-          interaction.highlightDragBoundsMm ||
-          interaction.highlightSelection ? (
-            <Layer>
-              {interaction.highlightSelection ? (() => {
-                const selectionTopLeftPx = worldToScreen(
-                  {
-                    x: interaction.highlightSelection.boundsMm.x,
-                    y: interaction.highlightSelection.boundsMm.y,
-                  },
-                  viewport,
-                )
-
-                return (
-                  <Rect
-                    dash={[10, 6]}
-                    fill="rgba(240, 202, 138, 0.08)"
-                    height={interaction.highlightSelection.boundsMm.height * viewport.zoomPxPerMm}
-                    listening={false}
-                    shadowBlur={10}
-                    shadowColor="#f0cb87"
-                    shadowOpacity={0.14}
-                    stroke="#f0cb87"
-                    strokeWidth={1.5}
-                    width={interaction.highlightSelection.boundsMm.width * viewport.zoomPxPerMm}
-                    x={selectionTopLeftPx.x}
-                    y={selectionTopLeftPx.y}
-                  />
-                )
-              })() : null}
-
-              {interaction.highlightDragBoundsMm ? (() => {
-                const dragTopLeftPx = worldToScreen(
-                  {
-                    x: interaction.highlightDragBoundsMm.x,
-                    y: interaction.highlightDragBoundsMm.y,
-                  },
-                  viewport,
-                )
-
-                return (
-                  <Rect
-                    dash={[8, 5]}
-                    fill="rgba(125, 200, 228, 0.08)"
-                    height={interaction.highlightDragBoundsMm.height * viewport.zoomPxPerMm}
-                    listening={false}
-                    shadowBlur={10}
-                    shadowColor="#7dc8e4"
-                    shadowOpacity={0.16}
-                    stroke="#9adcf0"
-                    strokeWidth={1.25}
-                    width={interaction.highlightDragBoundsMm.width * viewport.zoomPxPerMm}
-                    x={dragTopLeftPx.x}
-                    y={dragTopLeftPx.y}
-                  />
-                )
-              })() : null}
-
-              {isHighlightTool ? (
-                <Rect
-                  fill="rgba(0, 0, 0, 0.001)"
-                  height={viewport.canvasSizePx.height}
-                  onMouseDown={handleHighlightPointerDown}
-                  onMouseMove={handleHighlightPointerMove}
-                  onMouseUp={handleHighlightPointerUp}
-                  onTap={handleHighlightPointerDown}
-                  onTouchEnd={handleHighlightPointerUp}
-                  onTouchMove={handleHighlightPointerMove}
-                  onTouchStart={handleHighlightPointerDown}
-                  width={viewport.canvasSizePx.width}
-                  x={0}
-                  y={0}
-                />
-              ) : null}
-            </Layer>
-          ) : null}
-
-          <RulerLayer 
-            cursorScreenPx={
-              interaction.cursorWorldMm
-                ? worldToScreen(interaction.cursorWorldMm, viewport)
-                : undefined
-            }
-            viewport={viewport} 
-          />
+          ) : (
+            <TableViewRenderer
+              annotationGuideLines={annotationGuideLines}
+              aboveBandAnnotations={aboveBandAnnotations}
+              beamTrace={beamTrace}
+              belowBandAnnotations={belowBandAnnotations}
+              gaussianTrace={gaussianTrace}
+              highlightedAnnotationIds={highlightedAnnotationIds}
+              highlightedBreadboardIds={highlightedBreadboardIds}
+              highlightedComponentIds={highlightedComponentIds}
+              highlightedInteractionIds={highlightedInteractionIds}
+              highlightedPathIds={highlightedPathIds}
+              interaction={liveInteraction}
+              onAnnotationToolClick={handleAnnotationToolClick}
+              onBeginBreadboardDrag={handleBeginBreadboardDrag}
+              onBeginComponentDrag={handleBeginComponentDrag}
+              onCommitBreadboardDrag={handleCommitBreadboardDrag}
+              onCommitComponentDrag={handleCommitComponentDrag}
+              onClearAnnotationGuides={clearAnnotationGuides}
+              onClearBeamInspectionSelection={handleClearRendererInspectionState}
+              onHoverBeamSegment={setHoveredBeamSegmentId}
+              onHoverComponent={setHoveredComponentId}
+              onLineToolClick={handleAnnotationToolClick}
+              onOpenAnnotationContextMenu={handleRendererAnnotationContextMenu}
+              onOpenComponentContextMenu={handleRendererComponentContextMenu}
+              onSelectAnnotation={selectAnnotation}
+              onSelectBeamSegment={selectBeamSegment}
+              onSelectBreadboard={handleBreadboardSelect}
+              onSelectComponent={selectComponent}
+              onSelectOpticalTable={handleOpticalTableSelect}
+              onStartTextEditing={startTextAnnotationEditing}
+              onTranslateAnnotation={handleRendererTranslateAnnotation}
+              onUpdateBreadboardDrag={handleUpdateBreadboardDrag}
+              onUpdateComponentDrag={handleUpdateComponentDrag}
+              resolveAnnotationDragPositionPx={resolveAnnotationDragPositionPx}
+              onUpdateSelectedGeometryOverride={updateSelectedGeometryOverride}
+              onUpdateSelectedShapeAnnotation={updateSelectedShapeAnnotation}
+              onUpdateSelectedTextAnnotation={updateSelectedTextAnnotation}
+              renderMode={renderMode}
+              scene={scene}
+              selection={selection}
+              showGaussianEnvelope={interaction.showGaussianEnvelope}
+              showLabels={showLabels}
+              showPostHolders={showPostHolders}
+              simpleGlyphAppearances={simpleGlyphAppearances}
+              sourceGuide={sourceGuide}
+              snapMode={snapMode}
+              viewport={viewport}
+            />
+          )}
         </Stage>
       ) : null}
     </div>

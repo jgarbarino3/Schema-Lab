@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { COMPONENT_DEFINITIONS } from '../domain/componentCatalog'
-import type { ComponentCategory, ComponentDefinition } from '../domain/types'
+import type { ComponentCategory, ComponentDefinition, ComponentType } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 
 const RECENT_LIBRARY_KEY = 'schema-lab.ui.library-recent'
@@ -18,9 +18,22 @@ interface DisplayGroup {
   categories: ComponentCategory[]
 }
 
+interface LibraryComponentEntry {
+  category: ComponentCategory
+  familyLabel: string
+  key: string
+  mountMode: string
+  recentLabel: string
+  searchText: string
+  testId: string
+  type: ComponentType
+  variantCount: number
+  variantId?: string
+}
+
 type RecentEntry =
   | { kind: 'breadboard'; id: string }
-  | { kind: 'component'; id: string }
+  | { kind: 'component'; id: string; variantId?: string }
 
 const DISPLAY_GROUPS: DisplayGroup[] = [
   { key: 'sources', label: 'Sources', categories: ['source'] },
@@ -89,8 +102,89 @@ function matchesQuery(value: string, query: string) {
   return value.toLowerCase().includes(query.toLowerCase())
 }
 
-function getRecentComponentLabel(definition: ComponentDefinition) {
+function getRecentComponentLabel(
+  definition: ComponentDefinition,
+  variantId?: string,
+) {
+  if (definition.type === 'mirror' && variantId === 'flip-mirror') {
+    return 'Flip Mirror'
+  }
+
   return definition.defaultLabel
+}
+
+function buildLibraryComponentEntries(
+  definition: ComponentDefinition,
+): LibraryComponentEntry[] {
+  const mountMode = describeMountMode(definition.mount.mode)
+  const variantLabels = definition.variants.map((variant) => variant.label).join(' ')
+
+  if (definition.type !== 'mirror') {
+    return [
+      {
+        category: definition.category,
+        familyLabel: definition.familyLabel,
+        key: definition.type,
+        mountMode,
+        recentLabel: getRecentComponentLabel(definition),
+        searchText: [
+          definition.familyLabel,
+          definition.defaultLabel,
+          definition.category,
+          mountMode,
+          variantLabels,
+        ].join(' '),
+        testId: `library-item-${definition.type}`,
+        type: definition.type,
+        variantCount: definition.variants.length,
+      },
+    ]
+  }
+
+  const planarVariants = definition.variants.filter((variant) => variant.id !== 'flip-mirror')
+  const flipVariant = definition.variants.find((variant) => variant.id === 'flip-mirror')
+  const entries: LibraryComponentEntry[] = [
+    {
+      category: definition.category,
+      familyLabel: 'Planar Mirror',
+      key: definition.type,
+      mountMode,
+      recentLabel: getRecentComponentLabel(definition),
+      searchText: [
+        'Planar Mirror',
+        definition.familyLabel,
+        definition.defaultLabel,
+        definition.category,
+        mountMode,
+        planarVariants.map((variant) => variant.label).join(' '),
+      ].join(' '),
+      testId: 'library-item-mirror',
+      type: definition.type,
+      variantCount: planarVariants.length,
+    },
+  ]
+
+  if (flipVariant) {
+    entries.push({
+      category: definition.category,
+      familyLabel: 'Flip Mirror',
+      key: `${definition.type}-${flipVariant.id}`,
+      mountMode,
+      recentLabel: getRecentComponentLabel(definition, flipVariant.id),
+      searchText: [
+        'Flip Mirror',
+        flipVariant.label,
+        definition.category,
+        mountMode,
+      ].join(' '),
+      testId: 'library-item-flip-mirror',
+      type: definition.type,
+      variantCount: 1,
+      variantId: flipVariant.id,
+    })
+  }
+
+  return entries
 }
 
 export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
@@ -100,6 +194,9 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const pendingPlacementType = useEditorStore(
     (state) => state.interaction.pendingPlacement?.draft.type,
   )
+  const pendingPlacementVariantId = useEditorStore(
+    (state) => state.interaction.pendingPlacement?.draft.variantId,
+  )
   const pendingBreadboardPresetId = useEditorStore(
     (state) => state.interaction.pendingBreadboardPlacement?.presetId,
   )
@@ -108,18 +205,22 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const [recentEntries, setRecentEntries] = useState<RecentEntry[]>(() => readRecentEntries())
   const [isRecentExpanded, setIsRecentExpanded] = useState(false)
 
+  const allComponentEntries = useMemo(
+    () => COMPONENT_DEFINITIONS.flatMap(buildLibraryComponentEntries),
+    [],
+  )
   const groupedDefinitions = useMemo(() => {
-    const map = new Map<string, ComponentDefinition[]>()
+    const map = new Map<string, LibraryComponentEntry[]>()
     for (const group of DISPLAY_GROUPS) {
-      const definitions = COMPONENT_DEFINITIONS.filter((definition) =>
-        group.categories.includes(definition.category),
+      const definitions = allComponentEntries.filter((entry) =>
+        group.categories.includes(entry.category),
       )
       if (definitions.length > 0) {
         map.set(group.key, definitions)
       }
     }
     return map
-  }, [])
+  }, [allComponentEntries])
 
   const armedGroupKey = pendingPlacementType
     ? getDisplayGroupForCategory(
@@ -142,12 +243,32 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     }
   }, [expandedGroups, pendingBreadboardPresetId])
 
+  const isComponentEntryArmed = (entry: LibraryComponentEntry) => {
+    if (pendingPlacementType !== entry.type) {
+      return false
+    }
+
+    if (entry.variantId) {
+      return pendingPlacementVariantId === entry.variantId
+    }
+
+    return entry.type !== 'mirror' || pendingPlacementVariantId !== 'flip-mirror'
+  }
+
   const rememberRecent = (entry: RecentEntry) => {
     setRecentEntries((previous) => {
-      const next = [entry, ...previous.filter((item) => item.kind !== entry.kind || item.id !== entry.id)].slice(
-        0,
-        MAX_RECENT_ITEMS,
-      )
+      const next = [
+        entry,
+        ...previous.filter((item) => {
+          if (item.kind !== entry.kind || item.id !== entry.id) {
+            return true
+          }
+
+          return item.kind !== 'component' || entry.kind !== 'component'
+            ? false
+            : item.variantId !== entry.variantId
+        }),
+      ].slice(0, MAX_RECENT_ITEMS)
       writeRecentEntries(next)
       return next
     })
@@ -194,24 +315,46 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
           return undefined
         }
 
+        const componentEntry = allComponentEntries.find(
+          (candidate) =>
+            candidate.type === definition.type &&
+            candidate.variantId === entry.variantId,
+        ) ??
+          allComponentEntries.find(
+            (candidate) =>
+              candidate.type === definition.type && candidate.variantId === undefined,
+          )
+        if (!componentEntry) {
+          return undefined
+        }
+
         return {
-          armed: pendingPlacementType === definition.type,
-          id: `component-${definition.type}`,
-          label: getRecentComponentLabel(definition),
+          armed: isComponentEntryArmed(componentEntry),
+          id: `component-${componentEntry.key}`,
+          label: componentEntry.recentLabel,
           meta: undefined,
           onClick: () => {
-            rememberRecent({ kind: 'component', id: definition.type })
-            addComponent(definition.type)
+            rememberRecent({
+              kind: 'component',
+              id: componentEntry.type,
+              variantId: componentEntry.variantId,
+            })
+            addComponent(componentEntry.type, componentEntry.variantId)
           },
-          testId: `library-recent-component-${definition.type}`,
+          testId:
+            componentEntry.variantId === 'flip-mirror'
+              ? 'library-recent-component-flip-mirror'
+              : `library-recent-component-${componentEntry.type}`,
         }
       })
       .filter((entry): entry is NonNullable<typeof entry> => !!entry)
   }, [
+    allComponentEntries,
     addBreadboardInstance,
     addComponent,
     pendingBreadboardPresetId,
     pendingPlacementType,
+    pendingPlacementVariantId,
     recentEntries,
   ])
   const visibleRecentCards = isRecentExpanded
@@ -342,25 +485,19 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
         ) : null}
 
         {DISPLAY_GROUPS.map((group) => {
-          const definitions = groupedDefinitions.get(group.key)
-          if (!definitions) {
+          const entries = groupedDefinitions.get(group.key)
+          if (!entries) {
             return null
           }
 
-          const visibleDefinitions = definitions.filter((definition) => {
+          const visibleDefinitions = entries.filter((entry) => {
             if (!isSearchActive) {
               return true
             }
 
-            const haystack = [
-              definition.familyLabel,
-              definition.category,
-              describeMountMode(definition.mount.mode),
-            ].join(' ')
-
             return (
-              matchesQuery(haystack, normalizedQuery) ||
-              pendingPlacementType === definition.type
+              matchesQuery(entry.searchText, normalizedQuery) ||
+              isComponentEntryArmed(entry)
             )
           })
 
@@ -392,26 +529,29 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
 
               {isExpanded ? (
                 <div className="component-library__group-body is-open">
-                  {visibleDefinitions.map((definition) => (
+                  {visibleDefinitions.map((entry) => (
                     <button
-                      className={`component-library__item${pendingPlacementType === definition.type ? ' is-armed' : ''}`}
-                      data-testid={`library-item-${definition.type}`}
-                      key={definition.type}
+                      className={`component-library__item${isComponentEntryArmed(entry) ? ' is-armed' : ''}`}
+                      data-testid={entry.testId}
+                      key={entry.key}
                       onClick={() => {
-                        rememberRecent({ kind: 'component', id: definition.type })
-                        addComponent(definition.type)
+                        rememberRecent({
+                          kind: 'component',
+                          id: entry.type,
+                          variantId: entry.variantId,
+                        })
+                        addComponent(entry.type, entry.variantId)
                       }}
                       type="button"
                     >
                       <span className="component-library__item-title">
-                        {definition.familyLabel}
+                        {entry.familyLabel}
                       </span>
                       <span className="component-library__item-meta">
-                        {definition.variants.length} variant
-                        {definition.variants.length === 1 ? '' : 's'} ·{' '}
-                        {describeMountMode(definition.mount.mode)}
+                        {entry.variantCount} variant
+                        {entry.variantCount === 1 ? '' : 's'} · {entry.mountMode}
                       </span>
-                      {pendingPlacementType === definition.type ? (
+                      {isComponentEntryArmed(entry) ? (
                         <span className="component-library__item-state">Armed</span>
                       ) : null}
                     </button>
@@ -427,11 +567,8 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
         !BREADBOARD_PRESETS.some((preset) =>
           matchesQuery(`${preset.label} breadboard`, normalizedQuery),
         ) &&
-        !COMPONENT_DEFINITIONS.some((definition) =>
-          matchesQuery(
-            `${definition.familyLabel} ${definition.category} ${describeMountMode(definition.mount.mode)}`,
-            normalizedQuery,
-          ),
+        !allComponentEntries.some((entry) =>
+          matchesQuery(entry.searchText, normalizedQuery),
         ) ? (
           <div className="component-library__empty">
             No matching components.

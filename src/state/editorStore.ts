@@ -163,7 +163,7 @@ interface BreadboardDragPreview {
   candidateAnchorMm: Vector2Mm
 }
 
-interface InteractionState {
+export interface InteractionState {
   activeDragComponentId?: string
   breadboardDragPreview?: BreadboardDragPreview
   bottomToolbarOffsetPx?: ScreenPointPx
@@ -234,7 +234,7 @@ interface CommitSceneHistoryOptions {
   mergeKey?: string
 }
 
-interface EditorStore {
+export interface EditorStore {
   scene: SceneDocument
   selection: SelectionState
   snapMode: SnapMode
@@ -267,6 +267,7 @@ interface EditorStore {
   beginHighlightDrag: (startMm: Vector2Mm) => void
   updateHighlightDrag: (pointMm: Vector2Mm) => void
   commitHighlightDrag: (pointMm?: Vector2Mm) => void
+  commitHighlightSelectionBounds: (startMm: Vector2Mm, endMm?: Vector2Mm) => void
   clearHighlightSelection: () => void
   selectBeamSegment: (segmentId: string, pathId: string, interactionId?: string) => void
   clearBeamInspectionSelection: () => void
@@ -286,7 +287,7 @@ interface EditorStore {
   ) => void
   zoomAtScreenPoint: (pointPx: ScreenPointPx, zoomFactor: number) => void
   resetViewport: () => void
-  addComponent: (type: ComponentType) => void
+  addComponent: (type: ComponentType, variantId?: string) => void
   addTextAnnotationAt: (anchorMm: Vector2Mm) => void
   addShapeAnnotationAt: (anchorMm: Vector2Mm) => void
   addBreadboardInstance: (presetId: string) => void
@@ -702,6 +703,7 @@ function clampViewportForActiveWorkspace(args: {
   selection: SelectionState
   viewport: ViewportState
 }) {
+  const tableViewEdgePaddingMm = { x: 100, y: 80 }
   const workspaceViewMode = resolveWorkspaceViewModeForScene(
     args.scene,
     args.interaction.workspaceViewMode,
@@ -717,7 +719,13 @@ function clampViewportForActiveWorkspace(args: {
     focusedBreadboardId,
   )
 
-  return clampViewportToKeepBoundsVisible(args.viewport, focusBounds)
+  return clampViewportToKeepBoundsVisible(
+    args.viewport,
+    focusBounds,
+    args.scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
+      ? { edgePaddingMm: tableViewEdgePaddingMm }
+      : undefined,
+  )
 }
 
 function createComponentId(type: ComponentType) {
@@ -1001,8 +1009,12 @@ function escapeRegExp(value: string) {
 function createAutoNumberedLabel(
   components: ComponentInstance[],
   type: ComponentType,
+  variantId?: string,
 ) {
-  const baseLabel = getComponentDefinition(type).defaultLabel
+  const baseLabel =
+    type === 'mirror' && variantId === 'flip-mirror'
+      ? 'Flip Mirror'
+      : getComponentDefinition(type).defaultLabel
   const pattern = new RegExp(`^${escapeRegExp(baseLabel)}(?: (\\d+))?$`)
   let highestIndex = 0
 
@@ -1227,6 +1239,7 @@ function createComponentDraft(
   type: ComponentType,
   mountVisibilityDefaults: MountVisibilityDefaults,
   activeHostSurfaceId?: string,
+  requestedVariantId?: string,
 ) {
   const definition = getComponentDefinition(type)
   const defaultSurfaceId =
@@ -1236,7 +1249,7 @@ function createComponentDraft(
   const variantId =
     type === 'laser-source' && scene.workspace.kind === 'optical-table'
       ? 'compact-table-source'
-      : definition.defaultVariantId
+      : requestedVariantId ?? definition.defaultVariantId
   const selectedComponentId =
     selection.type === 'component' ? selection.componentId : undefined
   let selectedTarget: ComponentInstance | undefined
@@ -1254,7 +1267,7 @@ function createComponentDraft(
   let draft: ComponentInstance = {
     id: createComponentId(type),
     type,
-    label: createAutoNumberedLabel(scene.components, type),
+    label: createAutoNumberedLabel(scene.components, type, variantId),
     variantId,
     anchorMm: (() => {
       const surface = getSurfacePlacementModel(scene, activeHostSurfaceId)
@@ -2229,6 +2242,26 @@ export const useEditorStore = create<EditorStore>((set) => ({
     })
   },
 
+  commitHighlightSelectionBounds: (startMm, endMm) => {
+    set((state) => {
+      const captureBoundsMm = boundsFromPointsMm(endMm ?? startMm, startMm)
+      const hasMeaningfulArea = captureBoundsMm.width >= 4 || captureBoundsMm.height >= 4
+      const highlightSelection = hasMeaningfulArea
+        ? createHighlightSelectionFromBounds(state.scene, captureBoundsMm)
+        : undefined
+
+      return {
+        interaction: {
+          ...clearHighlightInteractionState(state.interaction),
+          highlightSelection,
+          notice: highlightSelection
+            ? `${highlightSelection.breadboardIds.length + highlightSelection.componentIds.length + highlightSelection.annotationIds.length} items highlighted.`
+            : undefined,
+        },
+      }
+    })
+  },
+
   clearHighlightSelection: () => {
     set((state) => ({
       interaction: clearHighlightInteractionState({
@@ -2402,7 +2435,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
     }))
   },
 
-  addComponent: (type) => {
+  addComponent: (type, variantId) => {
     set((state) => {
       const draft = createComponentDraft(
         state.scene,
@@ -2410,6 +2443,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         type,
         state.mountVisibilityDefaults,
         state.interaction.activeHostSurfaceId ?? getDefaultSurfaceId(state.scene),
+        variantId,
       )
 
       return {

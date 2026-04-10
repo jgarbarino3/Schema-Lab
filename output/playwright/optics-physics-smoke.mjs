@@ -39,29 +39,41 @@ try {
 
   await page.goto(targetUrl, { waitUntil: 'networkidle' })
 
-  const rawJsonButton = page.getByRole('button', { name: 'Raw JSON' })
-  const helpButton = page.getByRole('button', { name: 'Help' })
+  const openRawJsonModal = async () => {
+    const moreMenuButton = page.getByTestId('toolbar-more')
+    await moreMenuButton.click()
+    const moreMenu = page.getByTestId('toolbar-menu-more')
+    await moreMenu.waitFor()
+    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
+    const modal = page.locator('.json-modal')
+    await modal.waitFor()
+    return modal
+  }
+  const helpButton = page.getByTestId('toolbar-shortcuts')
 
   const inspectorField = (label) =>
     page.locator('.inspector__field').filter({ hasText: label })
 
+  const inspectorHeading = (name) =>
+    page.getByRole('heading', { name, exact: true }).first()
+
   const readScene = async () => {
-    await rawJsonButton.click()
-    const textarea = page.locator('.json-modal textarea')
+    const modal = await openRawJsonModal()
+    const textarea = modal.locator('textarea')
     await textarea.waitFor()
     const scene = JSON.parse(await textarea.inputValue())
     await page.getByRole('button', { name: 'Close' }).click()
-    await expectHidden(page.locator('.json-modal'))
+    await expectHidden(modal)
     return scene
   }
 
   const loadScene = async (scene) => {
-    await rawJsonButton.click()
-    const textarea = page.locator('.json-modal textarea')
+    const modal = await openRawJsonModal()
+    const textarea = modal.locator('textarea')
     await textarea.waitFor()
     await textarea.fill(JSON.stringify(scene, null, 2))
     await page.getByRole('button', { name: 'Load Scene' }).click()
-    await expectHidden(page.locator('.json-modal'))
+    await expectHidden(modal)
     await page.waitForTimeout(220)
   }
 
@@ -96,6 +108,13 @@ try {
     }
 
     throw new Error(`Unable to select component for inspector section "${headingName}"`)
+  }
+
+  const selectComponentById = async (componentId, headingName) => {
+    await page.evaluate((id) => {
+      window.__SCHEMA_LAB_STORE__.getState().selectComponent(id)
+    }, componentId)
+    await inspectorHeading(headingName).waitFor()
   }
 
   const readInspectorReadout = async (label) => {
@@ -164,13 +183,15 @@ try {
   const baseScene = await readScene()
 
   await helpButton.click()
-  const helpText = (await page.locator('.toolbar__help-popover').textContent()) ?? ''
-  assert.match(helpText, /Delay lines add internal optical path and femtosecond delay/i)
-  assert.match(helpText, /Real coincident beam hits take priority/i)
-  assert.match(helpText, /Periscopes are still 2D relays/i)
+  const helpDialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await helpDialog.waitFor()
+  const helpText = (await helpDialog.textContent()) ?? ''
+  assert.match(helpText, /Keyboard shortcuts/i)
+  assert.match(helpText, /Open shortcuts/i)
+  assert.match(helpText, /Canvas/i)
   await page.keyboard.press('Escape')
-  await expectHidden(page.locator('.toolbar__help-popover'))
-  step('help reflects new optics physics copy')
+  await expectHidden(helpDialog)
+  step('help dialog opens and contains current shortcut copy')
 
   await loadScene({
     ...baseScene,
@@ -207,11 +228,13 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Delay Line')
-  await page.getByRole('heading', { name: 'Delay Line' }).waitFor()
+  await selectComponentById('stage-1', 'Delay Line')
+  await inspectorHeading('Delay Line').waitFor()
   await inspectorField('Scan slider').locator('input[type="range"]').waitFor()
   const initialDelay = await readInspectorReadout('Derived delay')
-  await inspectorField('Position (mm)').locator('input').fill('15')
+  const positionInput = inspectorField('Position').locator('input')
+  await positionInput.fill('15')
+  await positionInput.press('Tab')
   const updatedDelay = await readInspectorReadout('Derived delay')
   assert.notEqual(updatedDelay, initialDelay)
   assert.match(updatedDelay, /fs$/)
@@ -253,10 +276,12 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Telescope')
-  await page.getByRole('heading', { name: 'Telescope' }).waitFor()
+  await selectComponentById('tel-1', 'Telescope')
+  await inspectorHeading('Telescope').waitFor()
   const initialMagnification = await readInspectorReadout('Nominal magnification')
-  await inspectorField('Lens 2 f (mm)').locator('input').fill('125')
+  const lens2Input = inspectorField('Lens 2 f (mm)').locator('input')
+  await lens2Input.fill('125')
+  await lens2Input.press('Tab')
   const updatedMagnification = await readInspectorReadout('Nominal magnification')
   assert.notEqual(updatedMagnification, initialMagnification)
   assert.match(updatedMagnification, /x$/)
@@ -295,10 +320,12 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Attenuator')
-  await page.getByRole('heading', { name: 'Attenuator' }).waitFor()
+  await selectComponentById('att-1', 'Attenuator')
+  await inspectorHeading('Attenuator').waitFor()
   const initialPower = await readInspectorReadout('Output power')
-  await inspectorField('Transmission (%)').locator('input').fill('25')
+  const transmissionInput = inspectorField('Transmission (%)').locator('input')
+  await transmissionInput.fill('25')
+  await transmissionInput.press('Tab')
   const updatedPower = await readInspectorReadout('Output power')
   assert.notEqual(updatedPower, initialPower)
   step('attenuator updates transmitted power readout')
@@ -337,9 +364,11 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Polarizer')
-  await page.getByRole('heading', { name: 'Polarizer' }).waitFor()
-  await inspectorField('Axis (deg)').locator('input').fill('45')
+  await selectComponentById('pol-1', 'Polarizer')
+  await inspectorHeading('Polarizer').waitFor()
+  const polarizerAxisInput = inspectorField('Axis').locator('input')
+  await polarizerAxisInput.fill('45')
+  await polarizerAxisInput.press('Tab')
   const polarizerScene = await readScene()
   const polarizerConfig = polarizerScene.components.find(
     (component) => component.id === 'pol-1',
@@ -382,8 +411,8 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Waveplate')
-  await page.getByRole('heading', { name: 'Waveplate' }).waitFor()
+  await selectComponentById('wp-1', 'Waveplate')
+  await inspectorHeading('Waveplate').waitFor()
   const initialWaveplateState = await readInspectorReadout('Outgoing polarization')
   await inspectorField('Kind').locator('select').selectOption('quarter')
   const updatedWaveplateState = await readInspectorReadout('Outgoing polarization')
@@ -423,10 +452,12 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('Curved Mirror')
-  await page.getByRole('heading', { name: 'Curved Mirror' }).waitFor()
+  await selectComponentById('cm-1', 'Curved Mirror')
+  await inspectorHeading('Curved Mirror').waitFor()
   const initialCurvedMirrorOffset = await readInspectorReadout('Output waist offset')
-  await inspectorField('ROC (mm)').locator('input').fill('250')
+  const rocInput = inspectorField('ROC').locator('input')
+  await rocInput.fill('250')
+  await rocInput.press('Tab')
   const updatedCurvedMirrorOffset = await readInspectorReadout('Output waist offset')
   assert.notEqual(updatedCurvedMirrorOffset, initialCurvedMirrorOffset)
   step('curved mirror updates Gaussian output readout')
@@ -477,8 +508,8 @@ try {
       },
     ],
   })
-  await selectByCenteredCanvasSearch('OPA Module')
-  await page.getByRole('heading', { name: 'OPA Module' }).waitFor()
+  await selectComponentById('opa-1', 'OPA Module')
+  await inspectorHeading('OPA Module').waitFor()
   await inspectorField('Pump link').locator('select').selectOption('pump')
   await inspectorField('Seed link').locator('select').selectOption('seed')
   await page.waitForTimeout(250)

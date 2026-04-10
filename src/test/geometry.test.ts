@@ -124,4 +124,40 @@ describe('coordinate transforms', () => {
       y: 110,
     })
   })
+
+  it('keeps optical-table edge overscroll consistent across zoom levels', () => {
+    const bounds = {
+      x: 0,
+      y: 0,
+      width: 350,
+      height: 350,
+    }
+    const baseClampedViewport = clampViewportToKeepBoundsVisible(
+      {
+        ...viewport,
+        cameraCenterMm: { x: 2200, y: 2200 },
+      },
+      bounds,
+      { edgePaddingMm: { x: 100, y: 80 } },
+    )
+    const zoomedClampedViewport = clampViewportToKeepBoundsVisible(
+      {
+        ...viewport,
+        zoomPxPerMm: 4,
+        cameraCenterMm: { x: 2200, y: 2200 },
+      },
+      bounds,
+      { edgePaddingMm: { x: 100, y: 80 } },
+    )
+
+    const baseVisibleRightMm =
+      baseClampedViewport.cameraCenterMm.x +
+      baseClampedViewport.canvasSizePx.width / baseClampedViewport.zoomPxPerMm / 2
+    const zoomedVisibleRightMm =
+      zoomedClampedViewport.cameraCenterMm.x +
+      zoomedClampedViewport.canvasSizePx.width / zoomedClampedViewport.zoomPxPerMm / 2
+
+    expect(baseVisibleRightMm - (bounds.x + bounds.width)).toBeCloseTo(100, 5)
+    expect(zoomedVisibleRightMm - (bounds.x + bounds.width)).toBeCloseTo(100, 5)
+  })
 })

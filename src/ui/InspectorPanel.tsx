@@ -60,6 +60,10 @@ import type {
   WorldPort,
 } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
+import {
+  useBeamInspectionState,
+  useInspectorInteractionState,
+} from '../state/editorSelectors'
 
 const SIMPLE_APPEARANCE_SWATCHS = [
   '#f4fbff',
@@ -488,19 +492,23 @@ function BeamInspectionSection({
   defaultOpen?: boolean
   gaussianTrace: GaussianTraceResult
 }) {
-  const interaction = useEditorStore((state) => state.interaction)
+  const {
+    selectedBeamInteractionId,
+    selectedBeamPathId,
+    selectedBeamSegmentId,
+  } = useBeamInspectionState()
   const beamSelection = useMemo(
     () =>
       getBeamSelectionSnapshot(beamTrace, {
-        interactionId: interaction.selectedBeamInteractionId,
-        pathId: interaction.selectedBeamPathId,
-        segmentId: interaction.selectedBeamSegmentId,
+        interactionId: selectedBeamInteractionId,
+        pathId: selectedBeamPathId,
+        segmentId: selectedBeamSegmentId,
       }),
     [
       beamTrace,
-      interaction.selectedBeamInteractionId,
-      interaction.selectedBeamPathId,
-      interaction.selectedBeamSegmentId,
+      selectedBeamInteractionId,
+      selectedBeamPathId,
+      selectedBeamSegmentId,
     ],
   )
   const gaussianPath = useMemo(
@@ -827,16 +835,12 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
-  const interactionNotice = useEditorStore((state) => state.interaction.notice)
-  const activeHostSurfaceId = useEditorStore(
-    (state) => state.interaction.activeHostSurfaceId,
-  )
-  const pendingPlacement = useEditorStore(
-    (state) => state.interaction.pendingPlacement,
-  )
-  const pendingBreadboardPlacement = useEditorStore(
-    (state) => state.interaction.pendingBreadboardPlacement,
-  )
+  const {
+    activeHostSurfaceId,
+    notice: interactionNotice,
+    pendingBreadboardPlacement,
+    pendingPlacement,
+  } = useInspectorInteractionState()
   const updateBreadboard = useEditorStore((state) => state.updateBreadboard)
   const applyBreadboardPreset = useEditorStore(
     (state) => state.applyBreadboardPreset,
@@ -2560,7 +2564,7 @@ export function InspectorPanel({
 
             <p className="inspector__hint">
               New {definition.familyLabel.toLowerCase()} placements currently default to{' '}
-              {mountVisibilityDefaults[inspectedComponent.type] === false
+              {mountVisibilityDefaults[inspectedComponent.type as keyof typeof mountVisibilityDefaults] === false
                 ? 'hidden mounts'
                 : 'included mounts'}
               .

@@ -11,6 +11,10 @@ import { createPortal } from 'react-dom'
 import type { ExportFormat } from '../domain/exportLayout'
 import type { BeamTraceResult, SceneWarning, WorkspaceKind, WorkspaceViewMode } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
+import {
+  useToolbarInteractionState,
+  useToolbarWorkspaceState,
+} from '../state/editorSelectors'
 
 export type ExportAction = 'scene-json' | ExportFormat
 
@@ -26,12 +30,14 @@ interface ToolbarProps {
   onImportSvg: () => void
   onOpenOnboarding: () => void
   onOpenJson: () => void
+  onRestoreSavedTable: () => void
   onOpenTutorial: () => void
   onOpenVersionHistory: () => void
   onRequestBoardFocus: () => void
   onRequestSingleBoard: () => void
   onRequestTableView: () => void
   onResetView: () => void
+  onStartFreshTable: () => void
   onToggleLabels: () => void
   onTogglePostHolders: () => void
   selectionActions?: ReactNode
@@ -178,12 +184,14 @@ export function Toolbar({
   onImportSvg,
   onOpenOnboarding,
   onOpenJson,
+  onRestoreSavedTable,
   onOpenTutorial,
   onOpenVersionHistory,
   onRequestBoardFocus,
   onRequestSingleBoard,
   onRequestTableView,
   onResetView,
+  onStartFreshTable,
   onToggleLabels,
   onTogglePostHolders,
   selectionActions,
@@ -210,12 +218,20 @@ export function Toolbar({
   const [menuStyle, setMenuStyle] = useState<CSSProperties>()
   const [isAppendixOpen, setIsAppendixOpen] = useState(false)
   const [isBoardModeTrayOpen, setIsBoardModeTrayOpen] = useState(false)
-  const scene = useEditorStore((state) => state.scene)
+  const boardModeTrayCloseTimeoutRef = useRef<number | undefined>(undefined)
+  const { hasBreadboards } = useToolbarWorkspaceState()
+  const beamSettings = useEditorStore((state) => state.scene.beamSettings)
   const renderMode = useEditorStore((state) => state.renderMode)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
-  const interaction = useEditorStore((state) => state.interaction)
-  const activeTool = useEditorStore((state) => state.interaction.activeTool)
+  const {
+    activeTool,
+    isHelpOpen,
+    isWarningsOpen,
+    selectedWarningId,
+    showBeamDetails,
+    showGaussianEnvelope,
+  } = useToolbarInteractionState()
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setWarningFilter = useEditorStore((state) => state.setWarningFilter)
   const setOpenToolbarMenu = useEditorStore((state) => state.setOpenToolbarMenu)
@@ -243,12 +259,39 @@ export function Toolbar({
   const filteredWarnings = warnings.filter((warning) =>
     warning.tier === 'simple' ? warningFilters.simple : warningFilters.advanced,
   )
-  const hasBreadboards =
-    scene.workspace.kind !== 'optical-table' || scene.workspace.breadboards.length > 0
   const boardModePrimaryLabel =
     workspaceKind === 'optical-table' && !hasBreadboards ? 'Solo Board' : 'Board Focus'
   const showBoardModeTray =
     workspaceKind === 'optical-table' && hasBreadboards && isBoardModeTrayOpen
+
+  const clearBoardModeTrayCloseTimeout = () => {
+    if (boardModeTrayCloseTimeoutRef.current === undefined) {
+      return
+    }
+
+    window.clearTimeout(boardModeTrayCloseTimeoutRef.current)
+    boardModeTrayCloseTimeoutRef.current = undefined
+  }
+
+  const openBoardModeTray = () => {
+    clearBoardModeTrayCloseTimeout()
+
+    if (
+      workspaceKind === 'optical-table' &&
+      hasBreadboards &&
+      isBoardFocusAvailable
+    ) {
+      setIsBoardModeTrayOpen(true)
+    }
+  }
+
+  const closeBoardModeTraySoon = () => {
+    clearBoardModeTrayCloseTimeout()
+    boardModeTrayCloseTimeoutRef.current = window.setTimeout(() => {
+      setIsBoardModeTrayOpen(false)
+      boardModeTrayCloseTimeoutRef.current = undefined
+    }, 160)
+  }
 
   const toggleToolbarMenu = (
     menu: NonNullable<typeof openToolbarMenu>,
@@ -293,7 +336,7 @@ export function Toolbar({
     : undefined
 
   useLayoutEffect(() => {
-    if (!interaction.isWarningsOpen) {
+    if (!isWarningsOpen) {
       return
     }
 
@@ -309,7 +352,7 @@ export function Toolbar({
       window.removeEventListener('resize', updateWarningPosition)
       window.removeEventListener('scroll', updateWarningPosition, true)
     }
-  }, [interaction.isWarningsOpen])
+  }, [isWarningsOpen])
 
   useLayoutEffect(() => {
     if (!openToolbarMenu) {
@@ -332,8 +375,8 @@ export function Toolbar({
 
   useEffect(() => {
     if (
-      !interaction.isHelpOpen &&
-      !interaction.isWarningsOpen &&
+      !isHelpOpen &&
+      !isWarningsOpen &&
       !openToolbarMenu &&
       !isAppendixOpen
     ) {
@@ -375,15 +418,7 @@ export function Toolbar({
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [
-    interaction.isHelpOpen,
-    interaction.isWarningsOpen,
-    isAppendixOpen,
-    openToolbarMenu,
-    setHelpOpen,
-    setOpenToolbarMenu,
-    setWarningsOpen,
-  ])
+  }, [isAppendixOpen, isHelpOpen, isWarningsOpen, openToolbarMenu, setHelpOpen, setOpenToolbarMenu, setWarningsOpen])
 
   useEffect(() => {
     if (workspaceKind !== 'optical-table' || !hasBreadboards || !isBoardFocusAvailable) {
@@ -391,7 +426,13 @@ export function Toolbar({
     }
   }, [hasBreadboards, isBoardFocusAvailable, workspaceKind, workspaceViewMode])
 
-  const helpModal = interaction.isHelpOpen
+  useEffect(() => {
+    return () => {
+      clearBoardModeTrayCloseTimeout()
+    }
+  }, [])
+
+  const helpModal = isHelpOpen
     ? createPortal(
         <div
           aria-label="Keyboard shortcuts"
@@ -477,7 +518,7 @@ export function Toolbar({
     : null
 
   const warningPopover =
-    interaction.isWarningsOpen && warningStyle
+    isWarningsOpen && warningStyle
       ? createPortal(
           <div
             aria-label="Scene warnings"
@@ -538,7 +579,7 @@ export function Toolbar({
               <div className="toolbar__warning-list">
                 {filteredWarnings.map((warning) => (
                   <div
-                    className={`toolbar__warning-item${warning.id === interaction.selectedWarningId ? ' is-selected' : ''}`}
+                    className={`toolbar__warning-item${warning.id === selectedWarningId ? ' is-selected' : ''}`}
                     key={warning.id}
                   >
                     <button
@@ -603,10 +644,10 @@ export function Toolbar({
                     onChange={(event) =>
                       updateBeamSettings({
                         beamFidelityMode:
-                          event.target.value as typeof scene.beamSettings.beamFidelityMode,
+                          event.target.value as typeof beamSettings.beamFidelityMode,
                       })
                     }
-                    value={scene.beamSettings.beamFidelityMode}
+                    value={beamSettings.beamFidelityMode}
                   >
                     <option value="geometric">Geometric</option>
                     <option value="angle-sensitive">Angle-sensitive</option>
@@ -614,21 +655,17 @@ export function Toolbar({
                 </label>
                 <div className="toolbar__menu-actions">
                   <button
-                    aria-pressed={interaction.showBeamDetails}
-                    className={interaction.showBeamDetails ? 'is-active-tool' : undefined}
-                    onClick={() => setShowBeamDetails(!interaction.showBeamDetails)}
+                    aria-pressed={showBeamDetails}
+                    className={showBeamDetails ? 'is-active-tool' : undefined}
+                    onClick={() => setShowBeamDetails(!showBeamDetails)}
                     type="button"
                   >
                     Beam details
                   </button>
                   <button
-                    aria-pressed={interaction.showGaussianEnvelope}
-                    className={
-                      interaction.showGaussianEnvelope ? 'is-active-tool' : undefined
-                    }
-                    onClick={() =>
-                      setShowGaussianEnvelope(!interaction.showGaussianEnvelope)
-                    }
+                    aria-pressed={showGaussianEnvelope}
+                    className={showGaussianEnvelope ? 'is-active-tool' : undefined}
+                    onClick={() => setShowGaussianEnvelope(!showGaussianEnvelope)}
                     type="button"
                   >
                     Envelope
@@ -743,6 +780,28 @@ export function Toolbar({
                 >
                   Raw JSON
                 </button>
+                {workspaceKind === 'single-breadboard' ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setOpenToolbarMenu(undefined)
+                        onRestoreSavedTable()
+                      }}
+                      type="button"
+                    >
+                      Restore Saved Table
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOpenToolbarMenu(undefined)
+                        onStartFreshTable()
+                      }}
+                      type="button"
+                    >
+                      Start Fresh Table
+                    </button>
+                  </>
+                ) : null}
                 {workspaceKind === 'optical-table' ? (
                   <button
                     onClick={() => {
@@ -821,16 +880,15 @@ export function Toolbar({
             <div
               className="toolbar__workspace-mode-wrap"
               data-tour="workspace-modes"
-              onMouseEnter={() => {
-                if (
-                  workspaceKind === 'optical-table' &&
-                  hasBreadboards &&
-                  isBoardFocusAvailable
-                ) {
-                  setIsBoardModeTrayOpen(true)
+              onBlur={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  return
                 }
+
+                setIsBoardModeTrayOpen(false)
               }}
-              onMouseLeave={() => setIsBoardModeTrayOpen(false)}
+              onMouseEnter={openBoardModeTray}
+              onMouseLeave={closeBoardModeTraySoon}
             >
               <div className="toolbar__tool-group toolbar__tool-group--segmented">
                 <button
@@ -860,15 +918,7 @@ export function Toolbar({
 
                     onRequestBoardFocus()
                   }}
-                  onFocus={() => {
-                    if (
-                      workspaceKind === 'optical-table' &&
-                      hasBreadboards &&
-                      isBoardFocusAvailable
-                    ) {
-                      setIsBoardModeTrayOpen(true)
-                    }
-                  }}
+                  onFocus={openBoardModeTray}
                   type="button"
                 >
                   {boardModePrimaryLabel}
@@ -884,9 +934,14 @@ export function Toolbar({
               </div>
 
               {showBoardModeTray ? (
-                <div className="toolbar__workspace-flyout">
+                <div
+                  className="toolbar__workspace-flyout"
+                  onMouseEnter={openBoardModeTray}
+                  onMouseLeave={closeBoardModeTraySoon}
+                >
                   <button
                     onClick={() => {
+                      clearBoardModeTrayCloseTimeout()
                       setIsBoardModeTrayOpen(false)
                       onRequestSingleBoard()
                     }}
@@ -956,18 +1011,18 @@ export function Toolbar({
             </button>
 
             <button
-              aria-expanded={interaction.isWarningsOpen}
+              aria-expanded={isWarningsOpen}
               aria-haspopup="dialog"
-              className={`toolbar__warning-toggle${interaction.isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
+              className={`toolbar__warning-toggle${isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
               data-testid="toolbar-warnings"
               onClick={() => {
-                const nextIsOpen = !interaction.isWarningsOpen
+                const nextIsOpen = !isWarningsOpen
 
                 setHelpOpen(false)
                 setOpenToolbarMenu(undefined)
                 setWarningsOpen(nextIsOpen)
 
-                if (nextIsOpen && !interaction.selectedWarningId) {
+                if (nextIsOpen && !selectedWarningId) {
                   setSelectedWarningId(filteredWarnings[0]?.id ?? warnings[0]?.id)
                 }
               }}
@@ -978,15 +1033,15 @@ export function Toolbar({
             </button>
 
             <button
-              aria-expanded={interaction.isHelpOpen}
+              aria-expanded={isHelpOpen}
               aria-haspopup="dialog"
-              className={`toolbar__help-button${interaction.isHelpOpen ? ' is-active-tool' : ''}`}
+              className={`toolbar__help-button${isHelpOpen ? ' is-active-tool' : ''}`}
               data-testid="toolbar-shortcuts"
               data-tour="toolbar-help"
               onClick={() => {
                 setWarningsOpen(false)
                 setOpenToolbarMenu(undefined)
-                setHelpOpen(!interaction.isHelpOpen)
+                setHelpOpen(!isHelpOpen)
               }}
               ref={helpButtonRef}
               type="button"

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Layer, Rect } from 'react-konva'
 import {
@@ -19,7 +20,7 @@ import type {
   SnapMode,
   ViewportState,
 } from '../domain/types'
-import { ComponentNode } from './ComponentNode'
+import { ComponentNodeView, type SimpleGlyphAppearance } from './ComponentNode'
 
 interface DragPreviewState {
   componentId: string
@@ -69,6 +70,7 @@ interface ComponentsLayerProps {
   scene: SceneDocument
   selectedComponentId?: string
   snapMode: SnapMode
+  simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
   viewport: ViewportState
 }
 
@@ -100,7 +102,7 @@ function resolvePreviewHostSurfaceId(
   )
 }
 
-export function ComponentsLayer({
+export const ComponentsLayer = memo(function ComponentsLayer({
   breadboardDragPreview,
   components,
   dragPreview,
@@ -123,6 +125,7 @@ export function ComponentsLayer({
   scene,
   selectedComponentId,
   snapMode,
+  simpleGlyphAppearances,
   viewport,
 }: ComponentsLayerProps) {
   const previewedComponent = dragPreview
@@ -207,7 +210,7 @@ export function ComponentsLayer({
   return (
     <Layer>
       {components.map((component) => (
-        <ComponentNode
+        <ComponentNodeView
           isHighlighted={highlightedComponentIds?.includes(component.id)}
           instance={
             breadboardDragDeltaMm &&
@@ -263,6 +266,7 @@ export function ComponentsLayer({
               : undefined
           }
           renderMode={renderMode}
+          simpleGlyphAppearance={simpleGlyphAppearances?.[component.id]}
           surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
             scene,
             component.hostSurfaceId,
@@ -297,7 +301,7 @@ export function ComponentsLayer({
 
       {pendingPlacement && pendingPlacementResult ? (
         <>
-          <ComponentNode
+          <ComponentNodeView
             instance={{
               ...pendingPlacement.draft,
               anchorMm: pendingPlacementResult.resolvedAnchorMm,
@@ -307,6 +311,7 @@ export function ComponentsLayer({
             isSelected={false}
             placementStatus={pendingPlacementResult.status}
             renderMode={renderMode}
+            simpleGlyphAppearance={simpleGlyphAppearances?.[pendingPlacement.draft.id]}
             showLabels={showLabels}
             surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
               scene,
@@ -355,7 +360,7 @@ export function ComponentsLayer({
 
       {previewedComponent && previewPlacement ? (
         <>
-          <ComponentNode
+          <ComponentNodeView
             instance={{
               ...previewedComponent,
               anchorMm: previewPlacement.resolvedAnchorMm,
@@ -364,6 +369,7 @@ export function ComponentsLayer({
             isSelected={false}
             placementStatus={previewPlacement.status}
             renderMode={renderMode}
+            simpleGlyphAppearance={simpleGlyphAppearances?.[previewedComponent.id]}
             showLabels={showLabels}
             viewport={viewport}
           />
@@ -407,4 +413,4 @@ export function ComponentsLayer({
       ) : null}
     </Layer>
   )
-}
+})

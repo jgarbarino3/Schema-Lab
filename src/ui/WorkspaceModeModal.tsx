@@ -7,11 +7,7 @@ interface BreadboardChoice {
 }
 
 type WorkspaceModeModalState =
-  | {
-      mode: 'to-optical-table'
-      hasSavedSnapshot: boolean
-    }
-  | {
+  {
       mode: 'to-single-breadboard'
       breadboards: BreadboardChoice[]
     }
@@ -20,9 +16,6 @@ interface WorkspaceModeModalProps {
   isOpen: boolean
   state?: WorkspaceModeModalState
   onCancel: () => void
-  onConvertCurrentToTable: () => void
-  onRestoreSavedTable: () => void
-  onStartFreshTable: () => void
   onConvertToSingleBreadboard: (args: {
     breadboardId?: string
     createFresh: boolean
@@ -34,9 +27,6 @@ export function WorkspaceModeModal({
   isOpen,
   state,
   onCancel,
-  onConvertCurrentToTable,
-  onRestoreSavedTable,
-  onStartFreshTable,
   onConvertToSingleBreadboard,
 }: WorkspaceModeModalProps) {
   const [selectedBreadboardId, setSelectedBreadboardId] = useState<string>()
@@ -55,42 +45,6 @@ export function WorkspaceModeModal({
 
   if (!isOpen || !state) {
     return null
-  }
-
-  if (state.mode === 'to-optical-table') {
-    return (
-      <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Open table view">
-        <div className="modal-shell__backdrop" onClick={onCancel} />
-
-        <div className="modal-shell__card">
-          <div className="modal-shell__header">
-            <h2>Open Table View</h2>
-            <p>
-              Bring the current breadboard into a full optical-table workspace, restore the
-              last saved table for this browser, or start with a fresh empty table and add
-              customizable breadboards afterward.
-            </p>
-          </div>
-
-          <div className="modal-shell__actions">
-            <button onClick={onCancel} type="button">
-              Cancel
-            </button>
-            <button onClick={onConvertCurrentToTable} type="button">
-              Convert current breadboard
-            </button>
-            {state.hasSavedSnapshot ? (
-              <button className="modal-shell__primary" onClick={onRestoreSavedTable} type="button">
-                Restore saved table
-              </button>
-            ) : null}
-            <button onClick={onStartFreshTable} type="button">
-              Start fresh empty table
-            </button>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   return (

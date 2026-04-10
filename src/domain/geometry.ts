@@ -220,6 +220,7 @@ function getRequiredVisibleSpanMm(
   boundsSpanMm: number,
   viewportSpanMm: number,
   options?: {
+    edgePaddingMm?: number | Partial<Vector2Mm>
     maxVisibleViewportFraction?: number
     minVisibleFraction?: number
     minVisibleMm?: number
@@ -237,6 +238,7 @@ export function clampViewportToKeepBoundsVisible(
   viewport: ViewportState,
   boundsMm: BoundsMm,
   options?: {
+    edgePaddingMm?: number | Partial<Vector2Mm>
     maxVisibleViewportFraction?: number
     minVisibleFraction?: number
     minVisibleMm?: number
@@ -246,6 +248,52 @@ export function clampViewportToKeepBoundsVisible(
   const viewportHeightMm = Math.max(1, viewport.canvasSizePx.height / viewport.zoomPxPerMm)
   const halfViewportWidthMm = viewportWidthMm / 2
   const halfViewportHeightMm = viewportHeightMm / 2
+
+  if (options?.edgePaddingMm !== undefined) {
+    const edgePaddingX =
+      typeof options.edgePaddingMm === 'number'
+        ? options.edgePaddingMm
+        : options.edgePaddingMm.x ?? 0
+    const edgePaddingY =
+      typeof options.edgePaddingMm === 'number'
+        ? options.edgePaddingMm
+        : options.edgePaddingMm.y ?? 0
+    const minimumCameraCenterX = roundMm(boundsMm.x - edgePaddingX + halfViewportWidthMm)
+    const maximumCameraCenterX = roundMm(
+      boundsMm.x + boundsMm.width + edgePaddingX - halfViewportWidthMm,
+    )
+    const minimumCameraCenterY = roundMm(boundsMm.y - edgePaddingY + halfViewportHeightMm)
+    const maximumCameraCenterY = roundMm(
+      boundsMm.y + boundsMm.height + edgePaddingY - halfViewportHeightMm,
+    )
+
+    return {
+      ...viewport,
+      cameraCenterMm: {
+        x:
+          minimumCameraCenterX <= maximumCameraCenterX
+            ? roundMm(
+                clamp(
+                  viewport.cameraCenterMm.x,
+                  minimumCameraCenterX,
+                  maximumCameraCenterX,
+                ),
+              )
+            : roundMm((minimumCameraCenterX + maximumCameraCenterX) / 2),
+        y:
+          minimumCameraCenterY <= maximumCameraCenterY
+            ? roundMm(
+                clamp(
+                  viewport.cameraCenterMm.y,
+                  minimumCameraCenterY,
+                  maximumCameraCenterY,
+                ),
+              )
+            : roundMm((minimumCameraCenterY + maximumCameraCenterY) / 2),
+      },
+    }
+  }
+
   const requiredVisibleWidthMm = getRequiredVisibleSpanMm(
     boundsMm.width,
     viewportWidthMm,
