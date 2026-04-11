@@ -64,7 +64,6 @@ import {
   useBeamInspectionState,
   useInspectorInteractionState,
 } from '../state/editorSelectors'
-
 const SIMPLE_APPEARANCE_SWATCHS = [
   '#f4fbff',
   '#ffc9b8',
@@ -72,6 +71,15 @@ const SIMPLE_APPEARANCE_SWATCHS = [
   '#90f0d6',
   '#9dd2ff',
   '#f0b0ff',
+] as const
+
+const SIMPLE_APPEARANCE_SWATCH_OPTIONS = [
+  { color: '#f4fbff', label: 'White' },
+  { color: '#ffc9b8', label: 'Peach' },
+  { color: '#ffe08c', label: 'Gold' },
+  { color: '#90f0d6', label: 'Mint' },
+  { color: '#9dd2ff', label: 'Blue' },
+  { color: '#f0b0ff', label: 'Lilac' },
 ] as const
 
 interface InspectorPanelProps {
@@ -82,12 +90,13 @@ interface InspectorPanelProps {
 
 interface FieldProps {
   children: ReactNode
+  className?: string
   label: string
 }
 
-function Field({ children, label }: FieldProps) {
+function Field({ children, className, label }: FieldProps) {
   return (
-    <label className="inspector__field">
+    <label className={`inspector__field${className ? ` ${className}` : ''}`}>
       <span>{label}</span>
       {children}
     </label>
@@ -95,6 +104,7 @@ function Field({ children, label }: FieldProps) {
 }
 
 interface NumberFieldProps {
+  className?: string
   displayPrecision?: number
   label: string
   onChange: (value: number) => void
@@ -109,10 +119,11 @@ function formatNumberFieldValue(value: number, displayPrecision?: number) {
     return String(value)
   }
 
-  return String(Number(value.toFixed(displayPrecision)))
+  return value.toFixed(displayPrecision)
 }
 
 function NumberField({
+  className,
   displayPrecision,
   label,
   onChange,
@@ -180,7 +191,7 @@ function NumberField({
   )
 
   return (
-    <Field label={label}>
+    <Field className={className} label={label}>
       {suffix ? (
         <div className="inspector__input-with-suffix">
           {input}
@@ -190,6 +201,15 @@ function NumberField({
         input
       )}
     </Field>
+  )
+}
+
+function SimpleIconStyleOptionCopy({ style }: { style: 'clean' | 'classic' }) {
+  return (
+    <div aria-hidden="true" className="inspector__icon-style-copy">
+      <strong>{style === 'classic' ? 'Classic optics' : 'Clean'}</strong>
+      <small>{style === 'classic' ? 'Lab-style symbols' : 'Simplified symbols'}</small>
+    </div>
   )
 }
 
@@ -249,15 +269,40 @@ function StepperButton({
   )
 }
 
-function SummaryChips({ chips }: { chips: string[] }) {
+function PanelTitleEditor({
+  onChange,
+  value,
+}: {
+  onChange: (value: string) => void
+  value: string
+}) {
   return (
-    <div className="inspector__summary-chips" aria-hidden="true">
-      {chips.map((chip) => (
-        <span className="inspector__summary-chip" key={chip}>
-          {chip}
-        </span>
-      ))}
-    </div>
+    <label className="panel__title-editor">
+      <span aria-hidden="true" className="panel__title-editor-icon">
+        <svg fill="none" viewBox="0 0 24 24">
+          <path
+            d="m6.2 16.9-.7 2.9 2.9-.7 9.2-9.2-2.2-2.2-9.2 9.2Z"
+            stroke="currentColor"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+          <path
+            d="m14.9 6.6 2.2 2.2"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.7"
+          />
+        </svg>
+      </span>
+      <input
+        aria-label="Selection label"
+        className="panel__title-editor-input"
+        onChange={(event) => onChange(event.target.value)}
+        type="text"
+        value={value}
+      />
+    </label>
   )
 }
 
@@ -938,8 +983,20 @@ export function InspectorPanel({
   const setSimpleGlyphAppearance = useEditorStore(
     (state) => state.setSimpleGlyphAppearance,
   )
+  const setSelectedSimpleIconStyleOverride = useEditorStore(
+    (state) => state.setSelectedSimpleIconStyleOverride,
+  )
   const simpleGlyphAppearances = useEditorStore(
     (state) => state.simpleGlyphAppearances,
+  )
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
+  const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
+  const setShowGaussianEnvelope = useEditorStore(
+    (state) => state.setShowGaussianEnvelope,
+  )
+  const showBeamDetails = useEditorStore((state) => state.interaction.showBeamDetails)
+  const showGaussianEnvelope = useEditorStore(
+    (state) => state.interaction.showGaussianEnvelope,
   )
   const selectAnnotation = useEditorStore((state) => state.selectAnnotation)
   const applySupportToType = useEditorStore((state) => state.applySupportToType)
@@ -1559,43 +1616,32 @@ export function InspectorPanel({
     const activeSourceCount = scene.components.filter(
       (component) => component.config.source?.isEnabled,
     ).length
-    const boardSummaryChips = [
-      `${activeBreadboard.widthMm.toFixed(0)} × ${activeBreadboard.heightMm.toFixed(0)} mm`,
-      `${effectivePitchMm.toFixed(1)} mm pitch`,
-      activeBreadboard.finish === 'black-anodized' ? 'Black anodized' : 'Clear anodized',
-    ]
-    const boardConstructionChips = [
-      `${activeBreadboard.thicknessMm.toFixed(1)} mm`,
-      activeBreadboard.holeDensity === 'double' ? 'Double density' : 'Single density',
-      activeBreadboard.counterborePattern === 'none' ? 'No counterbores' : 'Corner counterbores',
-    ]
-    const tableConstructionChips = opticalTable
-      ? [
-          `${opticalTable.thicknessMm.toFixed(1)} mm`,
-          opticalTable.holeDensity === 'double' ? 'Double density' : 'Single density',
-          opticalTable.counterborePattern === 'none' ? 'No counterbores' : 'Corner counterbores',
-        ]
-      : []
 
     return (
       <aside className="panel inspector" data-tour="inspector" onMouseMove={handleMouseMove}>
         <div className="panel__header">
           <div className="panel__header-top">
             <div>
-              <h2>
-                {pendingBreadboardPlacement
-                  ? `Pending ${boardLabel}`
-                  : selection.type === 'optical-table' && opticalTable
-                    ? opticalTable.label
-                    : boardLabel}
-              </h2>
-              <span className="panel__meta-text">
-                {pendingBreadboardPlacement
-                  ? 'Adjust the preset and dimensions before placement.'
-                  : selection.type === 'optical-table' && opticalTable
-                    ? 'Table geometry and host surfaces.'
-                    : 'Board settings and beam defaults.'}
-              </span>
+              <PanelTitleEditor
+                onChange={(value) => {
+                  if (selection.type === 'optical-table' && opticalTable) {
+                    updateOpticalTable({ label: value })
+                    return
+                  }
+
+                  updateBreadboard({ label: value })
+                }}
+                value={
+                  selection.type === 'optical-table' && opticalTable
+                      ? opticalTable.label
+                      : boardLabel
+                }
+              />
+              {pendingBreadboardPlacement ? (
+                <span className="panel__meta-text">
+                  Adjust the preset and dimensions before placement.
+                </span>
+              ) : null}
             </div>
             <button
               className="panel__collapse-button"
@@ -1613,17 +1659,7 @@ export function InspectorPanel({
 
           <div className="inspector__subsection">
             {opticalTable && selection.type === 'optical-table' ? (
-              <CollapsibleSection
-                summary={
-                  <SummaryChips
-                    chips={[
-                      `${opticalTable.widthMm.toFixed(0)} × ${opticalTable.heightMm.toFixed(0)} mm`,
-                      `${opticalTable.holeSpacingMm.toFixed(1)} mm pitch`,
-                    ]}
-                  />
-                }
-                title="Table settings"
-              >
+              <CollapsibleSection title="Table settings">
                 <div className="inspector__grid">
                   <NumberField
                     label="Table width"
@@ -1655,10 +1691,7 @@ export function InspectorPanel({
                   />
                 </div>
 
-                <CollapsibleSection
-                  summary={<SummaryChips chips={tableConstructionChips} />}
-                  title="Table construction"
-                >
+                <CollapsibleSection title="Table construction">
                   <div className="inspector__grid">
                     <NumberField
                       label="Thickness"
@@ -1700,27 +1733,7 @@ export function InspectorPanel({
               </CollapsibleSection>
             ) : null}
 
-            <CollapsibleSection
-              defaultOpen={Boolean(pendingBreadboardPlacement)}
-              summary={<SummaryChips chips={boardSummaryChips} />}
-              title="Board settings"
-            >
-              {opticalTable ? (
-                <div className="inspector__notice">
-                  {pendingBreadboardPlacement ? (
-                    <>
-                      Optical table mode is active. You are editing a pending breadboard preview for{' '}
-                      <strong>{boardLabel}</strong>.
-                    </>
-                  ) : (
-                    <>
-                      Optical table mode is active. You are editing{' '}
-                      <strong>{boardLabel}</strong> as the current breadboard surface.
-                    </>
-                  )}
-                </div>
-              ) : null}
-
+            <div className="inspector__subsection inspector__subsection--preset">
               <Field label="Preset">
                 <select
                   onChange={(event) => {
@@ -1732,27 +1745,20 @@ export function InspectorPanel({
                 >
                   {BREADBOARD_PRESETS.map((preset) => (
                     <option key={preset.id} value={preset.id}>
-                      {preset.label}
+                      {preset.label.replace(/\s+metric$/i, '')}
                     </option>
                   ))}
                   <option value="custom">Custom</option>
                 </select>
               </Field>
+            </div>
 
-              <Field label="Label">
-                <input
-                  onChange={(event) =>
-                    updateBreadboard({
-                      label: event.target.value,
-                    })
-                  }
-                  type="text"
-                  value={boardLabel}
-                />
-              </Field>
-
+            <CollapsibleSection
+              defaultOpen
+              title="Board dimensions"
+            >
               {activeBreadboardInstance && opticalTable ? (
-                <div className="inspector__grid">
+                <div className="inspector__grid inspector__grid--compact">
                   <NumberField
                     label="X position"
                     suffix="mm"
@@ -1780,7 +1786,7 @@ export function InspectorPanel({
                 </div>
               ) : null}
 
-              <div className="inspector__grid">
+              <div className="inspector__grid inspector__grid--compact">
                 <NumberField
                   label="Width"
                   suffix="mm"
@@ -1811,11 +1817,8 @@ export function InspectorPanel({
                 />
               </div>
 
-              <CollapsibleSection
-                summary={<SummaryChips chips={boardConstructionChips} />}
-                title="Board construction"
-              >
-                <div className="inspector__grid">
+              <CollapsibleSection title="Board construction">
+                <div className="inspector__grid inspector__grid--compact">
                   <NumberField
                     label="Thickness"
                     suffix="mm"
@@ -1863,7 +1866,7 @@ export function InspectorPanel({
                       }
                       value={activeBreadboard.counterborePattern}
                     >
-                      <option value="corner-25mm">Corner 25 mm inset</option>
+                      <option value="corner-25mm">Corner 25 inset</option>
                       <option value="none">None</option>
                     </select>
                   </Field>
@@ -1872,17 +1875,7 @@ export function InspectorPanel({
             </CollapsibleSection>
 
             {opticalTable ? (
-              <CollapsibleSection
-                summary={
-                  <SummaryChips
-                    chips={[
-                      `${breadboardInstances.length} breadboards`,
-                      `${opticalTable.widthMm.toFixed(0)} × ${opticalTable.heightMm.toFixed(0)} mm`,
-                    ]}
-                  />
-                }
-                title="Host surfaces"
-              >
+              <CollapsibleSection title="Host surfaces">
                 <div className="inspector__list">
                   <button
                     className={`inspector__list-item${activeHostSurfaceId === 'optical-table' ? ' is-active-host' : ''}`}
@@ -1993,6 +1986,22 @@ export function InspectorPanel({
                 value={scene.beamSettings.defaultDivergenceMrad}
               />
             </div>
+            <div className="inspector__button-row inspector__button-row--compact">
+              <button
+                className={showBeamDetails ? 'is-active' : undefined}
+                onClick={() => setShowBeamDetails(!showBeamDetails)}
+                type="button"
+              >
+                {showBeamDetails ? 'Beam details on' : 'Beam details off'}
+              </button>
+              <button
+                className={showGaussianEnvelope ? 'is-active' : undefined}
+                onClick={() => setShowGaussianEnvelope(!showGaussianEnvelope)}
+                type="button"
+              >
+                {showGaussianEnvelope ? 'Gaussian envelope on' : 'Gaussian envelope off'}
+              </button>
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection title="Active Source Summaries">
@@ -2046,13 +2055,20 @@ export function InspectorPanel({
     placement.reason !== 'none'
       ? `${placement.status === 'warning' ? 'Warning' : placementStateLabel} (${placement.reason})`
       : placementStateLabel
-  const showSimpleAppearanceStrip =
-    placement.reason === 'none' && supportsSimpleGlyphAppearance(spec)
+  const showSimpleAppearanceStrip = supportsSimpleGlyphAppearance(spec)
   const effectiveSimpleGlyphAppearance = simpleGlyphAppearance ?? {
     color: SIMPLE_APPEARANCE_SWATCHS[0],
     scale: 1,
     weight: 1,
   }
+  const effectiveSimpleIconStyle =
+    inspectedComponent.simpleIconStyleOverride ?? simpleIconStyle
+  const hasSimpleIconStyleOverride =
+    inspectedComponent.simpleIconStyleOverride !== undefined
+  const selectedSimpleGlyphColorLabel =
+    SIMPLE_APPEARANCE_SWATCH_OPTIONS.find(
+      (option) => option.color === effectiveSimpleGlyphAppearance.color,
+    )?.label ?? 'Custom'
   const isAppearanceCustomized =
     effectiveSimpleGlyphAppearance.color !== SIMPLE_APPEARANCE_SWATCHS[0] ||
     Math.abs(effectiveSimpleGlyphAppearance.scale - 1) > 0.001 ||
@@ -2138,7 +2154,14 @@ export function InspectorPanel({
       <div className="panel__header">
         <div className="panel__header-top">
           <div>
-            <h2>{inspectedComponent.label}</h2>
+            <PanelTitleEditor
+              onChange={(value) =>
+                updateSelectedComponent({
+                  label: value,
+                })
+              }
+              value={inspectedComponent.label}
+            />
             {placement.reason !== 'none' ? (
               <span className="panel__meta-text panel__meta-text--warning">
                 Placement warning: {placementNotice ?? placement.reason}
@@ -2161,10 +2184,10 @@ export function InspectorPanel({
       <div className="inspector__content">
         <div className="inspector__subsection inspector__subsection--quick-edit">
           <div className="inspector__quick-edit-card">
-            <Field label="Variant">
-              <select
-                onChange={(event) => updateSelectedVariant(event.target.value)}
-                value={inspectedComponent.variantId}
+              <Field className="inspector__field--compact inspector__field--compact-variant" label="Variant">
+                <select
+                  onChange={(event) => updateSelectedVariant(event.target.value)}
+                  value={inspectedComponent.variantId}
               >
                 {variants.map((variant) => (
                   <option key={variant.id} value={variant.id}>
@@ -2173,8 +2196,8 @@ export function InspectorPanel({
                       : variant.label}
                   </option>
                 ))}
-              </select>
-            </Field>
+                </select>
+              </Field>
 
             {showSimpleAppearanceStrip ? (
               <div className="inspector__appearance-card inspector__placement-card--full">
@@ -2196,25 +2219,42 @@ export function InspectorPanel({
                     </button>
                   ) : null}
                 </div>
-                <div className="inspector__appearance-strip">
-                  <div className="inspector__appearance-swatches">
-                    {SIMPLE_APPEARANCE_SWATCHS.map((color) => (
-                      <button
-                        aria-label={`Glyph color ${color}`}
-                        aria-pressed={effectiveSimpleGlyphAppearance.color === color}
-                        className={`inspector__appearance-swatch${effectiveSimpleGlyphAppearance.color === color ? ' is-active' : ''}`}
-                        key={color}
-                        onClick={() =>
-                          setSimpleGlyphAppearance(inspectedComponent.id, { color })
-                        }
-                        style={{ '--appearance-swatch-color': color } as CSSProperties}
-                        type="button"
-                      />
-                    ))}
-                  </div>
-                  <div className="inspector__appearance-step-group">
-                    <div className="inspector__appearance-step-header">
-                      <span>Size</span>
+                <div className="inspector__appearance-strip inspector__appearance-strip--stacked">
+                  <div className="inspector__appearance-control-stack">
+                    <div className="inspector__appearance-swatches-block">
+                      <div className="inspector__appearance-step-header">
+                        <span>Color</span>
+                        <span className="inspector__field-note">
+                          {selectedSimpleGlyphColorLabel}
+                        </span>
+                      </div>
+                      <div className="inspector__appearance-swatches">
+                        {SIMPLE_APPEARANCE_SWATCH_OPTIONS.map((option) => (
+                          <button
+                            aria-label={option.label}
+                            aria-pressed={effectiveSimpleGlyphAppearance.color === option.color}
+                            className={`inspector__appearance-swatch${effectiveSimpleGlyphAppearance.color === option.color ? ' is-active' : ''}`}
+                            key={option.color}
+                            onClick={() =>
+                              setSimpleGlyphAppearance(inspectedComponent.id, {
+                                color: option.color,
+                              })
+                            }
+                            style={
+                              {
+                                '--appearance-swatch-color': option.color,
+                              } as CSSProperties
+                            }
+                            type="button"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="inspector__appearance-control-row">
+                      <span className="inspector__appearance-control-label">Size</span>
+                      <span className="inspector__appearance-value">
+                        {effectiveSimpleGlyphAppearance.scale.toFixed(2)}×
+                      </span>
                       <div className="inspector__button-row inspector__button-row--compact">
                         <StepperButton
                           label="-"
@@ -2236,13 +2276,11 @@ export function InspectorPanel({
                         />
                       </div>
                     </div>
-                    <span className="inspector__appearance-value">
-                      {effectiveSimpleGlyphAppearance.scale.toFixed(2)}×
-                    </span>
-                  </div>
-                  <div className="inspector__appearance-step-group">
-                    <div className="inspector__appearance-step-header">
-                      <span>Weight</span>
+                    <div className="inspector__appearance-control-row">
+                      <span className="inspector__appearance-control-label">Weight</span>
+                      <span className="inspector__appearance-value">
+                        {effectiveSimpleGlyphAppearance.weight.toFixed(2)}×
+                      </span>
                       <div className="inspector__button-row inspector__button-row--compact">
                         <StepperButton
                           label="-"
@@ -2264,9 +2302,37 @@ export function InspectorPanel({
                         />
                       </div>
                     </div>
-                    <span className="inspector__appearance-value">
-                      {effectiveSimpleGlyphAppearance.weight.toFixed(2)}×
-                    </span>
+                    <div className="inspector__icon-style-block">
+                      <div className="inspector__appearance-step-header">
+                        <span>Simple icon</span>
+                        {hasSimpleIconStyleOverride ? (
+                          <button
+                            className="inspector__appearance-reset"
+                            onClick={() => setSelectedSimpleIconStyleOverride(undefined)}
+                            type="button"
+                          >
+                            Use global
+                          </button>
+                        ) : (
+                          <span className="inspector__field-note">
+                            Global {simpleIconStyle === 'classic' ? 'Classic optics' : 'Clean'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="inspector__icon-style-options">
+                        {(['clean', 'classic'] as const).map((iconStyleOption) => (
+                          <button
+                            aria-pressed={effectiveSimpleIconStyle === iconStyleOption}
+                            className={`inspector__icon-style-option${effectiveSimpleIconStyle === iconStyleOption ? ' is-active' : ''}`}
+                            key={iconStyleOption}
+                            onClick={() => setSelectedSimpleIconStyleOverride(iconStyleOption)}
+                            type="button"
+                          >
+                            <SimpleIconStyleOptionCopy style={iconStyleOption} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2277,20 +2343,9 @@ export function InspectorPanel({
               </div>
             )}
 
-            <div className="inspector__quick-edit-split">
-              <Field label="Label">
-                <input
-                  onChange={(event) =>
-                    updateSelectedComponent({
-                      label: event.target.value,
-                    })
-                  }
-                  type="text"
-                  value={inspectedComponent.label}
-                />
-              </Field>
+            <div className="inspector__quick-edit-stack">
               {spec.mount.mode !== 'external-source' ? (
-                <Field label="Rotation">
+                <Field className="inspector__field--compact inspector__field--compact-rotation" label="Rotation">
                   <select
                     onChange={(event) =>
                       updateSelectedComponent({
@@ -2314,30 +2369,29 @@ export function InspectorPanel({
                   />
                 </Field>
               )}
-            </div>
-
-            <div className="inspector__quick-edit-grid inspector__quick-edit-grid--anchors">
               <NumberField
+                className="inspector__field--compact inspector__field--compact-anchor"
                 label="Anchor X"
                 onChange={(x) =>
                   updateSelectedComponent({
                     anchorMm: { x, y: inspectedComponent.anchorMm.y },
                   })
                 }
-                displayPrecision={3}
+                displayPrecision={2}
                 step={0.5}
                 selectAllOnFocus
                 suffix="mm"
                 value={inspectedComponent.anchorMm.x}
               />
               <NumberField
+                className="inspector__field--compact inspector__field--compact-anchor"
                 label="Anchor Y"
                 onChange={(y) =>
                   updateSelectedComponent({
                     anchorMm: { x: inspectedComponent.anchorMm.x, y },
                   })
                 }
-                displayPrecision={3}
+                displayPrecision={2}
                 step={0.5}
                 selectAllOnFocus
                 suffix="mm"
@@ -2353,7 +2407,7 @@ export function InspectorPanel({
 
         {spec.recommendedHardware && inspectedComponent.type !== 'beamsplitter' ? (
           <CollapsibleSection title="Recommended settings">
-            <div className="inspector__readout">
+            <div className="inspector__readout inspector__readout--compact">
               <div>
                 <span>Mount</span>
                 <strong>{spec.recommendedHardware.mount ?? 'n/a'}</strong>
@@ -2370,19 +2424,8 @@ export function InspectorPanel({
           </CollapsibleSection>
         ) : null}
 
-        <CollapsibleSection
-          summary={
-            <SummaryChips
-              chips={[
-                COMPONENT_CATEGORY_LABELS[definition.category],
-                footprintSizeLabel,
-                `${worldPorts.length} ports`,
-              ]}
-            />
-          }
-          title="Component details"
-        >
-          <div className="inspector__readout inspector__readout--details">
+        <CollapsibleSection title="Component details">
+          <div className="inspector__readout inspector__readout--details inspector__readout--compact">
             <div>
               <span>Family</span>
               <strong>{definition.familyLabel}</strong>

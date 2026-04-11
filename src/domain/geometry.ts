@@ -10,6 +10,7 @@ import type {
 
 export const MIN_ZOOM_PX_PER_MM = 0.4
 export const MAX_ZOOM_PX_PER_MM = 8
+export const LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM = 0.93
 const DEFAULT_FIT_PADDING_PX = 96
 
 export function clamp(value: number, minimum: number, maximum: number) {

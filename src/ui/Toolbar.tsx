@@ -40,7 +40,6 @@ interface ToolbarProps {
   onStartFreshTable: () => void
   onToggleLabels: () => void
   onTogglePostHolders: () => void
-  selectionActions?: ReactNode
   showComponentLabels: boolean
   showPostHolders: boolean
   toolDock: ReactNode
@@ -104,6 +103,7 @@ const APPENDIX_SECTIONS = [
       'Board Focus keeps one breadboard close.',
       'Table View keeps the whole table visible.',
       'Scroll pans. Ctrl/Cmd + scroll zooms.',
+      'Solo Board returns from the optical table to one working board.',
     ],
   },
   {
@@ -112,14 +112,31 @@ const APPENDIX_SECTIONS = [
       'Pick from the library, then click the active surface.',
       'Press R to rotate before or during placement.',
       'Press Esc to cancel the current placement.',
+      'The inspector follows the current board, component, or annotation selection.',
     ],
   },
   {
     heading: 'Edit',
     rows: [
       'Select optics, boards, annotations, or a highlight bundle.',
-      'Use the row-two action strip or right-click for quick edits.',
+      'Use the pinned selection strip or right-click for quick edits.',
       'Hide Labels stays visible so dense layouts stay readable.',
+    ],
+  },
+  {
+    heading: 'View modes',
+    rows: [
+      'Realistic shows hardware bodies and mounts.',
+      'Simple uses cleaner schematic optics symbols for dense layouts.',
+      'Classic optics swaps Simple symbols to a more conventional lab-style drawing set.',
+    ],
+  },
+  {
+    heading: 'Beam controls',
+    rows: [
+      'Beam settings now live in the inspector instead of the top bar.',
+      'Board and table selections expose shared beam defaults.',
+      'Source selections expose launch, polarization, and beam readouts.',
     ],
   },
 ]
@@ -194,7 +211,6 @@ export function Toolbar({
   onStartFreshTable,
   onToggleLabels,
   onTogglePostHolders,
-  selectionActions,
   showComponentLabels,
   showPostHolders,
   toolDock,
@@ -207,9 +223,8 @@ export function Toolbar({
   const appendixModalCardRef = useRef<HTMLDivElement | null>(null)
   const warningButtonRef = useRef<HTMLButtonElement | null>(null)
   const warningPopoverRef = useRef<HTMLDivElement | null>(null)
-  const beamButtonRef = useRef<HTMLButtonElement | null>(null)
   const exportButtonRef = useRef<HTMLButtonElement | null>(null)
-  const learnButtonRef = useRef<HTMLButtonElement | null>(null)
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const canvasToolsButtonRef = useRef<HTMLButtonElement | null>(null)
   const menuPopoverRef = useRef<HTMLDivElement | null>(null)
   const [warningStyle, setWarningStyle] = useState<CSSProperties>()
@@ -218,7 +233,6 @@ export function Toolbar({
   const [isBoardModeTrayOpen, setIsBoardModeTrayOpen] = useState(false)
   const boardModeTrayCloseTimeoutRef = useRef<number | undefined>(undefined)
   const { hasBreadboards } = useToolbarWorkspaceState()
-  const beamSettings = useEditorStore((state) => state.scene.beamSettings)
   const renderMode = useEditorStore((state) => state.renderMode)
   const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   const warningFilters = useEditorStore((state) => state.warningFilters)
@@ -228,8 +242,6 @@ export function Toolbar({
     isHelpOpen,
     isWarningsOpen,
     selectedWarningId,
-    showBeamDetails,
-    showGaussianEnvelope,
   } = useToolbarInteractionState()
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setSimpleIconStyle = useEditorStore((state) => state.setSimpleIconStyle)
@@ -243,10 +255,6 @@ export function Toolbar({
   const restoreDismissedWarnings = useEditorStore(
     (state) => state.restoreDismissedWarnings,
   )
-  const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
-  const setShowGaussianEnvelope = useEditorStore(
-    (state) => state.setShowGaussianEnvelope,
-  )
   const setHelpOpen = useEditorStore((state) => state.setHelpOpen)
   const setWarningsOpen = useEditorStore((state) => state.setWarningsOpen)
   const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
@@ -254,7 +262,6 @@ export function Toolbar({
   const canRedo = useEditorStore((state) => state.canRedo)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
-  const updateBeamSettings = useEditorStore((state) => state.updateBeamSettings)
   const warningCount = warnings.length
   const filteredWarnings = warnings.filter((warning) =>
     warning.tier === 'simple' ? warningFilters.simple : warningFilters.advanced,
@@ -308,12 +315,10 @@ export function Toolbar({
 
   const getMenuButtonRef = (menu: NonNullable<typeof openToolbarMenu>) => {
     switch (menu) {
-      case 'beam':
-        return beamButtonRef
       case 'export':
         return exportButtonRef
-      case 'learn':
-        return learnButtonRef
+      case 'more':
+        return moreButtonRef
       case 'canvas-tools':
         return canvasToolsButtonRef
       default:
@@ -392,9 +397,8 @@ export function Toolbar({
         appendixModalCardRef.current?.contains(target) ||
         warningButtonRef.current?.contains(target) ||
         warningPopoverRef.current?.contains(target) ||
-        beamButtonRef.current?.contains(target) ||
         exportButtonRef.current?.contains(target) ||
-        learnButtonRef.current?.contains(target) ||
+        moreButtonRef.current?.contains(target) ||
         canvasToolsButtonRef.current?.contains(target) ||
         menuPopoverRef.current?.contains(target)
       ) {
@@ -440,9 +444,9 @@ export function Toolbar({
           <div className="toolbar__shortcuts-card" ref={helpModalCardRef}>
             <div className="toolbar__shortcuts-header">
               <div>
-                <span className="toolbar__modal-kicker">Keyboard shortcuts</span>
+                <span className="toolbar__modal-kicker">Help &amp; shortcuts</span>
                 <h2>Work faster on the canvas</h2>
-                <p>Keep the canvas clean and rely on direct actions when you need them.</p>
+                <p>Shortcuts, quick reminders, onboarding, and release notes stay here.</p>
               </div>
               <button onClick={() => setHelpOpen(false)} type="button">
                 Close
@@ -467,6 +471,45 @@ export function Toolbar({
                   </div>
                 </section>
               ))}
+            </div>
+
+            <div className="toolbar__menu-actions toolbar__shortcuts-actions">
+              <button
+                onClick={() => {
+                  setHelpOpen(false)
+                  onOpenOnboarding()
+                }}
+                type="button"
+              >
+                Guide
+              </button>
+              <button
+                onClick={() => {
+                  setHelpOpen(false)
+                  setIsAppendixOpen(true)
+                }}
+                type="button"
+              >
+                Appendix
+              </button>
+              <button
+                onClick={() => {
+                  setHelpOpen(false)
+                  onOpenTutorial()
+                }}
+                type="button"
+              >
+                Tutorial
+              </button>
+              <button
+                onClick={() => {
+                  setHelpOpen(false)
+                  onOpenVersionHistory()
+                }}
+                type="button"
+              >
+                What’s New
+              </button>
             </div>
           </div>
         </div>,
@@ -621,57 +664,12 @@ export function Toolbar({
     openToolbarMenu && activeMenuStyle
       ? createPortal(
         <div
-            className={
-              openToolbarMenu === 'learn'
-                ? 'toolbar__menu-popover toolbar__help-popover'
-                : 'toolbar__menu-popover'
-            }
+            className="toolbar__menu-popover"
             data-testid={`toolbar-menu-${openToolbarMenu}`}
             ref={menuPopoverRef}
             role="dialog"
             style={activeMenuStyle}
           >
-            {openToolbarMenu === 'beam' ? (
-              <>
-                <div className="toolbar__menu-header">
-                  <strong>Beam settings</strong>
-                </div>
-                <label className="toolbar__menu-field">
-                  <span>Beam mode</span>
-                  <select
-                    onChange={(event) =>
-                      updateBeamSettings({
-                        beamFidelityMode:
-                          event.target.value as typeof beamSettings.beamFidelityMode,
-                      })
-                    }
-                    value={beamSettings.beamFidelityMode}
-                  >
-                    <option value="geometric">Geometric</option>
-                    <option value="angle-sensitive">Angle-sensitive</option>
-                  </select>
-                </label>
-                <div className="toolbar__menu-actions">
-                  <button
-                    aria-pressed={showBeamDetails}
-                    className={showBeamDetails ? 'is-active-tool' : undefined}
-                    onClick={() => setShowBeamDetails(!showBeamDetails)}
-                    type="button"
-                  >
-                    Beam details
-                  </button>
-                  <button
-                    aria-pressed={showGaussianEnvelope}
-                    className={showGaussianEnvelope ? 'is-active-tool' : undefined}
-                    onClick={() => setShowGaussianEnvelope(!showGaussianEnvelope)}
-                    type="button"
-                  >
-                    Envelope
-                  </button>
-                </div>
-              </>
-            ) : null}
-
             {openToolbarMenu === 'export' ? (
               <>
                 <div className="toolbar__menu-header">
@@ -697,15 +695,6 @@ export function Toolbar({
                   >
                     Import Interpreted SVG
                   </button>
-                  <button
-                    onClick={() => {
-                      setOpenToolbarMenu(undefined)
-                      onOpenJson()
-                    }}
-                    type="button"
-                  >
-                    Raw JSON
-                  </button>
                 </section>
 
                 <section>
@@ -722,6 +711,26 @@ export function Toolbar({
                     {format.toUpperCase()}
                   </button>
                 ))}
+                </section>
+              </>
+            ) : null}
+
+            {openToolbarMenu === 'more' ? (
+              <>
+                <div className="toolbar__menu-header">
+                  <strong>More</strong>
+                </div>
+                <section>
+                  <h3>Scene</h3>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onOpenJson()
+                    }}
+                    type="button"
+                  >
+                    Raw JSON
+                  </button>
                 </section>
                 {workspaceKind === 'single-breadboard' ? (
                   <section>
@@ -760,89 +769,33 @@ export function Toolbar({
                     </button>
                   </section>
                 ) : null}
-              </>
-            ) : null}
-
-            {openToolbarMenu === 'learn' ? (
-              <>
-                <div className="toolbar__menu-header">
-                  <strong>Help</strong>
-                </div>
                 <section>
-                  <h3>Canvas</h3>
-                  <p>
-                    Board Focus is for close work. Table View keeps the broader layout visible.
-                  </p>
-                  <p>
-                    Placement stays direct: click the active surface, press <kbd>R</kbd> to rotate,
-                    and <kbd>Esc</kbd> to cancel.
-                  </p>
+                  <h3>Simple icon default</h3>
+                  <div className="toolbar__menu-actions">
+                    <button
+                      aria-pressed={simpleIconStyle === 'clean'}
+                      className={simpleIconStyle === 'clean' ? 'is-active-tool' : undefined}
+                      onClick={() => {
+                        setSimpleIconStyle('clean')
+                        setOpenToolbarMenu(undefined)
+                      }}
+                      type="button"
+                    >
+                      Clean
+                    </button>
+                    <button
+                      aria-pressed={simpleIconStyle === 'classic'}
+                      className={simpleIconStyle === 'classic' ? 'is-active-tool' : undefined}
+                      onClick={() => {
+                        setSimpleIconStyle('classic')
+                        setOpenToolbarMenu(undefined)
+                      }}
+                      type="button"
+                    >
+                      Classic optics
+                    </button>
+                  </div>
                 </section>
-                <section>
-                  <h3>Output</h3>
-                  <p>
-                    Use Export for imports, vector output, raster output, raw JSON, and table
-                    helpers.
-                  </p>
-                </section>
-                <section>
-                  <h3>Simple Icons</h3>
-                  <p>
-                    Toggle between clean symbols and classic optics symbols from the row-two view
-                    controls.
-                  </p>
-                </section>
-                <div className="toolbar__menu-actions">
-                  <button
-                    onClick={() => {
-                      setOpenToolbarMenu(undefined)
-                      onOpenOnboarding()
-                    }}
-                    type="button"
-                  >
-                    Guide
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOpenToolbarMenu(undefined)
-                      setHelpOpen(true)
-                    }}
-                    type="button"
-                  >
-                    Keyboard shortcuts
-                  </button>
-                </div>
-                <div className="toolbar__menu-actions">
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    setHelpOpen(false)
-                    setWarningsOpen(false)
-                    setIsAppendixOpen(true)
-                  }}
-                  type="button"
-                >
-                  Appendix
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onOpenTutorial()
-                  }}
-                  type="button"
-                >
-                  Tutorial
-                </button>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onOpenVersionHistory()
-                  }}
-                  type="button"
-                >
-                  What’s New
-                </button>
-                </div>
               </>
             ) : null}
 
@@ -984,17 +937,6 @@ export function Toolbar({
             </div>
 
             <button
-              aria-expanded={openToolbarMenu === 'beam'}
-              className={openToolbarMenu === 'beam' ? 'is-active-tool' : undefined}
-              data-testid="toolbar-beam"
-              onClick={(event) => toggleToolbarMenu('beam', event)}
-              ref={beamButtonRef}
-              type="button"
-            >
-              Beam
-            </button>
-
-            <button
               aria-expanded={openToolbarMenu === 'export'}
               className={`toolbar__button-with-icon${openToolbarMenu === 'export' ? ' is-active-tool' : ''}`}
               data-testid="toolbar-export"
@@ -1036,15 +978,20 @@ export function Toolbar({
             </button>
 
             <button
-              aria-expanded={openToolbarMenu === 'learn'}
-              className={openToolbarMenu === 'learn' ? 'is-active-tool' : undefined}
-              data-testid="toolbar-help-menu"
-              data-tour="toolbar-help-menu"
-              onClick={(event) => toggleToolbarMenu('learn', event)}
-              ref={learnButtonRef}
+              aria-expanded={openToolbarMenu === 'more'}
+              aria-label="More"
+              className={`toolbar__icon-button toolbar__icon-button--primary${openToolbarMenu === 'more' ? ' is-active' : ''}`}
+              data-testid="toolbar-more"
+              data-tooltip="More"
+              onClick={(event) => toggleToolbarMenu('more', event)}
+              ref={moreButtonRef}
               type="button"
             >
-              Help
+              <svg fill="none" viewBox="0 0 24 24">
+                <circle cx="5" cy="12" fill="currentColor" r="1.7" />
+                <circle cx="12" cy="12" fill="currentColor" r="1.7" />
+                <circle cx="19" cy="12" fill="currentColor" r="1.7" />
+              </svg>
             </button>
 
             <button
@@ -1089,8 +1036,6 @@ export function Toolbar({
         </div>
 
         <div className="toolbar__row toolbar__row--secondary">
-          <div className="toolbar__selection-slot">{selectionActions}</div>
-
           <div className="toolbar__tool-dock" data-testid="toolbar-tool-dock">
             <div className="toolbar__tool-dock-cluster">
               {toolDock}
@@ -1205,37 +1150,6 @@ export function Toolbar({
                 type="button"
               >
                 Simple
-              </button>
-            </div>
-
-            <div className="toolbar__tool-group toolbar__tool-group--compact toolbar__tool-group--view-style">
-              <button
-                aria-pressed={simpleIconStyle === 'classic'}
-                className={`toolbar__view-toggle${simpleIconStyle === 'classic' ? ' is-active-tool' : ''}`}
-                data-testid="toolbar-simple-icon-style"
-                data-tooltip={
-                  simpleIconStyle === 'classic'
-                    ? 'Switch to clean symbols'
-                    : 'Switch to classic optics symbols'
-                }
-                onClick={() =>
-                  setSimpleIconStyle(simpleIconStyle === 'classic' ? 'clean' : 'classic')
-                }
-                type="button"
-              >
-                <span aria-hidden="true" className="toolbar__view-toggle-icon">
-                  <svg fill="none" viewBox="0 0 24 24">
-                    <circle cx="9" cy="12" r="2.75" stroke="currentColor" strokeWidth="1.7" />
-                    <path
-                      d="M12.2 12h5.1M15.7 9.2l2.6 2.8-2.6 2.8"
-                      stroke="currentColor"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="1.7"
-                    />
-                  </svg>
-                </span>
-                <span>Classic</span>
               </button>
             </div>
 

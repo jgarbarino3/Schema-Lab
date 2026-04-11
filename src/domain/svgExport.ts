@@ -5,6 +5,7 @@ import type {
   GaussianTraceResult,
   RenderMode,
   SceneDocument,
+  SimpleIconStyle,
 } from './types'
 
 interface CreateSceneSvgArgs {
@@ -15,6 +16,7 @@ interface CreateSceneSvgArgs {
   scene: SceneDocument
   scope: ExportScope
   showGaussianEnvelope: boolean
+  simpleIconStyle: SimpleIconStyle
   svgPreset?: SvgExportPreset
 }
 
@@ -136,6 +138,7 @@ export function createSceneSvg({
   scene,
   scope,
   showGaussianEnvelope,
+  simpleIconStyle,
   svgPreset = 'engineering',
 }: CreateSceneSvgArgs) {
   const graph = createVectorExportSceneGraph({
@@ -146,6 +149,7 @@ export function createSceneSvg({
     scene,
     scope,
     showGaussianEnvelope,
+    simpleIconStyle,
     svgPreset,
   })
 

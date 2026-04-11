@@ -38,11 +38,13 @@ import type {
   SceneBeamSettings,
   SceneDocument,
   PolarizationPresetId,
+  SimpleIconStyle,
   SourceLane,
   Vector2Mm,
   WorkspaceModel,
 } from './types'
 import {
+  isSimpleIconStyle,
   LEGACY_SCENE_DOCUMENT_VERSION,
   PREVIOUS_SCENE_DOCUMENT_VERSION,
   SCENE_DOCUMENT_KIND,
@@ -646,6 +648,11 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
       : typeof value.variantId === 'string'
         ? value.variantId
         : getComponentDefinition(type).defaultVariantId
+  const simpleIconStyleOverride: SimpleIconStyle | undefined =
+    typeof value.simpleIconStyleOverride === 'string' &&
+    isSimpleIconStyle(value.simpleIconStyleOverride)
+      ? value.simpleIconStyleOverride
+      : undefined
 
   return {
     id: expectString(value, 'id'),
@@ -658,6 +665,7 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
     rotationQuarterTurns: parseQuarterTurn(
       expectNumber(value, 'rotationQuarterTurns'),
     ),
+    simpleIconStyleOverride,
     geometryOverride:
       isRecord(value.geometryOverride) &&
       (typeof value.geometryOverride.widthMm === 'number' ||

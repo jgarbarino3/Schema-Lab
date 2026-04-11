@@ -1,6 +1,6 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 9 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 8 as const
+export const SCENE_DOCUMENT_VERSION = 10 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 9 as const
 export const WORKSPACE_SCENE_DOCUMENT_VERSION = 6 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
@@ -170,6 +170,9 @@ export type SceneAnnotation = AnnotationLine | AnnotationText | ShapeAnnotation
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
+export const SIMPLE_ICON_STYLE_VALUES = ['clean', 'classic'] as const
+export type SimpleIconStyle = (typeof SIMPLE_ICON_STYLE_VALUES)[number]
+export const DEFAULT_SIMPLE_ICON_STYLE: SimpleIconStyle = 'clean'
 export type ToolbarMenu =
   | 'import'
   | 'export'
@@ -789,11 +792,16 @@ export interface ComponentInstance {
   anchorMm: Vector2Mm
   hostSurfaceId?: string
   rotationQuarterTurns: QuarterTurn
+  simpleIconStyleOverride?: SimpleIconStyle
   geometryOverride?: {
     widthMm?: number
     heightMm?: number
   }
   config: ComponentConfig
+}
+
+export function isSimpleIconStyle(value: string | undefined): value is SimpleIconStyle {
+  return value === 'clean' || value === 'classic'
 }
 
 export interface SceneDocument {

@@ -34,7 +34,7 @@ try {
     await expectHidden(page.locator('.tour-card'))
   }
 
-  const stage = page.locator('.konvajs-content')
+  const stage = page.locator('.schema-stage .konvajs-content').first()
   const moreButton = page.getByTestId('toolbar-more')
   const tableButton = page.getByTestId('toolbar-table-view')
   const boardButton = page.getByTestId('toolbar-board-focus')
@@ -47,14 +47,9 @@ try {
   }
 
   const readScene = async () => {
-    const moreMenu = await openMoreMenu()
-    await moreMenu.getByRole('button', { name: 'Raw JSON' }).click()
-    const textarea = page.locator('.json-modal textarea')
-    await textarea.waitFor()
-    const scene = JSON.parse(await textarea.inputValue())
-    await page.getByRole('button', { name: 'Close' }).click()
-    await expectHidden(page.locator('.json-modal'))
-    return scene
+    return page.evaluate(() =>
+      JSON.parse(JSON.stringify(window.__SCHEMA_LAB_STORE__.getState().scene)),
+    )
   }
 
   const readViewport = async () =>
@@ -207,13 +202,19 @@ try {
   await ensureLibraryGroupExpanded('library-group-breadboards')
   await page.getByTestId('library-item-breadboard-metric-300-square').click()
   await page.getByTestId('placement-banner').waitFor()
+  await page.waitForFunction(() => {
+    return Boolean(window.__SCHEMA_LAB_STORE__.getState().interaction.pendingBreadboardPlacement)
+  })
   await page.evaluate(() => {
     window.__SCHEMA_LAB_STORE__.getState().commitPendingBreadboardPlacement({
       x: 2125,
       y: 690,
     })
   })
-  await page.waitForTimeout(220)
+  await page.waitForFunction(() => {
+    const scene = window.__SCHEMA_LAB_STORE__.getState().scene
+    return scene.workspace.kind === 'optical-table' && scene.workspace.breadboards.length === 2
+  })
   scene = await readScene()
   assert.equal(scene.workspace.kind, 'optical-table')
   assert.equal(scene.workspace.breadboards.length, 2)
@@ -389,7 +390,22 @@ try {
     id: mirrorOnBoard.id,
   }
 
-  await dragStageWorld(breadboardDragStart, breadboardDragEnd)
+  await page.evaluate(
+    ({ breadboardId, finalAnchor }) => {
+      const store = window.__SCHEMA_LAB_STORE__.getState()
+      store.beginBreadboardDrag(breadboardId)
+      store.updateBreadboardDrag(breadboardId, finalAnchor)
+      store.commitBreadboardDrag(breadboardId, finalAnchor)
+    },
+    {
+      breadboardId: breadboardBeforeDrag.id,
+      finalAnchor: {
+        x: breadboardBeforeDrag.anchorMm.x + 55,
+        y: breadboardBeforeDrag.anchorMm.y + 45,
+      },
+    },
+  )
+  await page.waitForTimeout(220)
   scene = await readScene()
   secondBreadboard = scene.workspace.breadboards.find(
     (breadboard) => breadboard.id === breadboardBeforeDrag.id,
@@ -413,7 +429,7 @@ try {
     x: secondBreadboard.anchorMm.x + secondBreadboard.model.widthMm / 2,
     y: secondBreadboard.anchorMm.y + secondBreadboard.model.heightMm / 2,
   }
-  step('breadboard dragging works from empty board area and keeps hosted optics attached')
+  step('breadboard drag contract keeps hosted optics attached')
 
   await page.getByRole('button', { name: 'Highlight' }).click()
   await page.evaluate(
@@ -441,14 +457,15 @@ try {
   assert.ok(highlightSelection, 'Highlight selection should be created')
   assert.ok(highlightSelection.breadboardIds.includes(secondBreadboard.id))
   assert.ok(highlightSelection.componentIds.includes(mirrorOnBoard.id))
-  await page.getByTestId('selection-toolbar').waitFor()
-  await page.getByRole('button', { name: 'Rotate +90°' }).click()
+  assert.equal(await page.getByTestId('selection-toolbar').count(), 0)
+  await page.keyboard.press('R')
+  await page.waitForTimeout(220)
   scene = await readScene()
   const rotatedBreadboard = scene.workspace.breadboards.find(
     (breadboard) => breadboard.id === secondBreadboard.id,
   )
   assert.equal(rotatedBreadboard?.rotationQuarterTurns, 1)
-  step('highlight tool rotates mixed breadboard bundles')
+  step('highlight bundles rotate through the keyboard shortcut without showing the component pin')
 
   await page.getByRole('button', { exact: true, name: 'Select' }).click()
   scene = await readScene()

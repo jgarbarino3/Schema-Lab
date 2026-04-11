@@ -68,6 +68,25 @@ describe('editor store pending placement', () => {
     expect(useEditorStore.getState().scene.components).toHaveLength(0)
   })
 
+  it('persists selected simple icon overrides onto pending and placed components', () => {
+    const store = useEditorStore.getState()
+
+    store.addComponent('mirror')
+    store.setSelectedSimpleIconStyleOverride('classic')
+
+    expect(
+      useEditorStore.getState().interaction.pendingPlacement?.draft.simpleIconStyleOverride,
+    ).toBe('classic')
+
+    store.commitPendingPlacement({ x: 112.5, y: 112.5 })
+
+    const mirrorId = useEditorStore.getState().scene.components[0]!.id
+    store.selectComponent(mirrorId)
+    store.setSelectedSimpleIconStyleOverride(undefined)
+
+    expect(useEditorStore.getState().scene.components[0]?.simpleIconStyleOverride).toBeUndefined()
+  })
+
   it('sets and clears interaction notices explicitly', () => {
     const store = useEditorStore.getState()
 

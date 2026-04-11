@@ -5,6 +5,7 @@ import type {
   GaussianTraceResult,
   RenderMode,
   SceneDocument,
+  SimpleIconStyle,
 } from './types'
 
 interface CreateSceneDxfArgs {
@@ -15,6 +16,7 @@ interface CreateSceneDxfArgs {
   scene: SceneDocument
   scope: ExportScope
   showGaussianEnvelope: boolean
+  simpleIconStyle: SimpleIconStyle
 }
 
 const DXF_LAYER_NAMES = {
@@ -178,6 +180,7 @@ export function createSceneDxf({
   scene,
   scope,
   showGaussianEnvelope,
+  simpleIconStyle,
 }: CreateSceneDxfArgs) {
   const graph = createVectorExportSceneGraph({
     beamTrace,
@@ -187,6 +190,7 @@ export function createSceneDxf({
     scene,
     scope,
     showGaussianEnvelope,
+    simpleIconStyle,
     svgPreset: 'engineering',
   })
   const entities: string[] = []

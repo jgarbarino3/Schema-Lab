@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 interface SelectionToolbarProps {
   canCenter?: boolean
@@ -10,6 +10,7 @@ interface SelectionToolbarProps {
   onDelete?: () => void
   onDuplicate?: () => void
   onRotate?: () => void
+  style?: CSSProperties
 }
 
 function SelectionActionButton({
@@ -46,6 +47,7 @@ export function SelectionToolbar({
   onDelete,
   onDuplicate,
   onRotate,
+  style,
 }: SelectionToolbarProps) {
   if (!canCenter && !canDelete && !canDuplicate && !canRotate) {
     return null
@@ -57,30 +59,24 @@ export function SelectionToolbar({
       className={`selection-toolbar${className ? ` ${className}` : ''}`}
       data-testid="selection-toolbar"
       role="toolbar"
+      style={style}
     >
       {canRotate ? (
         <SelectionActionButton label="Rotate +90°" onClick={onRotate}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M12.2 5.1a6.95 6.95 0 1 1-6.15 3.75"
+              d="M12.5 4.15a7.9 7.9 0 1 1-7 4.45"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
+              strokeWidth="2.15"
             />
             <path
-              d="M6.05 5.15v5.3h5.3"
+              d="M5.15 4.45v6.45h6.45"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
-            />
-            <path
-              d="M14.9 8.2v3.1h3.1"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.45"
+              strokeWidth="2.15"
             />
           </svg>
         </SelectionActionButton>
@@ -89,29 +85,22 @@ export function SelectionToolbar({
         <SelectionActionButton label="Duplicate" onClick={onDuplicate}>
           <svg fill="none" viewBox="0 0 24 24">
             <rect
-              height="8.2"
-              rx="1.75"
+              height="9.6"
+              rx="2.1"
               stroke="currentColor"
-              strokeWidth="1.75"
-              width="8.2"
-              x="10.35"
-              y="9.55"
+              strokeWidth="2"
+              width="9.6"
+              x="9.7"
+              y="8.9"
             />
             <rect
-              height="8.2"
-              rx="1.75"
+              height="9.6"
+              rx="2.1"
               stroke="currentColor"
-              strokeWidth="1.75"
-              width="8.2"
-              x="5.45"
-              y="6.25"
-            />
-            <path
-              d="M15 5.2v3.2M13.4 6.8h3.2"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.45"
+              strokeWidth="2"
+              width="9.6"
+              x="4.7"
+              y="5.5"
             />
           </svg>
         </SelectionActionButton>
@@ -120,32 +109,32 @@ export function SelectionToolbar({
         <SelectionActionButton destructive label="Delete" onClick={onDelete}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M6.2 7.2h11.6"
+              d="M5.6 7.2h12.8"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
+              strokeWidth="2.1"
             />
             <path
-              d="M9.55 5.1h4.9"
+              d="M9.1 4.9h5.8"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
+              strokeWidth="2.1"
             />
             <path
-              d="M8.25 7.2v10.15a1.9 1.9 0 0 0 1.9 1.9h3.7a1.9 1.9 0 0 0 1.9-1.9V7.2"
+              d="M7.4 7.2v10.3a2.2 2.2 0 0 0 2.2 2.2h4.8a2.2 2.2 0 0 0 2.2-2.2V7.2"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
+              strokeWidth="2.1"
             />
             <path
-              d="M10.55 10.05v5.95M13.45 10.05v5.95"
+              d="M10.3 10v6.3M13.7 10v6.3"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.65"
+              strokeWidth="2"
             />
           </svg>
         </SelectionActionButton>
@@ -154,21 +143,21 @@ export function SelectionToolbar({
         <SelectionActionButton label="Center Selection" onClick={onCenter}>
           <svg fill="none" viewBox="0 0 24 24">
             <path
-              d="M7.2 5.4H5.4v1.8M16.8 5.4h1.8v1.8M7.2 18.6H5.4v-1.8M16.8 18.6h1.8v-1.8"
+              d="M7 4.8H4.8V7M17 4.8h2.2V7M7 19.2H4.8V17M17 19.2h2.2V17"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.75"
+              strokeWidth="2"
             />
             <path
-              d="M12 7.3v2.15M12 14.55v2.15M7.3 12h2.15M14.55 12h2.15"
+              d="M12 6.9v2.7M12 14.4v2.7M6.9 12h2.7M14.4 12h2.7"
               stroke="currentColor"
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth="1.55"
+              strokeWidth="1.9"
             />
-            <circle cx="12" cy="12" r="2.65" stroke="currentColor" strokeWidth="1.75" />
-            <circle cx="12" cy="12" fill="currentColor" r="0.95" strokeWidth="0" />
+            <circle cx="12" cy="12" r="3.35" stroke="currentColor" strokeWidth="2" />
+            <circle cx="12" cy="12" fill="currentColor" r="1.2" strokeWidth="0" />
           </svg>
         </SelectionActionButton>
       ) : null}

@@ -9,10 +9,14 @@ import type {
 } from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 import { LibraryGlyphPreview } from './LibraryGlyphPreview'
-
-const RECENT_LIBRARY_KEY = 'schema-lab.ui.library-recent'
-const MAX_RECENT_ITEMS = 6
-const RECENT_PREVIEW_COUNT = 3
+import {
+  LIBRARY_RECENTS_CLEAR_EVENT,
+  MAX_RECENT_ITEMS,
+  RECENT_PREVIEW_COUNT,
+  readRecentEntries,
+  type RecentEntry,
+  writeRecentEntries,
+} from './libraryRecents'
 
 interface ComponentLibraryProps {
   onCollapse: () => void
@@ -28,7 +32,6 @@ interface LibraryComponentEntry {
   category: ComponentCategory
   familyLabel: string
   key: string
-  mountMode: string
   previewFill: string
   previewGlyph: ComponentGlyphType
   previewIsConvex?: boolean
@@ -40,10 +43,6 @@ interface LibraryComponentEntry {
   variantCount: number
   variantId?: string
 }
-
-type RecentEntry =
-  | { kind: 'breadboard'; id: string }
-  | { kind: 'component'; id: string; variantId?: string }
 
 const DISPLAY_GROUPS: DisplayGroup[] = [
   { key: 'sources', label: 'Sources', categories: ['source'] },
@@ -72,42 +71,6 @@ function getDisplayGroupForCategory(category: ComponentCategory): string | undef
   return DISPLAY_GROUPS.find((group) => group.categories.includes(category))?.key
 }
 
-function readRecentEntries() {
-  if (typeof window === 'undefined') {
-    return [] as RecentEntry[]
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(RECENT_LIBRARY_KEY)
-    if (!rawValue) {
-      return [] as RecentEntry[]
-    }
-
-    const parsed = JSON.parse(rawValue)
-    if (!Array.isArray(parsed)) {
-      return [] as RecentEntry[]
-    }
-
-    return parsed.filter(
-      (entry): entry is RecentEntry =>
-        !!entry &&
-        typeof entry === 'object' &&
-        ((entry.kind === 'breadboard' && typeof entry.id === 'string') ||
-          (entry.kind === 'component' && typeof entry.id === 'string')),
-    )
-  } catch {
-    return [] as RecentEntry[]
-  }
-}
-
-function writeRecentEntries(entries: RecentEntry[]) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  window.localStorage.setItem(RECENT_LIBRARY_KEY, JSON.stringify(entries))
-}
-
 function matchesQuery(value: string, query: string) {
   return value.toLowerCase().includes(query.toLowerCase())
 }
@@ -126,7 +89,6 @@ function getRecentComponentLabel(
 function buildLibraryComponentEntries(
   definition: ComponentDefinition,
 ): LibraryComponentEntry[] {
-  const mountMode = describeMountMode(definition.mount.mode)
   const variantLabels = definition.variants.map((variant) => variant.label).join(' ')
   const defaultSpec = getResolvedComponentSpec(definition.type)
 
@@ -136,7 +98,6 @@ function buildLibraryComponentEntries(
         category: definition.category,
         familyLabel: definition.familyLabel,
         key: definition.type,
-        mountMode,
         previewFill: defaultSpec.renderHint.fill,
         previewGlyph: defaultSpec.renderHint.glyph,
         previewIsConvex:
@@ -149,7 +110,7 @@ function buildLibraryComponentEntries(
           definition.familyLabel,
           definition.defaultLabel,
           definition.category,
-          mountMode,
+          describeMountMode(definition.mount.mode),
           variantLabels,
         ].join(' '),
         testId: `library-item-${definition.type}`,
@@ -167,7 +128,6 @@ function buildLibraryComponentEntries(
       category: definition.category,
       familyLabel: 'Planar Mirror',
       key: definition.type,
-      mountMode,
       previewFill: defaultSpec.renderHint.fill,
       previewGlyph: defaultSpec.renderHint.glyph,
       previewStroke: defaultSpec.renderHint.stroke,
@@ -177,7 +137,7 @@ function buildLibraryComponentEntries(
         definition.familyLabel,
         definition.defaultLabel,
         definition.category,
-        mountMode,
+        describeMountMode(definition.mount.mode),
         planarVariants.map((variant) => variant.label).join(' '),
       ].join(' '),
       testId: 'library-item-mirror',
@@ -191,7 +151,6 @@ function buildLibraryComponentEntries(
       category: definition.category,
       familyLabel: 'Flip Mirror',
       key: `${definition.type}-${flipVariant.id}`,
-      mountMode,
       previewFill: flipSpec?.renderHint.fill ?? defaultSpec.renderHint.fill,
       previewGlyph: flipSpec?.renderHint.glyph ?? defaultSpec.renderHint.glyph,
       previewStroke: flipSpec?.renderHint.stroke ?? defaultSpec.renderHint.stroke,
@@ -200,7 +159,7 @@ function buildLibraryComponentEntries(
         'Flip Mirror',
         flipVariant.label,
         definition.category,
-        mountMode,
+        describeMountMode(definition.mount.mode),
       ].join(' '),
       testId: 'library-item-flip-mirror',
       type: definition.type,
@@ -269,6 +228,23 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     }
   }, [expandedGroups, pendingBreadboardPresetId])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const handleClear = () => {
+      setRecentEntries(readRecentEntries())
+      setIsRecentExpanded(false)
+    }
+
+    window.addEventListener(LIBRARY_RECENTS_CLEAR_EVENT, handleClear)
+
+    return () => {
+      window.removeEventListener(LIBRARY_RECENTS_CLEAR_EVENT, handleClear)
+    }
+  }, [])
+
   const isComponentEntryArmed = (entry: LibraryComponentEntry) => {
     if (pendingPlacementType !== entry.type) {
       return false
@@ -313,32 +289,33 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   }
 
   const recentCards = useMemo(() => {
+    const breadboardCatalogPreset = BREADBOARD_PRESETS[0]
+
     return recentEntries
       .map((entry) => {
         if (entry.kind === 'breadboard') {
-          const preset = BREADBOARD_PRESETS.find((candidate) => candidate.id === entry.id)
-          if (!preset) {
+          if (!breadboardCatalogPreset) {
             return undefined
           }
 
           return {
-            armed: pendingBreadboardPresetId === preset.id,
-            id: `breadboard-${preset.id}`,
-            label: preset.label,
-            meta: 'Breadboard preset',
+            armed: Boolean(pendingBreadboardPresetId),
+            id: `breadboard-${breadboardCatalogPreset.id}`,
+            label: 'Customizable Breadboard',
+            meta: `${breadboardCatalogPreset.breadboard.widthMm.toFixed(0)} × ${breadboardCatalogPreset.breadboard.heightMm.toFixed(0)}`,
             onClick: () => {
-              rememberRecent({ kind: 'breadboard', id: preset.id })
-              addBreadboardInstance(preset.id)
+              rememberRecent({ kind: 'breadboard', id: breadboardCatalogPreset.id })
+              addBreadboardInstance(breadboardCatalogPreset.id)
             },
             preview: (
               <LibraryGlyphPreview
-                breadboard={preset.breadboard}
+                breadboard={breadboardCatalogPreset.breadboard}
                 className="component-library__preview component-library__preview--compact"
                 kind="breadboard"
                 style={simpleIconStyle}
               />
             ),
-            testId: `library-recent-breadboard-${preset.id}`,
+            testId: `library-recent-breadboard-${breadboardCatalogPreset.id}`,
           }
         }
 
@@ -407,6 +384,10 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
     ? recentCards
     : recentCards.slice(0, RECENT_PREVIEW_COUNT)
   const hasOverflowRecentCards = recentCards.length > RECENT_PREVIEW_COUNT
+  const breadboardCatalogPreset = BREADBOARD_PRESETS[0]
+  const breadboardCatalogLabel = breadboardCatalogPreset
+    ? `Customizable Breadboard · ${breadboardCatalogPreset.breadboard.widthMm.toFixed(0)} × ${breadboardCatalogPreset.breadboard.heightMm.toFixed(0)}`
+    : 'Customizable Breadboard'
 
   return (
     <aside className="panel component-library" data-tour="component-library">
@@ -490,50 +471,40 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                 {isSearchActive || expandedGroups.has('__breadboards') ? '\u25BE' : '\u25B8'}
               </span>
               <h3>Breadboards</h3>
-              <span className="component-library__badge">{BREADBOARD_PRESETS.length}</span>
+              <span className="component-library__badge">1</span>
             </button>
 
-            {isSearchActive || expandedGroups.has('__breadboards') ? (
+            {(isSearchActive || expandedGroups.has('__breadboards')) && breadboardCatalogPreset ? (
               <div className="component-library__group-body is-open">
-                <p className="component-library__group-note">
-                  Every breadboard preset can be customized after placement.
-                </p>
-                {BREADBOARD_PRESETS.filter((preset) => {
-                  if (!isSearchActive) {
-                    return true
-                  }
-
-                  const haystack = `${preset.label} breadboard preset optical table`
-                  return (
-                    matchesQuery(haystack, normalizedQuery) ||
-                    pendingBreadboardPresetId === preset.id
-                  )
-                }).map((preset) => (
+                {(!isSearchActive ||
+                  matchesQuery(
+                    `${breadboardCatalogLabel} breadboard preset optical table custom`,
+                    normalizedQuery,
+                  ) ||
+                  Boolean(pendingBreadboardPresetId)) ? (
                   <button
-                    className={`component-library__item${pendingBreadboardPresetId === preset.id ? ' is-armed' : ''}`}
-                    data-testid={`library-item-breadboard-${preset.id}`}
-                    key={preset.id}
+                    className={`component-library__item${pendingBreadboardPresetId ? ' is-armed' : ''}`}
+                    data-testid={`library-item-breadboard-${breadboardCatalogPreset.id}`}
                     onClick={() => {
-                      rememberRecent({ kind: 'breadboard', id: preset.id })
-                      addBreadboardInstance(preset.id)
+                      rememberRecent({ kind: 'breadboard', id: breadboardCatalogPreset.id })
+                      addBreadboardInstance(breadboardCatalogPreset.id)
                     }}
                     type="button"
                   >
                     <LibraryGlyphPreview
-                      breadboard={preset.breadboard}
+                      breadboard={breadboardCatalogPreset.breadboard}
                       className="component-library__preview"
                       kind="breadboard"
                       style={simpleIconStyle}
                     />
                     <span className="component-library__item-copy">
-                      <span className="component-library__item-title">{preset.label}</span>
-                      <span className="component-library__item-meta">Breadboard preset</span>
+                      <span className="component-library__item-title">{breadboardCatalogLabel}</span>
                     </span>
-                    {pendingBreadboardPresetId === preset.id ? (
+                    {pendingBreadboardPresetId ? (
                       <span className="component-library__item-state">Armed</span>
                     ) : null}
                   </button>
-                ))}
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -611,10 +582,10 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
                       <span className="component-library__item-copy">
                         <span className="component-library__item-title">
                           {entry.familyLabel}
-                        </span>
-                        <span className="component-library__item-meta">
-                          {entry.variantCount} variant
-                          {entry.variantCount === 1 ? '' : 's'}
+                          <span className="component-library__item-title-meta">
+                            {' '}
+                            · {entry.variantCount} var.
+                          </span>
                         </span>
                       </span>
                       {isComponentEntryArmed(entry) ? (
@@ -630,9 +601,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
 
         {isSearchActive &&
         recentCards.length === 0 &&
-        !BREADBOARD_PRESETS.some((preset) =>
-          matchesQuery(`${preset.label} breadboard`, normalizedQuery),
-        ) &&
+        !matchesQuery(breadboardCatalogLabel, normalizedQuery) &&
         !allComponentEntries.some((entry) =>
           matchesQuery(entry.searchText, normalizedQuery),
         ) ? (

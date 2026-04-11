@@ -42,7 +42,7 @@ describe('scene import', () => {
     const result = importSceneDocument(rawJson)
 
     expect(result.scene.kind).toBe('schema-lab.scene')
-    expect(result.scene.version).toBe(9)
+    expect(result.scene.version).toBe(10)
     expect(result.diagnostics.usedFallback).toBe(true)
     expect(result.diagnostics.wrapperInjected).toBe(true)
     expect(result.diagnostics.versionCoerced).toBe(true)
@@ -57,7 +57,7 @@ describe('scene import', () => {
 
     const result = importSceneDocument(rawJson)
 
-    expect(result.scene.version).toBe(9)
+    expect(result.scene.version).toBe(10)
     expect(result.diagnostics.usedFallback).toBe(true)
     expect(result.diagnostics.versionCoerced).toBe(true)
   })

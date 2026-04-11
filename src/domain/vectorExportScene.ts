@@ -49,6 +49,7 @@ import type {
   RenderMode,
   SceneDocument,
   ShapeAnnotation,
+  SimpleIconStyle,
   Vector2Mm,
 } from './types'
 
@@ -164,6 +165,7 @@ interface CreateVectorExportSceneGraphArgs {
   scene: SceneDocument
   scope: ExportScope
   showGaussianEnvelope: boolean
+  simpleIconStyle: SimpleIconStyle
   svgPreset?: SvgExportPreset
 }
 
@@ -652,10 +654,12 @@ function renderSimpleLocalGlyph(
     fill: string
     stroke: string
   },
+  iconStyle: SimpleIconStyle,
 ): VectorNode[] {
   const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
   const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
   const opticRadius = Math.max(3.4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.28)
+  const isClassic = iconStyle === 'classic'
 
   switch (glyph) {
     case 'mirror':
@@ -670,7 +674,7 @@ function renderSimpleLocalGlyph(
           style: defaultStyle({
             lineCap: 'round',
             stroke: style.stroke,
-            strokeWidthMm: 1.15,
+            strokeWidthMm: isClassic ? 1.35 : 1.15,
           }),
         },
       ]
@@ -710,7 +714,7 @@ function renderSimpleLocalGlyph(
           x2Mm: roundMm(bodyBoundsMm.x + bodyBoundsMm.width - 2.5),
           y2Mm: roundMm(bodyBoundsMm.y + 2.5),
           style: defaultStyle({
-            dashMm: [1.5, 1.5],
+            dashMm: isClassic ? [0.8, 1.15] : [1.5, 1.5],
             lineCap: 'round',
             stroke: style.stroke,
             strokeWidthMm: 0.8,
@@ -1215,6 +1219,7 @@ function renderRealisticLocalHardware(
 function createComponentNodes(
   component: ComponentInstance,
   renderMode: RenderMode,
+  simpleIconStyle: SimpleIconStyle,
   preset: SvgExportPreset,
 ): {
   componentGroup: VectorGroupNode
@@ -1256,10 +1261,15 @@ function createComponentNodes(
 
   const localNodes =
     renderMode === 'simple'
-      ? renderSimpleLocalGlyph(spec.renderHint.glyph, spec.visualBodyBoundsMm, {
-          fill: componentPalette.bodyFill,
-          stroke: componentPalette.bodyStroke,
-        })
+      ? renderSimpleLocalGlyph(
+          spec.renderHint.glyph,
+          spec.visualBodyBoundsMm,
+          {
+            fill: componentPalette.bodyFill,
+            stroke: componentPalette.bodyStroke,
+          },
+          component.simpleIconStyleOverride ?? simpleIconStyle,
+        )
       : renderRealisticLocalHardware(
           component,
           spec.visualBodyBoundsMm,
@@ -1604,6 +1614,7 @@ export function createVectorExportSceneGraph({
   scene,
   scope,
   showGaussianEnvelope,
+  simpleIconStyle,
   svgPreset = 'engineering',
 }: CreateVectorExportSceneGraphArgs): VectorExportSceneGraph {
   const layerMap = createLayerMap()
@@ -1675,6 +1686,7 @@ export function createVectorExportSceneGraph({
     const { componentGroup, label, mountGroup } = createComponentNodes(
       component,
       renderMode,
+      simpleIconStyle,
       svgPreset,
     )
 

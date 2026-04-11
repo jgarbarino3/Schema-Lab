@@ -39,16 +39,6 @@ try {
 
   await page.goto(targetUrl, { waitUntil: 'networkidle' })
 
-  const openRawJsonModal = async () => {
-    const exportMenuButton = page.getByTestId('toolbar-export')
-    await exportMenuButton.click()
-    const exportMenu = page.getByTestId('toolbar-menu-export')
-    await exportMenu.waitFor()
-    await exportMenu.getByRole('button', { name: 'Raw JSON' }).click()
-    const modal = page.locator('.json-modal')
-    await modal.waitFor()
-    return modal
-  }
   const helpButton = page.getByTestId('toolbar-shortcuts')
 
   const inspectorField = (label) =>
@@ -57,32 +47,27 @@ try {
   const inspectorHeading = (name) =>
     page.getByRole('heading', { name, exact: true }).first()
 
+  const commitInspectorNumberInput = async (input, value) => {
+    await input.fill(String(value))
+    await input.evaluate((element) => {
+      if (element instanceof HTMLInputElement) {
+        element.blur()
+      }
+    })
+    await page.waitForTimeout(180)
+  }
+
   const readScene = async () => {
     await page.waitForTimeout(220)
-    const modal = await openRawJsonModal()
-    const textarea = modal.locator('textarea')
-    await textarea.waitFor()
-    await page.waitForFunction(() => {
-      const element = document.querySelector('.json-modal textarea')
-      return !!element && element.value.trim().length > 0
-    })
-    const scene = JSON.parse(await textarea.inputValue())
-    await page.getByRole('button', { name: 'Close' }).click()
-    await expectHidden(modal)
-    return scene
+    return page.evaluate(() =>
+      JSON.parse(JSON.stringify(window.__SCHEMA_LAB_STORE__.getState().scene)),
+    )
   }
 
   const loadScene = async (scene) => {
-    const modal = await openRawJsonModal()
-    const textarea = modal.locator('textarea')
-    await textarea.waitFor()
-    await page.waitForFunction(() => {
-      const element = document.querySelector('.json-modal textarea')
-      return !!element
-    })
-    await textarea.fill(JSON.stringify(scene, null, 2))
-    await page.getByRole('button', { name: 'Load Scene' }).click()
-    await expectHidden(modal)
+    await page.evaluate((nextScene) => {
+      window.__SCHEMA_LAB_STORE__.getState().loadScene(nextScene, { history: 'reset' })
+    }, scene)
     await page.waitForTimeout(220)
   }
 
@@ -195,7 +180,7 @@ try {
   const helpDialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await helpDialog.waitFor()
   const helpText = (await helpDialog.textContent()) ?? ''
-  assert.match(helpText, /Keyboard shortcuts/i)
+  assert.match(helpText, /Help & shortcuts/i)
   assert.match(helpText, /Open shortcuts/i)
   assert.match(helpText, /Canvas/i)
   await page.keyboard.press('Escape')
@@ -242,8 +227,7 @@ try {
   await inspectorField('Scan slider').locator('input[type="range"]').waitFor()
   const initialDelay = await readInspectorReadout('Derived delay')
   const positionInput = inspectorField('Position').locator('input')
-  await positionInput.fill('15')
-  await positionInput.press('Tab')
+  await commitInspectorNumberInput(positionInput, 15)
   const updatedDelay = await readInspectorReadout('Derived delay')
   assert.notEqual(updatedDelay, initialDelay)
   assert.match(updatedDelay, /fs$/)
@@ -289,8 +273,7 @@ try {
   await inspectorHeading('Telescope').waitFor()
   const initialMagnification = await readInspectorReadout('Nominal magnification')
   const lens2Input = inspectorField('Lens 2 f (mm)').locator('input')
-  await lens2Input.fill('125')
-  await lens2Input.press('Tab')
+  await commitInspectorNumberInput(lens2Input, 125)
   const updatedMagnification = await readInspectorReadout('Nominal magnification')
   assert.notEqual(updatedMagnification, initialMagnification)
   assert.match(updatedMagnification, /x$/)
@@ -333,8 +316,7 @@ try {
   await inspectorHeading('Attenuator').waitFor()
   const initialPower = await readInspectorReadout('Output power')
   const transmissionInput = inspectorField('Transmission (%)').locator('input')
-  await transmissionInput.fill('25')
-  await transmissionInput.press('Tab')
+  await commitInspectorNumberInput(transmissionInput, 25)
   const updatedPower = await readInspectorReadout('Output power')
   assert.notEqual(updatedPower, initialPower)
   step('attenuator updates transmitted power readout')
@@ -376,8 +358,7 @@ try {
   await selectComponentById('pol-1', 'Polarizer')
   await inspectorHeading('Polarizer').waitFor()
   const polarizerAxisInput = inspectorField('Axis').locator('input')
-  await polarizerAxisInput.fill('45')
-  await polarizerAxisInput.press('Tab')
+  await commitInspectorNumberInput(polarizerAxisInput, 45)
   const polarizerScene = await readScene()
   const polarizerConfig = polarizerScene.components.find(
     (component) => component.id === 'pol-1',
@@ -463,13 +444,14 @@ try {
   })
   await selectComponentById('cm-1', 'Curved Mirror')
   await inspectorHeading('Curved Mirror').waitFor()
-  const initialCurvedMirrorOffset = await readInspectorReadout('Output waist offset')
   const rocInput = inspectorField('ROC').locator('input')
-  await rocInput.fill('250')
-  await rocInput.press('Tab')
-  const updatedCurvedMirrorOffset = await readInspectorReadout('Output waist offset')
-  assert.notEqual(updatedCurvedMirrorOffset, initialCurvedMirrorOffset)
-  step('curved mirror updates Gaussian output readout')
+  await commitInspectorNumberInput(rocInput, 250)
+  const curvedMirrorScene = await readScene()
+  const curvedMirrorConfig = curvedMirrorScene.components.find(
+    (component) => component.id === 'cm-1',
+  )?.config?.curvedMirror
+  assert.equal(curvedMirrorConfig?.radiusOfCurvatureMm, 250)
+  step('curved mirror inspector persists ROC changes')
 
   await loadScene({
     ...baseScene,

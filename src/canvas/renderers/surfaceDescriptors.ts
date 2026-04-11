@@ -1,4 +1,9 @@
-import { screenToWorld, rotatePointQuarterTurns, roundMm } from '../../domain/geometry'
+import {
+  LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM,
+  rotatePointQuarterTurns,
+  roundMm,
+  screenToWorld,
+} from '../../domain/geometry'
 import type {
   BreadboardModel,
   CounterborePattern,
@@ -90,7 +95,7 @@ export function getSurfaceHoleAxesMm(surface: {
 }
 
 export function getLiveSurfaceRenderTier(zoomPxPerMm: number): LiveSurfaceRenderTier {
-  if (zoomPxPerMm >= 1) {
+  if (zoomPxPerMm >= LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM) {
     return 'dense'
   }
 

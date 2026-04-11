@@ -76,6 +76,7 @@ import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
 import { SvgAmbiguityModal } from './ui/SvgAmbiguityModal'
 import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
 import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
+import { dispatchClearLibraryRecents } from './ui/libraryRecents'
 import { SelectionToolbar } from './ui/SelectionToolbar'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { TutorialModal } from './ui/TutorialModal'
@@ -254,6 +255,7 @@ function App() {
     (state) => state.interaction.dismissedWarningIds,
   )
   const renderMode = useEditorStore((state) => state.renderMode)
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const loadScene = useEditorStore((state) => state.loadScene)
@@ -576,11 +578,11 @@ function App() {
         ),
       },
       {
-        title: 'Help Menu',
-        selector: '[data-tour=\"toolbar-help-menu\"]',
+        title: 'Help',
+        selector: '[data-tour=\"toolbar-help\"]',
         body: (
           <>
-            <p>Use Help to reopen this guide, review shortcuts, launch the tutorial, or check recent product updates without leaving the editor.</p>
+            <p>Use the question-mark control to reopen this guide, review shortcuts, open the appendix, or jump into the tutorial without leaving the editor.</p>
           </>
         ),
       },
@@ -741,6 +743,7 @@ function App() {
           scene,
           scope: request.scope,
           showGaussianEnvelope,
+          simpleIconStyle,
           svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
         })
         const presetSuffix =
@@ -765,6 +768,7 @@ function App() {
           scene,
           scope: request.scope,
           showGaussianEnvelope,
+          simpleIconStyle,
         })
 
         downloadBlob(
@@ -783,6 +787,7 @@ function App() {
       exportBreadboardSurfaceId,
       gaussianTrace,
       showGaussianEnvelope,
+      simpleIconStyle,
       renderMode,
       scene,
     ],
@@ -826,11 +831,13 @@ function App() {
   }
 
   const handleConvertCurrentToOpticalTable = () => {
+    dispatchClearLibraryRecents()
     convertWorkspaceToOpticalTable()
     setWorkspaceModalState(undefined)
   }
 
   const handleRestoreSavedTable = () => {
+    dispatchClearLibraryRecents()
     const snapshot = readStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY)
 
     if (!snapshot) {
@@ -848,6 +855,7 @@ function App() {
   }
 
   const handleStartFreshTable = () => {
+    dispatchClearLibraryRecents()
     createFreshOpticalTable()
     setWorkspaceModalState(undefined)
   }
@@ -867,6 +875,10 @@ function App() {
     createFresh: boolean
     preserveSnapshot: boolean
   }) => {
+    if (args.createFresh) {
+      dispatchClearLibraryRecents()
+    }
+
     if (args.preserveSnapshot && scene.workspace.kind === 'optical-table') {
       writeStoredSnapshot(OPTICAL_TABLE_SNAPSHOT_KEY, sceneJson)
     } else if (!args.preserveSnapshot) {
@@ -1857,10 +1869,44 @@ function App() {
   const canShowSelectionToolbar =
     !pendingPlacement &&
     !pendingBreadboardPlacement &&
-    (Boolean(highlightSelection) ||
-      selection.type === 'component' ||
-      selection.type === 'annotation' ||
-      selection.type === 'breadboard')
+    selection.type === 'component' &&
+    !!selectionBoundsMm
+
+  const selectionToolbarStyle = useMemo(() => {
+    if (!canShowSelectionToolbar || !selectionBoundsMm) {
+      return undefined
+    }
+
+    const topLeftPx = worldToScreen(
+      { x: selectionBoundsMm.x, y: selectionBoundsMm.y },
+      viewport,
+    )
+    const bottomRightPx = worldToScreen(
+      {
+        x: selectionBoundsMm.x + selectionBoundsMm.width,
+        y: selectionBoundsMm.y + selectionBoundsMm.height,
+      },
+      viewport,
+    )
+    const toolbarWidthPx = 224
+    const toolbarHeightPx = 58
+    const centerXPx = (topLeftPx.x + bottomRightPx.x) / 2
+    const fitsAbove = topLeftPx.y >= toolbarHeightPx + 20
+    const rawTopPx = fitsAbove ? topLeftPx.y - toolbarHeightPx - 12 : bottomRightPx.y + 12
+
+    return {
+      left: clamp(
+        centerXPx - toolbarWidthPx / 2,
+        12,
+        Math.max(12, viewport.canvasSizePx.width - toolbarWidthPx - 12),
+      ),
+      top: clamp(
+        rawTopPx,
+        12,
+        Math.max(12, viewport.canvasSizePx.height - toolbarHeightPx - 12),
+      ),
+    }
+  }, [canShowSelectionToolbar, selectionBoundsMm, viewport])
 
   const statusBoardLabel =
     scene.workspace.kind === 'optical-table'
@@ -1967,27 +2013,6 @@ function App() {
         onStartFreshTable={handleStartFreshTable}
         onToggleLabels={() => setShowComponentLabels((current) => !current)}
         onTogglePostHolders={() => setShowPostHolders((current) => !current)}
-        selectionActions={
-          canShowSelectionToolbar ? (
-            <SelectionToolbar
-              canCenter={canCenterSelection}
-              canDelete={
-                !highlightSelection &&
-                (selection.type === 'component' || selection.type === 'annotation')
-              }
-              canDuplicate={
-                !highlightSelection &&
-                (selection.type === 'component' || selection.type === 'annotation')
-              }
-              canRotate={Boolean(highlightSelection) || selection.type === 'component'}
-              className="selection-toolbar--inline"
-              onCenter={handleCenterSelection}
-              onDelete={handleDeleteSelection}
-              onDuplicate={handleDuplicateSelection}
-              onRotate={handleRotateSelection}
-            />
-          ) : null
-        }
         showComponentLabels={showComponentLabels}
         showPostHolders={showPostHolders}
         toolDock={
@@ -2092,6 +2117,21 @@ function App() {
               showLabels={showComponentLabels}
               showPostHolders={showPostHolders}
             />
+
+            {selectionToolbarStyle ? (
+              <SelectionToolbar
+                canCenter={canCenterSelection}
+                canDelete={selection.type === 'component'}
+                canDuplicate={selection.type === 'component'}
+                canRotate={selection.type === 'component'}
+                className="canvas-selection-toolbar"
+                onCenter={handleCenterSelection}
+                onDelete={handleDeleteSelection}
+                onDuplicate={handleDuplicateSelection}
+                onRotate={handleRotateSelection}
+                style={selectionToolbarStyle}
+              />
+            ) : null}
 
             {editingTextAnnotation && textEditorPosition ? (
               <AnnotationTextEditor

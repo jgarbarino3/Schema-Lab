@@ -43,6 +43,7 @@ import {
   clampViewportToKeepBoundsVisible,
   fitZoomPxPerMm,
   getBoundsCenterMm,
+  LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM,
   normalizeQuarterTurns,
   panViewportByScreenDelta as panViewportByDelta,
   rotatePointAroundCenterQuarterTurns,
@@ -385,6 +386,9 @@ export interface EditorStore {
   cancelTextAnnotationEditing: () => void
   clearSelectedGeometryOverride: () => void
   updateSelectedPostHolderDiameter: (diameterMm: number) => void
+  setSelectedSimpleIconStyleOverride: (
+    simpleIconStyleOverride?: SimpleIconStyle,
+  ) => void
   setSimpleGlyphAppearance: (
     componentId: string,
     update: Partial<SimpleGlyphAppearanceState>,
@@ -630,6 +634,7 @@ function getViewportFocusBoundsMm(
 function createViewportForBoundsWithTopBias(
   boundsMm: { x: number; y: number; width: number; height: number },
   canvasSizePx: CanvasSizePx = DEFAULT_CANVAS_SIZE,
+  preferredZoomPxPerMm?: number,
 ) {
   const safeCanvasSize = {
     width: canvasSizePx.width > 0 ? canvasSizePx.width : DEFAULT_CANVAS_SIZE.width,
@@ -643,7 +648,7 @@ function createViewportForBoundsWithTopBias(
     1,
     safeCanvasSize.height - VIEWPORT_TOP_PADDING_PX - VIEWPORT_BOTTOM_PADDING_PX,
   )
-  const zoomPxPerMm = fitZoomPxPerMm(
+  const fitZoomPxPerMmForBounds = fitZoomPxPerMm(
     {
       width: boundsMm.width,
       height: boundsMm.height,
@@ -654,6 +659,10 @@ function createViewportForBoundsWithTopBias(
     },
     0,
   )
+  const zoomPxPerMm =
+    preferredZoomPxPerMm !== undefined
+      ? preferredZoomPxPerMm
+      : fitZoomPxPerMmForBounds
   const cameraCenterMm = {
     x: roundMm(boundsMm.x + boundsMm.width / 2),
     y: roundMm(
@@ -691,9 +700,14 @@ function createViewportForScene(
     focusedBreadboardId,
   )
   const worldBounds = getSceneWorldBoundsMm(scene)
+  const preferredZoomPxPerMm =
+    scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
+      ? LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM
+      : undefined
   const baseViewport = createViewportForBoundsWithTopBias(
     focusBounds,
     safeCanvasSize,
+    preferredZoomPxPerMm,
   )
   const minimumZoomPxPerMm = fitZoomPxPerMm(
     {
@@ -717,7 +731,18 @@ function clampViewportForActiveWorkspace(args: {
   selection: SelectionState
   viewport: ViewportState
 }) {
-  const tableViewEdgePaddingMm = { x: 100, y: 80 }
+  const tableViewViewportWidthMm = Math.max(
+    1,
+    args.viewport.canvasSizePx.width / args.viewport.zoomPxPerMm,
+  )
+  const tableViewViewportHeightMm = Math.max(
+    1,
+    args.viewport.canvasSizePx.height / args.viewport.zoomPxPerMm,
+  )
+  const tableViewEdgePaddingMm = {
+    x: roundMm(tableViewViewportWidthMm),
+    y: roundMm(tableViewViewportHeightMm),
+  }
   const workspaceViewMode = resolveWorkspaceViewModeForScene(
     args.scene,
     args.interaction.workspaceViewMode,
@@ -4883,6 +4908,51 @@ export const useEditorStore = create<EditorStore>((set) => ({
       }, {
         mergeKey: `post-holder-diameter:${selectedComponent.id}`,
       })
+    })
+  },
+
+  setSelectedSimpleIconStyleOverride: (simpleIconStyleOverride) => {
+    set((state) => {
+      if (state.interaction.pendingPlacement) {
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...state.interaction.pendingPlacement,
+              draft: {
+                ...state.interaction.pendingPlacement.draft,
+                simpleIconStyleOverride,
+              },
+            },
+          },
+        }
+      }
+
+      const selectedComponent = getSelectedComponent(state.scene, state.selection)
+
+      if (!selectedComponent) {
+        return state
+      }
+
+      return withCommittedScene(
+        state,
+        {
+          scene: {
+            ...state.scene,
+            components: state.scene.components.map((component) =>
+              component.id === selectedComponent.id
+                ? {
+                    ...component,
+                    simpleIconStyleOverride,
+                  }
+                : component,
+            ),
+          },
+        },
+        {
+          mergeKey: `component-icon-style:${selectedComponent.id}`,
+        },
+      )
     })
   },
 

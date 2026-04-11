@@ -15,6 +15,7 @@ import type {
   PlacementStatus,
   RenderMode,
   ScreenPointPx,
+  SimpleIconStyle,
   ViewportState,
 } from '../domain/types'
 import { ComponentGlyph } from './ComponentGlyph'
@@ -57,7 +58,7 @@ interface ComponentNodeProps {
   renderMode: RenderMode
   resolveDragPositionPx?: (screenPointPx: ScreenPointPx) => ScreenPointPx
   simpleGlyphAppearance?: SimpleGlyphAppearance
-  simpleIconStyle?: 'clean' | 'classic'
+  simpleIconStyle?: SimpleIconStyle
   surfaceSupportCompensationMm?: number
   viewport: ViewportState
 }
@@ -699,7 +700,9 @@ export const ComponentNode = memo(function ComponentNode(props: ComponentNodePro
   const simpleGlyphAppearance = useEditorStore(
     (state) => state.simpleGlyphAppearances[props.instance.id],
   )
-  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
+  const globalSimpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
+  const simpleIconStyle =
+    props.instance.simpleIconStyleOverride ?? props.simpleIconStyle ?? globalSimpleIconStyle
 
   return (
     <ComponentNodeView

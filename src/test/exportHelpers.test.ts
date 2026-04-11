@@ -9,6 +9,7 @@ import { createSceneSvg } from '../domain/svgExport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from '../domain/tutorialScene'
 import { convertSceneToOpticalTable, createBreadboardInstance } from '../domain/workspace'
 import { createBreadboardFromPreset } from '../domain/breadboardPresets'
+import { DEFAULT_SIMPLE_ICON_STYLE } from '../domain/types'
 
 describe('export helpers', () => {
   it('creates mm-native layered SVG output from resolved scene geometry', () => {
@@ -32,6 +33,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
       scope: 'breadboard-only',
       showGaussianEnvelope: false,
     })
@@ -64,6 +66,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
       scope: 'breadboard-only',
       showGaussianEnvelope: false,
     })
@@ -141,6 +144,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
       scope: 'breadboard-only',
       showGaussianEnvelope: false,
     })
@@ -149,6 +153,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
       scope: 'breadboard-only',
       showGaussianEnvelope: false,
     })
@@ -196,6 +201,7 @@ describe('export helpers', () => {
       gaussianTrace,
       renderMode: 'realistic',
       scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
       scope: 'full-scheme',
       showGaussianEnvelope: false,
     })

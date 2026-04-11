@@ -165,11 +165,32 @@ describe('scene serialization', () => {
     expect(parseSceneDocument(serializeSceneDocument(scene))).toEqual(scene)
   })
 
+  it('round-trips per-component simple icon style overrides through JSON', () => {
+    const scene = createEmptyScene()
+    const mirrorDefinition = getComponentDefinition('mirror')
+
+    scene.components.push({
+      id: 'mirror-1',
+      type: 'mirror',
+      label: 'Mirror 1',
+      variantId: mirrorDefinition.defaultVariantId,
+      anchorMm: { x: 125, y: 125 },
+      rotationQuarterTurns: 0,
+      simpleIconStyleOverride: 'classic',
+      config: createDefaultComponentConfig('mirror', mirrorDefinition.defaultVariantId),
+    })
+
+    const parsed = parseSceneDocument(serializeSceneDocument(scene))
+
+    expect(parsed.components[0]?.simpleIconStyleOverride).toBe('classic')
+    expect(parsed).toEqual(scene)
+  })
+
   it('migrates legacy line annotations without explicit kinds', () => {
     const scene = createEmptyScene()
     const legacyJson = JSON.stringify({
       ...scene,
-      version: 8,
+      version: 9,
       annotations: [
         {
           id: 'legacy-line',
@@ -183,7 +204,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(9)
+    expect(migrated.version).toBe(10)
     expect(migrated.annotations[0]).toMatchObject({
       id: 'legacy-line',
       kind: 'line',
@@ -214,7 +235,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(9)
+    expect(migrated.version).toBe(10)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -269,7 +290,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(9)
+    expect(migrated.version).toBe(10)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -322,7 +343,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(9)
+    expect(migrated.version).toBe(10)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

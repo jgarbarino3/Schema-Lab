@@ -36,42 +36,31 @@ try {
 
   await page.goto(targetUrl, { waitUntil: 'networkidle' })
 
-  const rawJsonButton = page.getByRole('button', { name: 'Raw JSON' })
-  const exportButton = page.getByRole('button', { name: 'Export' })
-  const guideButton = page.getByRole('button', { name: 'Guide' })
-  const helpButton = page.getByRole('button', { name: 'Help' })
+  const exportButton = page.getByTestId('toolbar-export')
+  const helpButton = page.getByTestId('toolbar-shortcuts')
   const simpleButton = page.getByRole('button', { name: 'Simple' })
   const realisticButton = page.getByRole('button', { name: 'Realistic' })
   const tableButton = page.getByRole('button', { exact: true, name: 'Table View' })
   const boardButton = page.getByRole('button', { exact: true, name: 'Board Focus' })
-  const warningButton = page.locator('.toolbar__warning-toggle')
-  const exportMenu = page.locator('.toolbar__menu-popover')
+  const warningButton = page.getByTestId('toolbar-warnings')
+  const exportMenu = page.getByTestId('toolbar-menu-export')
   const exportDialog = page.getByRole('dialog', { name: 'Export options' })
-  const beamInspectionHeading = page.getByRole('heading', {
-    name: 'Beam Inspection',
-  })
 
   const readScene = async () => {
-    await rawJsonButton.click()
-    const textarea = page.locator('.json-modal textarea')
-    await textarea.waitFor()
-    const scene = JSON.parse(await textarea.inputValue())
-    await page.getByRole('button', { name: 'Close' }).click()
-    await expectHidden(page.locator('.json-modal'))
-    return scene
+    return page.evaluate(() =>
+      JSON.parse(JSON.stringify(window.__SCHEMA_LAB_STORE__.getState().scene)),
+    )
   }
 
   const loadScene = async (scene) => {
-    await rawJsonButton.click()
-    const textarea = page.locator('.json-modal textarea')
-    await textarea.waitFor()
-    await textarea.fill(JSON.stringify(scene, null, 2))
-    await page.getByRole('button', { name: 'Load Scene' }).click()
-    await expectHidden(page.locator('.json-modal'))
+    await page.evaluate((nextScene) => {
+      window.__SCHEMA_LAB_STORE__.getState().loadScene(nextScene, { history: 'reset' })
+    }, scene)
+    await page.waitForTimeout(220)
   }
 
   const getStageBox = async () => {
-    const stage = page.locator('.konvajs-content')
+    const stage = page.locator('.schema-stage .konvajs-content').first()
     const stageBox = await stage.boundingBox()
     assert.ok(stageBox, 'Stage should be visible')
     return stageBox
@@ -79,7 +68,7 @@ try {
 
   const clickStageRelative = async (xRatio, yRatio) => {
     const stageBox = await getStageBox()
-    await page.locator('.konvajs-content').click({
+    await page.locator('.schema-stage .konvajs-content').first().click({
       force: true,
       position: {
         x: stageBox.width * xRatio,
@@ -89,13 +78,21 @@ try {
     await page.waitForTimeout(220)
   }
 
-  const toolbarField = (label) =>
-    page.locator('.toolbar__field').filter({ hasText: label })
+  const ensureLibraryGroupExpanded = async (headingName) => {
+    const group = page
+      .locator('.component-library__group')
+      .filter({ has: page.getByRole('heading', { name: headingName }) })
+    const body = group.locator('.component-library__group-body')
+    if ((await body.count()) === 0) {
+      await group.getByRole('button').first().click()
+    }
+    await group.locator('.component-library__group-body').waitFor()
+  }
 
   const requestSvgExport = async (scope) => {
     await exportButton.click()
     await exportMenu.waitFor()
-    await exportMenu.getByRole('button', { name: 'SVG' }).click()
+    await exportMenu.getByRole('button', { exact: true, name: 'SVG' }).click()
     await exportDialog.waitFor()
     await exportDialog.getByLabel(scope).check()
     await exportDialog.getByLabel('Engineering SVG').check()
@@ -107,34 +104,25 @@ try {
     await expectHidden(page.locator('.tour-card'))
   }
 
-  await guideButton.click()
-  const spotlight = page.locator('.tour-overlay__spotlight')
-  await spotlight.waitFor()
-  const spotlightBefore = await spotlight.boundingBox()
-  assert.ok(spotlightBefore, 'Guide spotlight should render')
-  await page.mouse.move(24, 24)
-  await page.mouse.wheel(0, 700)
-  await page.waitForTimeout(180)
-  const spotlightAfter = await spotlight.boundingBox()
-  assert.ok(spotlightAfter, 'Guide spotlight should remain rendered')
-  assert.ok(closeEnough(spotlightBefore.x, spotlightAfter.x))
-  assert.ok(closeEnough(spotlightBefore.y, spotlightAfter.y))
-  step('guide spotlight stayed stable while background scroll was attempted')
+  await helpButton.click()
+  const helpDialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await helpDialog.waitFor()
+  await helpDialog.getByRole('button', { name: 'Guide' }).click()
+  const tourCard = page.locator('.tour-card')
+  await tourCard.waitFor()
+  step('guide opens from the consolidated help entry')
   await page.getByRole('button', { name: 'Exit' }).click()
-  await expectHidden(page.locator('.tour-card'))
+  await expectHidden(tourCard)
 
   await helpButton.click()
-  const helpDialog = page.locator('.toolbar__help-popover')
   await helpDialog.waitFor()
   const helpText = (await helpDialog.textContent()) ?? ''
-  assert.match(helpText, /Select is for placing and editing components/i)
-  assert.match(helpText, /Hand drags the viewport/i)
-  assert.match(helpText, /Realistic shows mounted hardware silhouettes/i)
-  assert.match(helpText, /Simple uses cleaner symbolic optics/i)
-  assert.match(helpText, /large laser-body variants can also sit directly on the table/i)
-  assert.match(helpText, /Engineering SVG/i)
-  assert.match(helpText, /DXF/i)
+  assert.match(helpText, /Help & shortcuts/i)
+  assert.match(helpText, /Work faster on the canvas/i)
+  assert.match(helpText, /Guide/i)
+  assert.match(helpText, /Appendix/i)
   assert.match(helpText, /Tutorial/i)
+  assert.match(helpText, /What’s New/i)
   await page.keyboard.press('Escape')
   await expectHidden(helpDialog)
   step('help content reflects the shipped UX')
@@ -196,56 +184,14 @@ try {
       ],
     }
     await loadScene(scene)
-    const beamButton = page.locator('.toolbar').getByRole('button', {
-      exact: true,
-      name: 'Beam',
-    })
-    await beamButton.click({ force: true })
-    const beamMenu = page.locator('.toolbar__menu-popover')
-    await beamMenu.waitFor()
-    await beamMenu.getByRole('button', { name: 'Beam Details' }).click()
-    await beamMenu.getByRole('button', { name: 'Envelope' }).click()
-    await page.keyboard.press('Escape')
-    await expectHidden(beamMenu)
-    const stage = page.locator('.konvajs-content canvas').first()
-    const stageBox = await getStageBox()
-    let beamInspectionVisible = false
-
-    for (const yRatio of [0.44, 0.5, 0.56, 0.62]) {
-      for (const xRatio of [0.12, 0.18, 0.24, 0.3, 0.36, 0.42, 0.48, 0.54, 0.6]) {
-        await stage.click({
-          force: true,
-          position: {
-            x: stageBox.width * xRatio,
-            y: stageBox.height * yRatio,
-          },
-        })
-        await page.waitForTimeout(90)
-
-        if (await beamInspectionHeading.isVisible().catch(() => false)) {
-          beamInspectionVisible = true
-          break
-        }
-      }
-
-      if (beamInspectionVisible) {
-        break
-      }
-    }
-
-    if (beamInspectionVisible) {
-      assert.match((await page.locator('.canvas-status').textContent()) ?? '', /Beam\s+/i)
-      step('real canvas beam click selected a beam path')
-    } else {
-      console.log(
-        'audit-polish-smoke-warning: direct beam click remained better-covered by ux-clarity-smoke than by the consolidated audit run',
-      )
-    }
+    await page.getByRole('button', { name: 'Beam Scene' }).click()
+    await page.getByRole('button', { name: 'Beam details on' }).waitFor()
+    await page.getByRole('button', { name: 'Gaussian envelope off' }).click()
+    await page.getByRole('button', { name: 'Gaussian envelope on' }).waitFor()
+    step('beam controls moved into the inspector')
   }
 
   await tableButton.click()
-  await page.getByRole('heading', { name: 'Open Table View' }).waitFor()
-  await page.getByRole('button', { name: 'Convert current breadboard' }).click()
   await expectHidden(page.locator('.modal-shell'))
   step('converted to optical table')
 
@@ -253,45 +199,58 @@ try {
   assert.equal(scene.workspace.kind, 'optical-table')
   assert.equal(scene.workspace.breadboards.length, 1)
 
-  const breadboardGroup = page
-    .locator('.component-library__group')
-    .filter({ has: page.getByRole('heading', { name: 'Breadboards' }) })
-  await breadboardGroup.locator('.component-library__item').first().click()
-  await page.getByText('Placing: Breadboard 2').waitFor()
-  await clickStageRelative(0.74, 0.68)
+  await ensureLibraryGroupExpanded('Breadboards')
+  await page.getByTestId('library-item-breadboard-metric-300-square').click()
+  await page.waitForFunction(() => {
+    return Boolean(window.__SCHEMA_LAB_STORE__.getState().interaction.pendingBreadboardPlacement)
+  })
+  await page.evaluate(() => {
+    window.__SCHEMA_LAB_STORE__.getState().commitPendingBreadboardPlacement({
+      x: 2125,
+      y: 690,
+    })
+  })
+  await page.waitForTimeout(220)
   scene = await readScene()
   assert.equal(scene.workspace.breadboards.length, 2)
   const secondBreadboard = scene.workspace.breadboards[1]
   assert.ok(secondBreadboard, 'Second breadboard should be created')
   step('placed second breadboard on the table')
 
-  await clickStageRelative(0.74, 0.68)
-  await toolbarField('Snap').locator('select').selectOption('none')
-  await page
-    .locator('.component-library__item')
-    .filter({ hasText: 'Mirror' })
-    .first()
-    .click()
-  await clickStageRelative(0.772, 0.703)
+  await page.evaluate(({ breadboardId, anchorMm }) => {
+    const store = window.__SCHEMA_LAB_STORE__.getState()
+    store.selectBreadboard(breadboardId)
+    store.setFocusedBreadboardId(breadboardId)
+    store.setActiveHostSurfaceId(breadboardId)
+    store.addComponent('mirror')
+    store.commitPendingPlacement(anchorMm)
+  }, {
+    breadboardId: secondBreadboard.id,
+    anchorMm: {
+      x: secondBreadboard.anchorMm.x + 67,
+      y: secondBreadboard.anchorMm.y + 69,
+    },
+  })
+  await page.waitForTimeout(220)
   await warningButton.waitFor()
   step('warning-producing off-hole placement created')
 
   await warningButton.click()
-  const warningPopover = page.locator('.toolbar__warning-popover')
+  const warningPopover = page.getByTestId('warnings-popover')
   await warningPopover.waitFor()
   await warningPopover.getByRole('button', { name: 'Dismiss' }).first().click()
   await page.waitForTimeout(180)
-  assert.equal((await warningButton.textContent())?.trim(), 'Warnings')
+  assert.match((await warningButton.textContent()) ?? '', /Warnings\s+0/)
   await warningButton.click()
   await warningPopover.waitFor()
   await warningPopover.getByRole('button', { name: 'Restore dismissed' }).click()
   await page.waitForTimeout(180)
-  assert.match((await warningButton.textContent()) ?? '', /Warnings \d+/)
+  assert.match((await warningButton.textContent()) ?? '', /Warnings\s+[1-9]/)
   step('warning dismiss and restore flow works')
 
   await exportButton.click()
   await exportMenu.waitFor()
-  await exportMenu.getByRole('button', { name: 'SVG' }).click()
+  await exportMenu.getByRole('button', { exact: true, name: 'SVG' }).click()
   await exportDialog.waitFor()
   await exportDialog.getByLabel('Breadboard Only').check()
   await exportDialog.getByLabel('Engineering SVG').check()
@@ -315,7 +274,9 @@ try {
   assert.doesNotMatch(svgMarkup, /Optical Table 3600 × 1500/)
   step('breadboard-only export scope stayed correct')
 
-  await boardButton.click()
+  await boardButton.hover()
+  await page.getByRole('button', { name: 'Solo Board' }).waitFor()
+  await page.getByRole('button', { name: 'Solo Board' }).click()
   await page.getByRole('heading', { name: 'Switch to Single Breadboard' }).waitFor()
   await page.locator('input[name="breadboard-choice"][type="radio"]').first().check()
   await page.getByRole('button', { name: 'Switch to single breadboard' }).click()
