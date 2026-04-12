@@ -730,6 +730,7 @@ function clampViewportForActiveWorkspace(args: {
   scene: SceneDocument
   selection: SelectionState
   viewport: ViewportState
+  skipClamping?: boolean
 }) {
   const tableViewViewportWidthMm = Math.max(
     1,
@@ -757,6 +758,10 @@ function clampViewportForActiveWorkspace(args: {
     workspaceViewMode,
     focusedBreadboardId,
   )
+
+  if (args.skipClamping) {
+    return args.viewport
+  }
 
   return clampViewportToKeepBoundsVisible(
     args.viewport,
@@ -2408,6 +2413,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         scene: state.scene,
         selection: state.selection,
         viewport,
+        skipClamping: true,
       }),
     }))
   },

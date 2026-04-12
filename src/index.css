@@ -114,8 +114,10 @@ textarea {
 
 .app-shell {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -508,6 +510,7 @@ textarea {
 .workspace__canvas,
 .workspace__right-panel {
   min-width: 0;
+  min-height: 0;
 }
 
 .workspace__left-panel {
@@ -564,6 +567,7 @@ textarea {
 
 .panel,
 .canvas-panel {
+  height: 100%;
   min-height: 0;
   background: linear-gradient(180deg, var(--panel), var(--panel-strong));
   border: 1px solid transparent;

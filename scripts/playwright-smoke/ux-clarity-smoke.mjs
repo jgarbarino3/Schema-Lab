@@ -16,6 +16,23 @@ async function expectHidden(locator) {
   })
 }
 
+async function readStageShellMetrics(page) {
+  return page.evaluate(() => {
+    const stageShell = document.querySelector('.canvas-panel__stage-shell')
+    const rect = stageShell?.getBoundingClientRect()
+    const titleEditor = document.querySelector('.panel__title-editor-input')
+
+    return {
+      bodyScrollHeight: document.body.scrollHeight,
+      scrollY: window.scrollY,
+      titleValue: titleEditor instanceof HTMLTextAreaElement ? titleEditor.value : '',
+      viewportHeight: window.innerHeight,
+      y: rect?.y ?? 0,
+      height: rect?.height ?? 0,
+    }
+  })
+}
+
 const browser = await chromium.launch({ headless: true })
 
 try {
@@ -76,6 +93,60 @@ try {
   await page.getByTestId('library-item-laser-source').waitFor()
   await page.getByTestId('library-search').fill('')
   step('library search works')
+
+  await page.locator('[data-testid="library-group-beam-steering"] .component-library__group-header').click()
+  await page.getByTestId('library-item-mirror').click()
+  const stageShell = page.locator('.canvas-panel__stage-shell')
+  const stageShellBox = await stageShell.boundingBox()
+  assert.ok(stageShellBox, 'Expected a visible stage shell for placement')
+  await page.mouse.click(
+    stageShellBox.x + stageShellBox.width / 2,
+    stageShellBox.y + stageShellBox.height / 2,
+  )
+  await page.locator('.panel__title-editor-input').waitFor()
+  await page.waitForFunction(() => {
+    const titleEditor = document.querySelector('.panel__title-editor-input')
+    return titleEditor instanceof HTMLTextAreaElement && /mirror/i.test(titleEditor.value)
+  })
+  const selectedComponentId = await page.evaluate(() => {
+    const store = (window).__SCHEMA_LAB_STORE__
+    const selection = store?.getState().selection
+    return selection?.type === 'component' ? selection.componentId : undefined
+  })
+  assert.ok(selectedComponentId, 'Expected the placed mirror to be selected')
+  const selectedComponentMetrics = await readStageShellMetrics(page)
+  assert.ok(
+    selectedComponentMetrics.bodyScrollHeight <= selectedComponentMetrics.viewportHeight,
+    'Selecting a component should not make the page taller than the viewport',
+  )
+
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => {
+    const titleEditor = document.querySelector('.panel__title-editor-input')
+    return titleEditor instanceof HTMLTextAreaElement && /breadboard/i.test(titleEditor.value)
+  })
+  const breadboardMetrics = await readStageShellMetrics(page)
+
+  await page.evaluate((componentId) => {
+    window.__SCHEMA_LAB_STORE__?.getState().selectComponent(componentId)
+  }, selectedComponentId)
+  await page.waitForFunction(() => {
+    const titleEditor = document.querySelector('.panel__title-editor-input')
+    return titleEditor instanceof HTMLTextAreaElement && /mirror/i.test(titleEditor.value)
+  })
+  const reselectedComponentMetrics = await readStageShellMetrics(page)
+
+  assert.ok(
+    Math.abs(breadboardMetrics.y - reselectedComponentMetrics.y) <= 2,
+    `Expected stage shell Y to stay stable when selection changes, got ${breadboardMetrics.y} vs ${reselectedComponentMetrics.y}`,
+  )
+  assert.ok(
+    Math.abs(breadboardMetrics.height - reselectedComponentMetrics.height) <= 2,
+    `Expected stage shell height to stay stable when selection changes, got ${breadboardMetrics.height} vs ${reselectedComponentMetrics.height}`,
+  )
+  assert.equal(breadboardMetrics.scrollY, 0)
+  assert.equal(reselectedComponentMetrics.scrollY, 0)
+  step('selection changes do not resize or scroll the canvas column')
 
   assert.equal(await page.getByTestId('toolbar-snap-mode').count(), 0)
   assert.doesNotMatch(await page.locator('.toolbar').textContent(), /\bSnap\b/)
@@ -170,7 +241,7 @@ try {
   assert.match((await exportMenu.textContent()) ?? '', /PDF/i)
   assert.match((await exportMenu.textContent()) ?? '', /SVG/i)
   assert.match((await exportMenu.textContent()) ?? '', /DXF/i)
-  await exportMenu.getByRole('button', { name: 'SVG' }).click()
+  await exportMenu.getByRole('button', { exact: true, name: 'SVG' }).click()
   const exportDialog = page.getByRole('dialog', { name: 'Export options' })
   await exportDialog.waitFor()
   await exportDialog.getByRole('button', { name: 'Cancel' }).click()
