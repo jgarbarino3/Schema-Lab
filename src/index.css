@@ -1403,12 +1403,19 @@ textarea {
 
 .inspector__input-with-suffix input {
   width: 100%;
-  padding-right: 2rem;
+  padding-right: 1.5rem;
+  appearance: textfield;
+}
+
+.inspector__input-with-suffix input::-webkit-inner-spin-button,
+.inspector__input-with-suffix input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .inspector__input-suffix {
   position: absolute;
-  right: 0.6rem;
+  right: 0.3rem;
   top: 50%;
   transform: translateY(-50%);
   color: var(--muted-dim) !important;
@@ -2351,7 +2358,7 @@ textarea {
 
   .panel__collapse-chevron {
     width: 1.2rem;
-    height: 1.5rem;
+    height: 2.8rem;
   }
 }
 
@@ -3052,6 +3059,7 @@ textarea {
   align-items: flex-start;
   gap: 0.46rem;
   width: min(100%, 100%);
+  padding-left: 1.2rem;
 }
 
 .panel__title-editor-icon {
@@ -3061,6 +3069,13 @@ textarea {
   height: 1.1rem;
   color: rgba(165, 186, 196, 0.82);
   flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.panel__title-editor:hover .panel__title-editor-icon,
+.panel__title-editor:focus-within .panel__title-editor-icon {
+  opacity: 1;
 }
 
 .panel__title-editor-icon svg {
@@ -3095,39 +3110,40 @@ textarea {
 
 .panel__collapse-chevron {
   position: absolute;
-  left: -0.2rem;
-  top: calc(50% + 0.35rem);
+  left: -0.5rem;
+  top: calc(50% + 0.9rem);
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.4rem;
-  height: 1.8rem;
+  height: 3.2rem;
   padding: 0;
-  border: 1px solid rgba(145, 168, 182, 0.12);
-  border-radius: 6px;
-  background: rgba(14, 19, 24, 0.92);
-  color: rgba(165, 186, 196, 0.72);
+  border: 1px solid rgba(125, 200, 228, 0.18);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(18, 40, 51, 0.88), rgba(12, 24, 32, 0.92));
+  color: rgba(140, 207, 223, 0.65);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .panel__collapse-chevron:hover {
-  background: rgba(24, 34, 42, 0.96);
+  background: linear-gradient(180deg, rgba(27, 62, 76, 0.96), rgba(18, 41, 50, 0.96));
   color: var(--accent-strong);
-  border-color: rgba(141, 201, 220, 0.35);
+  border-color: rgba(141, 201, 220, 0.45);
+  box-shadow: 0 0 10px rgba(125, 200, 228, 0.18);
   transform: translateY(-50%);
 }
 
 .panel__collapse-chevron svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 .panel__collapse-chevron--left {
   left: auto;
-  right: -0.2rem;
-  top: calc(50% - 0.35rem);
+  right: -0.5rem;
+  top: calc(50% - 1rem);
 }
 
 .panel__eyebrow {
@@ -4297,7 +4313,7 @@ textarea {
 
   .panel__collapse-chevron {
     width: 1.4rem;
-    height: 1.8rem;
+    height: 3.2rem;
   }
 }
 

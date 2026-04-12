@@ -2066,15 +2066,6 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       return {
         selection: { type: 'component', componentId },
-        viewport:
-          state.scene.workspace.kind === 'optical-table' &&
-          state.interaction.workspaceViewMode === 'board-focus' &&
-          focusedBreadboardId
-            ? createViewportForScene(state.scene, state.viewport.canvasSizePx, {
-                focusedBreadboardId,
-                workspaceViewMode: 'board-focus',
-              })
-            : state.viewport,
         interaction: clearHighlightInteractionState({
           ...state.interaction,
           activeHostSurfaceId:

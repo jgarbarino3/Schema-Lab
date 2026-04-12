@@ -219,6 +219,31 @@ describe('editor store optical table placement', () => {
     expect(useEditorStore.getState().interaction.pendingPlacement).toBeUndefined()
   })
 
+  it('keeps the viewport fixed when selecting a component', () => {
+    const store = useEditorStore.getState()
+
+    store.selectOpticalTable()
+    store.addComponent('mirror')
+    store.commitPendingPlacement({ x: 2355, y: 595 })
+
+    const componentId = useEditorStore.getState().scene.components[0]!.id
+
+    store.setViewportSize({ width: 1400, height: 900 })
+    store.setWorkspaceViewMode('board-focus')
+    store.resetViewport()
+    store.panViewportByScreenDelta({ x: 180, y: 96 })
+
+    const viewportBeforeSelection = useEditorStore.getState().viewport
+
+    store.selectComponent(componentId)
+
+    expect(useEditorStore.getState().viewport).toEqual(viewportBeforeSelection)
+    expect(useEditorStore.getState().selection).toEqual({
+      type: 'component',
+      componentId,
+    })
+  })
+
   it('retargets component drags across table and breadboard surfaces', () => {
     const scene = useEditorStore.getState().scene
 
