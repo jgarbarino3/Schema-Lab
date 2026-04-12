@@ -512,11 +512,33 @@ function PanelTitleEditor({
 
   useLayoutEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = '0px'
-      const scrollHeight = textareaRef.current.scrollHeight
-      textareaRef.current.style.height = scrollHeight + 'px'
+      const resize = () => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = '0px'
+          const scrollHeight = textareaRef.current.scrollHeight
+          const maxHeight = 60
+          textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px'
+        }
+      }
+      resize()
+      requestAnimationFrame(resize)
     }
   }, [value])
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      const resize = () => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = '0px'
+          const scrollHeight = textareaRef.current.scrollHeight
+          const maxHeight = 60
+          textareaRef.current.style.height = Math.min(scrollHeight, maxHeight) + 'px'
+        }
+      }
+      resize()
+      requestAnimationFrame(resize)
+    }
+  }, [])
 
   return (
     <label className="panel__title-editor">
