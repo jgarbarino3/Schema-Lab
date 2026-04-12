@@ -2392,18 +2392,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   setViewportSize: (canvasSizePx) => {
     set((state) => {
-      const nextViewport = clampViewportForActiveWorkspace({
-        interaction: state.interaction,
-        scene: state.scene,
-        selection: state.selection,
+      return {
         viewport: {
           ...state.viewport,
           canvasSizePx,
         },
-      })
-
-      return {
-        viewport: nextViewport,
       }
     })
   },

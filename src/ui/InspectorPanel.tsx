@@ -202,11 +202,246 @@ function NumberField({
   )
 }
 
-function SimpleIconStyleOptionCopy({ style }: { style: 'clean' | 'classic' }) {
+function renderIconStyleGlyph(glyph: string, isClassic: boolean) {
+  const s = 'currentColor'
+  switch (glyph) {
+    case 'mirror':
+      return isClassic ? (
+        <>
+          <path d="M17 7 L7 17" stroke={s} strokeLinecap="round" strokeWidth="2" />
+          <path d="M9 16 L7 18" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+          <path d="M11 14 L9 16" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+          <path d="M13 12 L11 14" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+        </>
+      ) : (
+        <path d="M17 7 L7 17" stroke={s} strokeLinecap="round" strokeWidth="2" />
+      )
+    case 'curved-mirror':
+      return isClassic ? (
+        <>
+          <path d="M17 7 Q10.5 10.5 7 17" stroke={s} strokeLinecap="round" fill="none" strokeWidth="2" />
+          <path d="M9 16 L7 18" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+          <path d="M10.5 14 L8.5 16" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+        </>
+      ) : (
+        <path d="M17 7 Q10.5 10.5 7 17" stroke={s} strokeLinecap="round" fill="none" strokeWidth="2" />
+      )
+    case 'beamsplitter':
+      return isClassic ? (
+        <>
+          <rect x="7.8" y="7.8" width="8.4" height="8.4" rx="0.5" transform="rotate(45 12 12)" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+          <path d="M9 9 L15 15" stroke={s} strokeLinecap="round" strokeWidth="0.9" opacity="0.6" />
+        </>
+      ) : (
+        <>
+          <rect x="7.8" y="7.8" width="8.4" height="8.4" rx="0.5" transform="rotate(45 12 12)" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+        </>
+      )
+    case 'lens':
+      return isClassic ? (
+        <>
+          <ellipse cx="12" cy="12" rx="2.8" ry="6.5" stroke={s} strokeWidth="1.3" fill="none" />
+          <path d="M12 5.5 L12 18.5" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      ) : (
+        <ellipse cx="12" cy="12" rx="2.8" ry="6.5" stroke={s} strokeWidth="1.3" fill="none" />
+      )
+    case 'filter':
+      return isClassic ? (
+        <>
+          <rect x="8.5" y="8.5" width="7" height="7" rx="0.5" transform="rotate(45 12 12)" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.2" />
+          <path d="M15 10 L17.5 10.5" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      ) : (
+        <>
+          <rect x="8.5" y="8.5" width="7" height="7" rx="0.5" transform="rotate(45 12 12)" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.2" />
+        </>
+      )
+    case 'attenuator':
+      return isClassic ? (
+        <>
+          <path d="M8 17 L12 7 L16 17 Z" stroke={s} strokeLinejoin="round" strokeWidth="1.3" fill="none" />
+          <path d="M5 13 L8.8 13" stroke={s} strokeLinecap="round" strokeWidth="1" />
+          <path d="M15.2 13 L19 13" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      ) : (
+        <path d="M8 17 L12 7 L16 17 Z" stroke={s} strokeLinejoin="round" strokeWidth="1.3" fill="none" />
+      )
+    case 'polarizer':
+      return isClassic ? (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.2" />
+          <path d="M14.5 9.5 L14.5 6" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.2" />
+          <path d="M15 9.5 L16.5 8" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      )
+    case 'waveplate':
+      return isClassic ? (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+          <path d="M8 8 L16 16" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+        </>
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M8 16 L16 8" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+          <path d="M10 10 L14 14" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      )
+    case 'iris':
+      return isClassic ? (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M12 6 L12 9.5" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+          <path d="M12 14.5 L12 18" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+        </>
+      ) : (
+        <>
+          <path d="M12 6 L12 9.5" stroke={s} strokeLinecap="round" strokeWidth="1.5" />
+          <path d="M12 14.5 L12 18" stroke={s} strokeLinecap="round" strokeWidth="1.5" />
+          <path d="M10 9.8 L12 10.8 L14 9.8" stroke={s} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" fill="none" />
+        </>
+      )
+    case 'bbo':
+      return isClassic ? (
+        <>
+          <path d="M5 12 L12 6 L19 12 L12 18 Z" stroke={s} strokeLinejoin="round" strokeWidth="1.2" fill="none" />
+          <path d="M6 12 L18 12" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      ) : (
+        <path d="M5 12 L12 6 L19 12 L12 18 Z" stroke={s} strokeLinejoin="round" strokeWidth="1.2" fill="none" />
+      )
+    case 'telescope':
+      return isClassic ? (
+        <>
+          <rect x="6" y="9" width="12" height="6" rx="1" stroke={s} strokeWidth="1.1" fill="none" />
+          <circle cx="8.5" cy="12" r="2.2" stroke={s} strokeWidth="1" fill="none" />
+          <circle cx="15.5" cy="12" r="2.2" stroke={s} strokeWidth="1" fill="none" />
+        </>
+      ) : (
+        <>
+          <ellipse cx="9" cy="12" rx="2" ry="5" stroke={s} strokeWidth="1.2" fill="none" />
+          <ellipse cx="15" cy="12" rx="2" ry="5" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M11 12 L13 12" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      )
+    case 'opa':
+      return isClassic ? (
+        <>
+          <rect x="7" y="8.5" width="10" height="7" rx="1.5" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M5 12 L7 12" stroke={s} strokeLinecap="round" strokeWidth="1" />
+          <path d="M17 12 L19 12" stroke={s} strokeLinecap="round" strokeWidth="1" />
+          <path d="M10 10.5 L12.5 12 L10 13.5" stroke={s} strokeLinecap="round" strokeLinejoin="round" strokeWidth="0.9" fill="none" />
+        </>
+      ) : (
+        <>
+          <rect x="7" y="8.5" width="10" height="7" rx="1.5" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M5 12 L7 12" stroke={s} strokeLinecap="round" strokeWidth="1" />
+          <path d="M17 12 L19 12" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      )
+    case 'sample':
+      return isClassic ? (
+        <>
+          <rect x="7" y="8" width="10" height="8" rx="0.5" stroke={s} strokeWidth="1.2" fill="none" />
+          <path d="M9 14 L15 10" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      ) : (
+        <rect x="7" y="8" width="10" height="8" rx="0.5" stroke={s} strokeWidth="1.2" fill="none" />
+      )
+    case 'fiber':
+      return isClassic ? (
+        <>
+          <circle cx="8" cy="12" r="2.8" stroke={s} strokeWidth="1.1" fill="none" />
+          <circle cx="16" cy="12" r="2.8" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M10.8 12 L13.2 12" stroke={s} strokeLinecap="round" strokeWidth="1.1" />
+        </>
+      ) : (
+        <>
+          <circle cx="9" cy="12" r="2.8" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M11.8 12 L18 12" stroke={s} strokeLinecap="round" strokeWidth="1.2" />
+        </>
+      )
+    case 'spectrometer':
+      return isClassic ? (
+        <>
+          <rect x="6" y="7.5" width="12" height="9" rx="1" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M10 10.5 L12.5 12 L10 13.5" stroke={s} strokeLinecap="round" strokeLinejoin="round" strokeWidth="0.9" fill="none" />
+          <path d="M15 10 L17 10.5" stroke={s} strokeLinecap="round" strokeWidth="0.9" />
+        </>
+      ) : (
+        <>
+          <rect x="6" y="7.5" width="12" height="9" rx="1" stroke={s} strokeWidth="1.1" fill="none" />
+          <circle cx="10" cy="12" r="1.8" stroke={s} strokeWidth="0.9" fill="none" />
+          <circle cx="14.5" cy="12" r="1.8" stroke={s} strokeWidth="0.9" fill="none" />
+        </>
+      )
+    case 'detector':
+      return isClassic ? (
+        <>
+          <path d="M14 6.5 A6 6 0 0 0 14 17.5" stroke={s} strokeWidth="1.3" fill="none" />
+          <path d="M14 6.5 L14 17.5" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+          <path d="M7 12 L10 12" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      ) : (
+        <>
+          <path d="M14 6.5 A6 6 0 0 0 14 17.5" stroke={s} strokeWidth="1.3" fill="none" />
+          <path d="M14 6.5 L14 17.5" stroke={s} strokeLinecap="round" strokeWidth="1.3" />
+        </>
+      )
+    case 'beam-dump':
+      return isClassic ? (
+        <>
+          <rect x="7" y="8" width="10" height="8" rx="1" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M9 8 L11 16" stroke={s} strokeLinecap="round" strokeWidth="0.8" />
+          <path d="M12 8 L14 16" stroke={s} strokeLinecap="round" strokeWidth="0.8" />
+          <path d="M15 8 L17 16" stroke={s} strokeLinecap="round" strokeWidth="0.8" />
+        </>
+      ) : (
+        <>
+          <rect x="7" y="8" width="10" height="8" rx="1" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M10 8 L12 16" stroke={s} strokeLinecap="round" strokeWidth="0.8" opacity="0.6" />
+          <path d="M13 8 L15 16" stroke={s} strokeLinecap="round" strokeWidth="0.8" opacity="0.6" />
+        </>
+      )
+    default:
+      return <path d="M17 7 L7 17" stroke={s} strokeLinecap="round" strokeWidth="2" />
+  }
+}
+
+function SimpleIconStyleOptionCopy({ glyph, style }: { glyph: string; style: 'clean' | 'classic' }) {
+  const isClassic = style === 'classic'
+
   return (
-    <div aria-hidden="true" className="inspector__icon-style-copy">
-      <strong>{style === 'classic' ? 'Classic optics' : 'Clean'}</strong>
-    </div>
+    <span className="inspector__icon-style-copy">
+      <span
+        aria-hidden="true"
+        className={`inspector__icon-style-bubble${isClassic ? ' inspector__icon-style-bubble--classic' : ' inspector__icon-style-bubble--clean'}`}
+      >
+        <svg
+          aria-hidden="true"
+          className="inspector__icon-style-bubble-icon"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          {renderIconStyleGlyph(glyph, isClassic)}
+        </svg>
+      </span>
+      <span className="inspector__icon-style-copy-text">
+        <strong>{isClassic ? 'Classic' : 'Clean'}</strong>
+      </span>
+    </span>
   )
 }
 
@@ -2330,7 +2565,7 @@ export function InspectorPanel({
                     readOnly
                     type="text"
                     value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
-                    style={{ width: '7rem', textAlign: 'right' }}
+                    style={{ width: '7rem', textAlign: 'left' }}
                   />
                 </Field>
               )}
@@ -2416,9 +2651,10 @@ export function InspectorPanel({
                             className={`inspector__icon-style-option${effectiveSimpleIconStyle === iconStyleOption ? ' is-active' : ''}`}
                             key={iconStyleOption}
                             onClick={() => setSelectedSimpleIconStyleOverride(iconStyleOption)}
+                            title={iconStyleOption === 'classic' ? 'Classic optics' : 'Clean optics'}
                             type="button"
                           >
-                            <SimpleIconStyleOptionCopy style={iconStyleOption} />
+                            <SimpleIconStyleOptionCopy glyph={spec.renderHint.glyph} style={iconStyleOption} />
                           </button>
                         ))}
                       </div>
