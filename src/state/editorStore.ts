@@ -433,7 +433,8 @@ const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
 const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
 const VIEWPORT_SIDE_PADDING_PX = 88
 const VIEWPORT_TOP_PADDING_PX = 28
-const SINGLE_BREADBOARD_VIEWPORT_TOP_PADDING_PX = 52
+const SINGLE_BREADBOARD_VIEWPORT_TOP_PADDING_PX = 66
+const SINGLE_BREADBOARD_DEFAULT_ZOOM_PX_PER_MM = 1.67
 const VIEWPORT_BOTTOM_PADDING_PX = 156
 const BOARD_LABEL_MARGIN_MM = 18
 const DEFAULT_SIMPLE_GLYPH_APPEARANCE: SimpleGlyphAppearanceState = {
@@ -703,9 +704,11 @@ function createViewportForScene(
   )
   const worldBounds = getSceneWorldBoundsMm(scene)
   const preferredZoomPxPerMm =
-    scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
-      ? LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM
-      : undefined
+    scene.workspace.kind === 'single-breadboard'
+      ? SINGLE_BREADBOARD_DEFAULT_ZOOM_PX_PER_MM
+      : scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
+        ? LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM
+        : undefined
   const topPaddingPx =
     scene.workspace.kind === 'single-breadboard'
       ? SINGLE_BREADBOARD_VIEWPORT_TOP_PADDING_PX
@@ -716,6 +719,22 @@ function createViewportForScene(
     preferredZoomPxPerMm,
     topPaddingPx,
   )
+  const tableViewFocusedBreadboard = 
+    scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
+      ? getBreadboardInstance(scene, focusedBreadboardId)
+      : undefined
+  const verticallyFramedViewport = tableViewFocusedBreadboard
+    ? {
+        ...baseViewport,
+        cameraCenterMm: {
+          ...baseViewport.cameraCenterMm,
+          y: roundMm(
+            tableViewFocusedBreadboard.anchorMm.y +
+              tableViewFocusedBreadboard.model.heightMm / 2,
+          ),
+        },
+      }
+    : baseViewport
   const minimumZoomPxPerMm = fitZoomPxPerMm(
     {
       width: worldBounds.width,
@@ -725,9 +744,9 @@ function createViewportForScene(
   )
 
   return baseViewport.zoomPxPerMm > minimumZoomPxPerMm
-    ? baseViewport
+    ? verticallyFramedViewport
     : {
-        ...baseViewport,
+        ...verticallyFramedViewport,
         zoomPxPerMm: minimumZoomPxPerMm,
       }
 }

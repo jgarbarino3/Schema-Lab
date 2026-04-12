@@ -204,8 +204,9 @@ describe('editor store single breadboard viewport', () => {
     const boardBounds = getBreadboardWorldBoundsMm(scene.workspace.breadboard)
     const boardTopPx = worldToScreen({ x: boardBounds.x, y: boardBounds.y }, viewport).y
 
-    expect(boardTopPx).toBeGreaterThan(75)
-    expect(boardTopPx).toBeLessThan(95)
+    expect(viewport.zoomPxPerMm).toBeCloseTo(1.67, 5)
+    expect(boardTopPx).toBeGreaterThan(95)
+    expect(boardTopPx).toBeLessThan(97)
   })
 })
 
@@ -418,7 +419,7 @@ describe('editor store optical table placement', () => {
     )
   })
 
-  it('uses a top-biased reset view for both board focus and table view', () => {
+  it('uses board-friendly reset framing for both board focus and table view', () => {
     const store = useEditorStore.getState()
 
     store.setViewportSize({ width: 1400, height: 900 })
@@ -447,10 +448,28 @@ describe('editor store optical table placement', () => {
     store.resetViewport()
 
     const tableViewport = useEditorStore.getState().viewport
-    const tableTopPx = worldToScreen({ x: 0, y: 0 }, tableViewport).y
+    const tableBreadboard = getBreadboardInstance(
+      useEditorStore.getState().scene,
+      'breadboard-2',
+    )
 
-    expect(tableTopPx).toBeGreaterThan(0)
-    expect(tableTopPx).toBeLessThan(90)
+    if (!tableBreadboard) {
+      throw new Error('expected breadboard-2 to exist in table view')
+    }
+
+    const tableBreadboardBounds = getBreadboardWorldBoundsMm(
+      tableBreadboard.model,
+      tableBreadboard.anchorMm,
+      tableBreadboard.rotationQuarterTurns,
+    )
+    const tableBoardTopPx = worldToScreen(
+      { x: tableBreadboardBounds.x, y: tableBreadboardBounds.y },
+      tableViewport,
+    ).y
+
+    expect(tableViewport.zoomPxPerMm).toBeCloseTo(0.93, 5)
+    expect(tableBoardTopPx).toBeGreaterThan(285)
+    expect(tableBoardTopPx).toBeLessThan(325)
   })
 
   it('restores the single-breadboard reset framing when leaving table view', () => {
@@ -469,8 +488,9 @@ describe('editor store optical table placement', () => {
     const boardBounds = getBreadboardWorldBoundsMm(scene.workspace.breadboard)
     const boardTopPx = worldToScreen({ x: boardBounds.x, y: boardBounds.y }, viewport).y
 
-    expect(boardTopPx).toBeGreaterThan(75)
-    expect(boardTopPx).toBeLessThan(95)
+    expect(viewport.zoomPxPerMm).toBeCloseTo(1.67, 5)
+    expect(boardTopPx).toBeGreaterThan(95)
+    expect(boardTopPx).toBeLessThan(97)
   })
 })
 
