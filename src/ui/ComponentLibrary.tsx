@@ -397,12 +397,21 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             <h2>Component library</h2>
           </div>
           <button
-            className="panel__collapse-button"
+            aria-label="Collapse library"
+            className="panel__collapse-chevron panel__collapse-chevron--left"
             data-tour="panel-library-toggle"
             onClick={onCollapse}
             type="button"
           >
-            Collapse
+            <svg fill="none" viewBox="0 0 24 24">
+              <path
+                d="M15 6l-6 6 6 6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            </svg>
           </button>
         </div>
         <label className="component-library__search">

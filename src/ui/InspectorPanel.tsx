@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useState, useMemo, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import {
   ANNOTATION_FONT_OPTIONS,
   ANNOTATION_SHAPE_OPTIONS,
@@ -208,7 +208,6 @@ function SimpleIconStyleOptionCopy({ style }: { style: 'clean' | 'classic' }) {
   return (
     <div aria-hidden="true" className="inspector__icon-style-copy">
       <strong>{style === 'classic' ? 'Classic optics' : 'Clean'}</strong>
-      <small>{style === 'classic' ? 'Lab-style symbols' : 'Simplified symbols'}</small>
     </div>
   )
 }
@@ -276,6 +275,16 @@ function PanelTitleEditor({
   onChange: (value: string) => void
   value: string
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '0px'
+      const scrollHeight = textareaRef.current.scrollHeight
+      textareaRef.current.style.height = scrollHeight + 'px'
+    }
+  }, [value])
+
   return (
     <label className="panel__title-editor">
       <span aria-hidden="true" className="panel__title-editor-icon">
@@ -295,11 +304,12 @@ function PanelTitleEditor({
           />
         </svg>
       </span>
-      <input
+      <textarea
         aria-label="Selection label"
         className="panel__title-editor-input"
         onChange={(event) => onChange(event.target.value)}
-        type="text"
+        ref={textareaRef}
+        rows={1}
         value={value}
       />
     </label>
@@ -1078,12 +1088,21 @@ export function InspectorPanel({
               </span>
             </div>
             <button
-              className="panel__collapse-button"
+              aria-label="Collapse inspector"
+              className="panel__collapse-chevron"
               data-tour="panel-inspector-toggle"
               onClick={onCollapse}
               type="button"
             >
-              Collapse
+              <svg fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M9 6l6 6-6 6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
             </button>
           </div>
         </div>
@@ -1644,12 +1663,21 @@ export function InspectorPanel({
               ) : null}
             </div>
             <button
-              className="panel__collapse-button"
+              aria-label="Collapse inspector"
+              className="panel__collapse-chevron"
               data-tour="panel-inspector-toggle"
               onClick={onCollapse}
               type="button"
             >
-              Collapse
+              <svg fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M9 6l6 6-6 6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
             </button>
           </div>
         </div>
@@ -1917,30 +1945,32 @@ export function InspectorPanel({
             ) : null}
           </div>
 
-          <div className="inspector__readout">
-            <div>
-              <span>Hole field</span>
-              <strong>
-                {holeCounts.xCount} × {holeCounts.yCount}
-              </strong>
+          <CollapsibleSection defaultOpen title="Board statistics">
+            <div className="inspector__readout">
+              <div>
+                <span>Hole field</span>
+                <strong>
+                  {holeCounts.xCount} × {holeCounts.yCount}
+                </strong>
+              </div>
+              <div>
+                <span>Total holes</span>
+                <strong>{holeCounts.totalCount}</strong>
+              </div>
+              <div>
+                <span>Effective pitch</span>
+                <strong>{effectivePitchMm.toFixed(1)} mm</strong>
+              </div>
+              <div>
+                <span>Active sources</span>
+                <strong>{activeSourceCount}</strong>
+              </div>
+              <div>
+                <span>Beam paths</span>
+                <strong>{beamTrace.pathSummaries.length}</strong>
+              </div>
             </div>
-            <div>
-              <span>Total holes</span>
-              <strong>{holeCounts.totalCount}</strong>
-            </div>
-            <div>
-              <span>Effective pitch</span>
-              <strong>{effectivePitchMm.toFixed(1)} mm</strong>
-            </div>
-            <div>
-              <span>Active sources</span>
-              <strong>{activeSourceCount}</strong>
-            </div>
-            <div>
-              <span>Beam paths</span>
-              <strong>{beamTrace.pathSummaries.length}</strong>
-            </div>
-          </div>
+          </CollapsibleSection>
 
           <CollapsibleSection title="Beam Scene">
             <div className="inspector__grid">
@@ -2171,12 +2201,21 @@ export function InspectorPanel({
             ) : null}
           </div>
           <button
-            className="panel__collapse-button"
+            aria-label="Collapse inspector"
+            className="panel__collapse-chevron"
             data-tour="panel-inspector-toggle"
             onClick={onCollapse}
             type="button"
           >
-            Collapse
+            <svg fill="none" viewBox="0 0 24 24">
+              <path
+                d="M9 6l6 6-6 6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -2200,7 +2239,7 @@ export function InspectorPanel({
               </Field>
 
             {showSimpleAppearanceStrip ? (
-              <div className="inspector__appearance-card inspector__placement-card--full">
+              <div className="inspector__appearance-card inspector__placement-card--full" style={{ paddingBottom: '0.2rem' }}>
                 <div className="inspector__appearance-header">
                   <span>Appearance</span>
                   {isAppearanceCustomized ? (
@@ -2250,11 +2289,85 @@ export function InspectorPanel({
                         ))}
                       </div>
                     </div>
-                    <div className="inspector__appearance-control-row">
-                      <span className="inspector__appearance-control-label">Size</span>
-                      <span className="inspector__appearance-value">
-                        {effectiveSimpleGlyphAppearance.scale.toFixed(2)}×
-                      </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="inspector__placement-card inspector__placement-card--full">
+                <span>Placement</span>
+                <strong>{placementStatusLabel}</strong>
+              </div>
+            )}
+
+            <div className="inspector__quick-edit-stack">
+              <NumberField
+                className="inspector__field--compact inspector__field--compact-anchor"
+                label="Anchor X"
+                onChange={(x) =>
+                  updateSelectedComponent({
+                    anchorMm: { x, y: inspectedComponent.anchorMm.y },
+                  })
+                }
+                displayPrecision={2}
+                step={0.5}
+                selectAllOnFocus
+                suffix="mm"
+                value={inspectedComponent.anchorMm.x}
+              />
+              <NumberField
+                className="inspector__field--compact inspector__field--compact-anchor"
+                label="Anchor Y"
+                onChange={(y) =>
+                  updateSelectedComponent({
+                    anchorMm: { x: inspectedComponent.anchorMm.x, y },
+                  })
+                }
+                displayPrecision={2}
+                step={0.5}
+                selectAllOnFocus
+                suffix="mm"
+                value={inspectedComponent.anchorMm.y}
+              />
+              {spec.mount.mode !== 'external-source' ? (
+                <Field className="inspector__field--compact inspector__field--compact-rotation" label="Rotation">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedComponent({
+                        rotationQuarterTurns: Number(event.target.value) as QuarterTurn,
+                      })
+                    }
+                    value={inspectedComponent.rotationQuarterTurns}
+                  >
+                    <option value={0}>0°</option>
+                    <option value={1}>90°</option>
+                    <option value={2}>180°</option>
+                    <option value={3}>270°</option>
+                  </select>
+                </Field>
+              ) : (
+                <Field label="Orientation" className="inspector__field--compact">
+                  <input
+                    className="inspector__field--compact-anchor"
+                    readOnly
+                    type="text"
+                    value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
+                    style={{ width: '7rem', textAlign: 'right' }}
+                  />
+                </Field>
+              )}
+            </div>
+
+            {showSimpleAppearanceStrip ? (
+              <div className="inspector__appearance-card inspector__placement-card--full">
+                <div className="inspector__appearance-strip inspector__appearance-strip--stacked">
+                  <div className="inspector__appearance-control-stack">
+                    <div className="inspector__appearance-control-stacked">
+                      <div className="inspector__appearance-control-stacked-header">
+                        <span className="inspector__appearance-control-label">Size</span>
+                        <span className="inspector__appearance-value">
+                          {effectiveSimpleGlyphAppearance.scale.toFixed(2)}×
+                        </span>
+                      </div>
                       <div className="inspector__button-row inspector__button-row--compact">
                         <StepperButton
                           label="-"
@@ -2276,11 +2389,13 @@ export function InspectorPanel({
                         />
                       </div>
                     </div>
-                    <div className="inspector__appearance-control-row">
-                      <span className="inspector__appearance-control-label">Weight</span>
-                      <span className="inspector__appearance-value">
-                        {effectiveSimpleGlyphAppearance.weight.toFixed(2)}×
-                      </span>
+                    <div className="inspector__appearance-control-stacked">
+                      <div className="inspector__appearance-control-stacked-header">
+                        <span className="inspector__appearance-control-label">Weight</span>
+                        <span className="inspector__appearance-value">
+                          {effectiveSimpleGlyphAppearance.weight.toFixed(2)}×
+                        </span>
+                      </div>
                       <div className="inspector__button-row inspector__button-row--compact">
                         <StepperButton
                           label="-"
@@ -2313,11 +2428,7 @@ export function InspectorPanel({
                           >
                             Use global
                           </button>
-                        ) : (
-                          <span className="inspector__field-note">
-                            Global {simpleIconStyle === 'classic' ? 'Classic optics' : 'Clean'}
-                          </span>
-                        )}
+                        ) : null}
                       </div>
                       <div className="inspector__icon-style-options">
                         {(['clean', 'classic'] as const).map((iconStyleOption) => (
@@ -2336,68 +2447,7 @@ export function InspectorPanel({
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="inspector__placement-card inspector__placement-card--full">
-                <span>Placement</span>
-                <strong>{placementStatusLabel}</strong>
-              </div>
-            )}
-
-            <div className="inspector__quick-edit-stack">
-              {spec.mount.mode !== 'external-source' ? (
-                <Field className="inspector__field--compact inspector__field--compact-rotation" label="Rotation">
-                  <select
-                    onChange={(event) =>
-                      updateSelectedComponent({
-                        rotationQuarterTurns: Number(event.target.value) as QuarterTurn,
-                      })
-                    }
-                    value={inspectedComponent.rotationQuarterTurns}
-                  >
-                    <option value={0}>0°</option>
-                    <option value={1}>90°</option>
-                    <option value={2}>180°</option>
-                    <option value={3}>270°</option>
-                  </select>
-                </Field>
-              ) : (
-                <Field label="Orientation">
-                  <input
-                    readOnly
-                    type="text"
-                    value={`${inspectedComponent.config.source?.lane ?? 'left'} launch edge`}
-                  />
-                </Field>
-              )}
-              <NumberField
-                className="inspector__field--compact inspector__field--compact-anchor"
-                label="Anchor X"
-                onChange={(x) =>
-                  updateSelectedComponent({
-                    anchorMm: { x, y: inspectedComponent.anchorMm.y },
-                  })
-                }
-                displayPrecision={2}
-                step={0.5}
-                selectAllOnFocus
-                suffix="mm"
-                value={inspectedComponent.anchorMm.x}
-              />
-              <NumberField
-                className="inspector__field--compact inspector__field--compact-anchor"
-                label="Anchor Y"
-                onChange={(y) =>
-                  updateSelectedComponent({
-                    anchorMm: { x: inspectedComponent.anchorMm.x, y },
-                  })
-                }
-                displayPrecision={2}
-                step={0.5}
-                selectAllOnFocus
-                suffix="mm"
-                value={inspectedComponent.anchorMm.y}
-              />
-            </div>
+            ) : null}
 
             {placementNotice ? (
               <p className="inspector__hint inspector__hint--quick-edit">{placementNotice}</p>
