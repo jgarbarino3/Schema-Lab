@@ -180,6 +180,35 @@ describe('editor store scene history', () => {
   })
 })
 
+describe('editor store single breadboard viewport', () => {
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('recomputes the default framing when the real canvas size becomes available', () => {
+    const store = useEditorStore.getState()
+
+    store.setViewportSize({ width: 1400, height: 900 })
+
+    const viewport = useEditorStore.getState().viewport
+    const scene = useEditorStore.getState().scene
+
+    if (scene.workspace.kind !== 'single-breadboard') {
+      throw new Error('expected single-breadboard workspace')
+    }
+
+    const boardBounds = getBreadboardWorldBoundsMm(scene.workspace.breadboard)
+    const boardTopPx = worldToScreen({ x: boardBounds.x, y: boardBounds.y }, viewport).y
+
+    expect(boardTopPx).toBeGreaterThan(75)
+    expect(boardTopPx).toBeLessThan(95)
+  })
+})
+
 describe('editor store optical table placement', () => {
   const mirrorVariantId = getComponentDefinition('mirror').defaultVariantId
 
@@ -422,6 +451,26 @@ describe('editor store optical table placement', () => {
 
     expect(tableTopPx).toBeGreaterThan(0)
     expect(tableTopPx).toBeLessThan(90)
+  })
+
+  it('restores the single-breadboard reset framing when leaving table view', () => {
+    const store = useEditorStore.getState()
+
+    store.setViewportSize({ width: 1400, height: 900 })
+    store.convertWorkspaceToSingleBreadboard({ createFresh: false })
+
+    const viewport = useEditorStore.getState().viewport
+    const scene = useEditorStore.getState().scene
+
+    if (scene.workspace.kind !== 'single-breadboard') {
+      throw new Error('expected single-breadboard workspace')
+    }
+
+    const boardBounds = getBreadboardWorldBoundsMm(scene.workspace.breadboard)
+    const boardTopPx = worldToScreen({ x: boardBounds.x, y: boardBounds.y }, viewport).y
+
+    expect(boardTopPx).toBeGreaterThan(75)
+    expect(boardTopPx).toBeLessThan(95)
   })
 })
 

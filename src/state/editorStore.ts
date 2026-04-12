@@ -433,6 +433,7 @@ const WARNING_FILTERS_STORAGE_KEY = 'schema-lab.warning-filters'
 const MOUNT_DEFAULTS_STORAGE_KEY = 'schema-lab.mount-defaults'
 const VIEWPORT_SIDE_PADDING_PX = 88
 const VIEWPORT_TOP_PADDING_PX = 28
+const SINGLE_BREADBOARD_VIEWPORT_TOP_PADDING_PX = 52
 const VIEWPORT_BOTTOM_PADDING_PX = 156
 const BOARD_LABEL_MARGIN_MM = 18
 const DEFAULT_SIMPLE_GLYPH_APPEARANCE: SimpleGlyphAppearanceState = {
@@ -635,6 +636,7 @@ function createViewportForBoundsWithTopBias(
   boundsMm: { x: number; y: number; width: number; height: number },
   canvasSizePx: CanvasSizePx = DEFAULT_CANVAS_SIZE,
   preferredZoomPxPerMm?: number,
+  topPaddingPx = VIEWPORT_TOP_PADDING_PX,
 ) {
   const safeCanvasSize = {
     width: canvasSizePx.width > 0 ? canvasSizePx.width : DEFAULT_CANVAS_SIZE.width,
@@ -646,7 +648,7 @@ function createViewportForBoundsWithTopBias(
   )
   const availableHeightPx = Math.max(
     1,
-    safeCanvasSize.height - VIEWPORT_TOP_PADDING_PX - VIEWPORT_BOTTOM_PADDING_PX,
+    safeCanvasSize.height - topPaddingPx - VIEWPORT_BOTTOM_PADDING_PX,
   )
   const fitZoomPxPerMmForBounds = fitZoomPxPerMm(
     {
@@ -667,7 +669,7 @@ function createViewportForBoundsWithTopBias(
     x: roundMm(boundsMm.x + boundsMm.width / 2),
     y: roundMm(
       boundsMm.y +
-        (safeCanvasSize.height / 2 - VIEWPORT_TOP_PADDING_PX) / zoomPxPerMm,
+        (safeCanvasSize.height / 2 - topPaddingPx) / zoomPxPerMm,
     ),
   }
 
@@ -704,10 +706,15 @@ function createViewportForScene(
     scene.workspace.kind === 'optical-table' && workspaceViewMode === 'table-view'
       ? LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM
       : undefined
+  const topPaddingPx =
+    scene.workspace.kind === 'single-breadboard'
+      ? SINGLE_BREADBOARD_VIEWPORT_TOP_PADDING_PX
+      : VIEWPORT_TOP_PADDING_PX
   const baseViewport = createViewportForBoundsWithTopBias(
     focusBounds,
     safeCanvasSize,
     preferredZoomPxPerMm,
+    topPaddingPx,
   )
   const minimumZoomPxPerMm = fitZoomPxPerMm(
     {
@@ -730,7 +737,6 @@ function clampViewportForActiveWorkspace(args: {
   scene: SceneDocument
   selection: SelectionState
   viewport: ViewportState
-  skipClamping?: boolean
 }) {
   const tableViewViewportWidthMm = Math.max(
     1,
@@ -758,10 +764,6 @@ function clampViewportForActiveWorkspace(args: {
     workspaceViewMode,
     focusedBreadboardId,
   )
-
-  if (args.skipClamping) {
-    return args.viewport
-  }
 
   return clampViewportToKeepBoundsVisible(
     args.viewport,
@@ -2062,12 +2064,6 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const component = state.scene.components.find(
         (candidate) => candidate.id === componentId,
       )
-      const focusedBreadboardId =
-        state.scene.workspace.kind === 'optical-table' &&
-        component?.hostSurfaceId &&
-        component.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
-          ? component.hostSurfaceId
-          : state.interaction.focusedBreadboardId
 
       return {
         selection: { type: 'component', componentId },
@@ -2077,7 +2073,6 @@ export const useEditorStore = create<EditorStore>((set) => ({
             component?.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
           editingTextAnnotationId: undefined,
           editingTextDraftText: undefined,
-          focusedBreadboardId,
           notice: undefined,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
@@ -2397,11 +2392,23 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
   setViewportSize: (canvasSizePx) => {
     set((state) => {
+      const safeCanvasSize = getSafeCanvasSize(canvasSizePx)
+      const isBootstrappingFromDefaultCanvasSize =
+        state.viewport.canvasSizePx.width === DEFAULT_CANVAS_SIZE.width &&
+        state.viewport.canvasSizePx.height === DEFAULT_CANVAS_SIZE.height &&
+        (safeCanvasSize.width !== DEFAULT_CANVAS_SIZE.width ||
+          safeCanvasSize.height !== DEFAULT_CANVAS_SIZE.height)
+
       return {
-        viewport: {
-          ...state.viewport,
-          canvasSizePx,
-        },
+        viewport: isBootstrappingFromDefaultCanvasSize
+          ? createViewportForScene(state.scene, safeCanvasSize, {
+              focusedBreadboardId: state.interaction.focusedBreadboardId,
+              workspaceViewMode: state.interaction.workspaceViewMode,
+            })
+          : {
+              ...state.viewport,
+              canvasSizePx: safeCanvasSize,
+            },
       }
     })
   },
@@ -2413,7 +2420,6 @@ export const useEditorStore = create<EditorStore>((set) => ({
         scene: state.scene,
         selection: state.selection,
         viewport,
-        skipClamping: true,
       }),
     }))
   },

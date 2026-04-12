@@ -2188,7 +2188,7 @@ export function InspectorPanel({
             ) : null}
           </div>
 
-          <CollapsibleSection defaultOpen title="Board statistics">
+          <CollapsibleSection title="Board statistics">
             <div className="inspector__readout">
               <div>
                 <span>Hole field</span>
