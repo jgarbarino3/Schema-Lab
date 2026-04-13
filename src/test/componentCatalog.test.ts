@@ -11,7 +11,7 @@ describe('component catalog variants', () => {
     expect(stage.vendor).toBe('PI')
     expect(stage.sku).toBe('M-112.1DG1')
     expect(stage.footprintBoundsMm.width).toBeCloseTo(85, 3)
-    expect(stage.renderHint.glyph).toBe('sample')
+    expect(stage.renderHint.glyph).toBe('sample-delay-stage')
     expect(stage.recommendedHardware?.mount).toBeDefined()
   })
 
@@ -90,5 +90,38 @@ describe('component catalog variants', () => {
       separationMm: 150,
     })
     expect(createDefaultComponentConfig('opa-module', 'opa-gain-stage').opa?.role).toBe('gain')
+  })
+
+  it('assigns the reviewed variant glyph identities for simple icon rendering', () => {
+    expect(getResolvedComponentSpec('laser-source', 'fs-source-head').renderHint.glyph).toBe(
+      'laser-fs-source',
+    )
+    expect(getResolvedComponentSpec('laser-source', 'libra').renderHint.glyph).toBe(
+      'laser-libra',
+    )
+    expect(
+      getResolvedComponentSpec('support-hardware', 'pump-seed-combiner').renderHint.glyph,
+    ).toBe('support-pump-seed-combiner')
+    expect(getResolvedComponentSpec('mirror', 'flip-mirror').renderHint.glyph).toBe(
+      'mirror-flip',
+    )
+    expect(
+      getResolvedComponentSpec('attenuator', 'variable-nd-vertical').renderHint.glyph,
+    ).toBe('attenuator-vertical')
+    expect(getResolvedComponentSpec('waveplate', 'quarter-wave').renderHint.glyph).toBe(
+      'waveplate-quarter',
+    )
+    expect(getResolvedComponentSpec('iris', 'sm1d12sz').renderHint.glyph).toBe(
+      'iris-sm1-zero',
+    )
+    expect(
+      getResolvedComponentSpec('telescope', 'reflective-compressor-2x').renderHint.glyph,
+    ).toBe('telescope-reflective')
+    expect(getResolvedComponentSpec('sample-stage', 'pi-ls-180').renderHint.glyph).toBe(
+      'sample-motorized-stage',
+    )
+    expect(
+      getResolvedComponentSpec('spectrometer', 'spectrapro-sp-2150').renderHint.glyph,
+    ).toBe('spectrometer-bench')
   })
 })

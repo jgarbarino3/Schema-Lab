@@ -87,6 +87,39 @@ describe('editor store pending placement', () => {
     expect(useEditorStore.getState().scene.components[0]?.simpleIconStyleOverride).toBeUndefined()
   })
 
+  it('keeps per-component simple icon overrides scoped to the selected component', () => {
+    const store = useEditorStore.getState()
+
+    store.addComponent('mirror')
+    store.commitPendingPlacement({ x: 112.5, y: 112.5 })
+    store.addComponent('mirror', 'flip-mirror')
+    store.commitPendingPlacement({ x: 162.5, y: 112.5 })
+
+    const [firstMirror, secondMirror] = useEditorStore.getState().scene.components
+
+    if (!firstMirror || !secondMirror) {
+      throw new Error('expected two mirrors to be placed')
+    }
+
+    store.selectComponent(firstMirror.id)
+    store.setSelectedSimpleIconStyleOverride('classic')
+
+    expect(useEditorStore.getState().scene.components[0]?.simpleIconStyleOverride).toBe(
+      'classic',
+    )
+    expect(useEditorStore.getState().scene.components[1]?.simpleIconStyleOverride).toBeUndefined()
+
+    store.selectComponent(secondMirror.id)
+    store.setSelectedSimpleIconStyleOverride('enhanced')
+
+    expect(useEditorStore.getState().scene.components[0]?.simpleIconStyleOverride).toBe(
+      'classic',
+    )
+    expect(useEditorStore.getState().scene.components[1]?.simpleIconStyleOverride).toBe(
+      'enhanced',
+    )
+  })
+
   it('sets and clears interaction notices explicitly', () => {
     const store = useEditorStore.getState()
 

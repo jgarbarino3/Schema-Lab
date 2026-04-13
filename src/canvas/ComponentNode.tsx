@@ -137,7 +137,7 @@ export function ComponentNodeView({
   renderMode,
   resolveDragPositionPx,
   simpleGlyphAppearance,
-  simpleIconStyle = 'clean',
+  simpleIconStyle = 'enhanced',
   surfaceSupportCompensationMm = 0,
   viewport,
 }: ComponentNodeProps) {
@@ -188,11 +188,11 @@ export function ComponentNodeView({
     0.6,
     compensationOuterRadiusMm - (renderMode === 'realistic' ? 1.2 : 1.6),
   )
-  const isEnabledSource = instance.config.source?.isEnabled && spec.renderHint.glyph === 'laser'
+  const isEnabledSource = instance.type === 'laser-source' && instance.config.source?.isEnabled
   const isSimpleSourceCard =
     renderMode === 'simple' &&
     instance.type === 'laser-source' &&
-    spec.renderHint.glyph === 'laser'
+    spec.mount.mode === 'external-source'
   const supportsSimpleAppearance = supportsSimpleGlyphAppearance(spec)
   const effectiveSimpleGlyphColor = simpleGlyphAppearance?.color ?? stroke
   const effectiveSimpleGlyphScale = simpleGlyphAppearance?.scale ?? 1
@@ -511,7 +511,7 @@ export function ComponentNodeView({
                       : stroke
                 }
                 strokeScale={renderMode === 'simple' ? effectiveSimpleGlyphWeight : 1}
-                style={renderMode === 'simple' ? simpleIconStyle : 'clean'}
+                style={renderMode === 'simple' ? simpleIconStyle : 'enhanced'}
               />
             </>
           )}
@@ -697,10 +697,12 @@ export function ComponentNodeView({
 }
 
 export const ComponentNode = memo(function ComponentNode(props: ComponentNodeProps) {
-  const simpleGlyphAppearance = useEditorStore(
+  const storedSimpleGlyphAppearance = useEditorStore(
     (state) => state.simpleGlyphAppearances[props.instance.id],
   )
   const globalSimpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
+  const simpleGlyphAppearance =
+    props.simpleGlyphAppearance ?? storedSimpleGlyphAppearance
   const simpleIconStyle =
     props.instance.simpleIconStyleOverride ?? props.simpleIconStyle ?? globalSimpleIconStyle
 

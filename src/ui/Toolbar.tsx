@@ -127,7 +127,7 @@ const APPENDIX_SECTIONS = [
     heading: 'View modes',
     rows: [
       'Realistic shows hardware bodies and mounts.',
-      'Simple uses cleaner schematic optics symbols for dense layouts.',
+      'Enhanced keeps the 2D view readable while using richer hardware silhouettes.',
       'Classic optics swaps Simple symbols to a more conventional lab-style drawing set.',
     ],
   },
@@ -773,15 +773,15 @@ export function Toolbar({
                   <h3>Simple icon default</h3>
                   <div className="toolbar__menu-actions">
                     <button
-                      aria-pressed={simpleIconStyle === 'clean'}
-                      className={simpleIconStyle === 'clean' ? 'is-active-tool' : undefined}
+                      aria-pressed={simpleIconStyle === 'enhanced'}
+                      className={simpleIconStyle === 'enhanced' ? 'is-active-tool' : undefined}
                       onClick={() => {
-                        setSimpleIconStyle('clean')
+                        setSimpleIconStyle('enhanced')
                         setOpenToolbarMenu(undefined)
                       }}
                       type="button"
                     >
-                      Clean
+                      Enhanced
                     </button>
                     <button
                       aria-pressed={simpleIconStyle === 'classic'}

@@ -38,14 +38,13 @@ import type {
   SceneBeamSettings,
   SceneDocument,
   PolarizationPresetId,
-  SimpleIconStyle,
   SourceLane,
   Vector2Mm,
   WorkspaceModel,
 } from './types'
 import {
-  isSimpleIconStyle,
   LEGACY_SCENE_DOCUMENT_VERSION,
+  parseSimpleIconStyle,
   PREVIOUS_SCENE_DOCUMENT_VERSION,
   SCENE_DOCUMENT_KIND,
   SCENE_DOCUMENT_VERSION,
@@ -648,10 +647,9 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
       : typeof value.variantId === 'string'
         ? value.variantId
         : getComponentDefinition(type).defaultVariantId
-  const simpleIconStyleOverride: SimpleIconStyle | undefined =
-    typeof value.simpleIconStyleOverride === 'string' &&
-    isSimpleIconStyle(value.simpleIconStyleOverride)
-      ? value.simpleIconStyleOverride
+  const simpleIconStyleOverride =
+    typeof value.simpleIconStyleOverride === 'string'
+      ? parseSimpleIconStyle(value.simpleIconStyleOverride)
       : undefined
 
   return {

@@ -202,9 +202,87 @@ function NumberField({
   )
 }
 
+function normalizeIconStylePreviewGlyph(glyph: string) {
+  switch (glyph) {
+    case 'laser-fs-source':
+    case 'laser-compact-table':
+    case 'laser-libra':
+    case 'laser-pharos':
+    case 'laser-clark':
+      return 'laser'
+    case 'support-clamp-fork':
+    case 'support-mounting-base':
+    case 'support-pedestal-post':
+    case 'support-post-holder':
+    case 'support-pedestal-assembly':
+    case 'support-linear-slide':
+    case 'support-beam-block':
+    case 'support-periscope':
+    case 'support-white-light-cell':
+    case 'support-pump-seed-combiner':
+      return 'support'
+    case 'mirror-flip':
+      return 'mirror'
+    case 'attenuator-horizontal':
+    case 'attenuator-vertical':
+      return 'attenuator'
+    case 'waveplate-half':
+    case 'waveplate-quarter':
+      return 'waveplate'
+    case 'iris-standard':
+    case 'iris-zero':
+    case 'iris-sm1-ring':
+    case 'iris-sm1-graduated':
+    case 'iris-sm1-zero':
+      return 'iris'
+    case 'telescope-transmission':
+    case 'telescope-reflective':
+      return 'telescope'
+    case 'sample-generic':
+    case 'sample-delay-stage':
+    case 'sample-motorized-stage':
+      return 'sample'
+    case 'spectrometer-compact':
+    case 'spectrometer-bench':
+      return 'spectrometer'
+    default:
+      return glyph
+  }
+}
+
 function renderIconStyleGlyph(glyph: string, isClassic: boolean) {
   const s = 'currentColor'
-  switch (glyph) {
+  switch (normalizeIconStylePreviewGlyph(glyph)) {
+    case 'laser':
+      return isClassic ? (
+        <>
+          <circle cx="8.2" cy="12" r="3" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M11.2 12 L17 12" stroke={s} strokeLinecap="round" strokeWidth="1.15" />
+          <path d="M15 9.6 L17.8 12 L15 14.4" stroke={s} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" fill="none" />
+        </>
+      ) : (
+        <>
+          <rect x="6" y="8.4" width="6" height="7.2" rx="1.8" stroke={s} strokeWidth="1" fill="none" />
+          <path d="M12.2 12 L18 12" stroke={s} strokeLinecap="round" strokeWidth="1.15" />
+          <path d="M15 9.6 L17.8 12 L15 14.4" stroke={s} strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" fill="none" />
+        </>
+      )
+    case 'mount':
+      return (
+        <>
+          <circle cx="12" cy="12" r="6" stroke={s} strokeWidth="1.15" fill="none" />
+          <circle cx="12" cy="12" r="2.2" stroke={s} strokeWidth="0.9" fill="none" />
+        </>
+      )
+    case 'support':
+      return isClassic ? (
+        <>
+          <rect x="7" y="9" width="10" height="6" rx="1.2" stroke={s} strokeWidth="1.1" fill="none" />
+          <path d="M8.5 16 L15.5 16" stroke={s} strokeLinecap="round" strokeWidth="1" />
+        </>
+      ) : (
+        <rect x="7" y="9" width="10" height="6" rx="1.2" stroke={s} strokeWidth="1.1" fill="none" />
+      )
     case 'mirror':
       return isClassic ? (
         <>
@@ -420,14 +498,20 @@ function renderIconStyleGlyph(glyph: string, isClassic: boolean) {
   }
 }
 
-function SimpleIconStyleOptionCopy({ glyph, style }: { glyph: string; style: 'clean' | 'classic' }) {
+function SimpleIconStyleOptionCopy({
+  glyph,
+  style,
+}: {
+  glyph: string
+  style: 'enhanced' | 'classic'
+}) {
   const isClassic = style === 'classic'
 
   return (
     <span className="inspector__icon-style-copy">
       <span
         aria-hidden="true"
-        className={`inspector__icon-style-bubble${isClassic ? ' inspector__icon-style-bubble--classic' : ' inspector__icon-style-bubble--clean'}`}
+        className={`inspector__icon-style-bubble${isClassic ? ' inspector__icon-style-bubble--classic' : ' inspector__icon-style-bubble--enhanced'}`}
       >
         <svg
           aria-hidden="true"
@@ -439,7 +523,7 @@ function SimpleIconStyleOptionCopy({ glyph, style }: { glyph: string; style: 'cl
         </svg>
       </span>
       <span className="inspector__icon-style-copy-text">
-        <strong>{isClassic ? 'Classic' : 'Clean'}</strong>
+        <strong>{isClassic ? 'Classic optics' : 'Enhanced'}</strong>
       </span>
     </span>
   )
@@ -2667,13 +2751,13 @@ export function InspectorPanel({
                         ) : null}
                       </div>
                       <div className="inspector__icon-style-options">
-                        {(['clean', 'classic'] as const).map((iconStyleOption) => (
+                        {(['enhanced', 'classic'] as const).map((iconStyleOption) => (
                           <button
                             aria-pressed={effectiveSimpleIconStyle === iconStyleOption}
                             className={`inspector__icon-style-option${effectiveSimpleIconStyle === iconStyleOption ? ' is-active' : ''}`}
                             key={iconStyleOption}
                             onClick={() => setSelectedSimpleIconStyleOverride(iconStyleOption)}
-                            title={iconStyleOption === 'classic' ? 'Classic optics' : 'Clean optics'}
+                            title={iconStyleOption === 'classic' ? 'Classic optics' : 'Enhanced'}
                             type="button"
                           >
                             <SimpleIconStyleOptionCopy glyph={spec.renderHint.glyph} style={iconStyleOption} />

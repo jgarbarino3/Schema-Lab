@@ -80,7 +80,7 @@ import {
 } from '../domain/workspace'
 import {
   DEFAULT_SIMPLE_ICON_STYLE,
-  isSimpleIconStyle,
+  parseSimpleIconStyle,
   type SimpleIconStyle,
 } from './uiPreferences'
 import type {
@@ -481,7 +481,7 @@ function readRenderMode() {
 function readSimpleIconStyle(): SimpleIconStyle {
   const value = readLocalStorageValue(SIMPLE_ICON_STYLE_STORAGE_KEY)
 
-  return isSimpleIconStyle(value) ? value : DEFAULT_SIMPLE_ICON_STYLE
+  return parseSimpleIconStyle(value) ?? DEFAULT_SIMPLE_ICON_STYLE
 }
 
 function readWarningFilters(): WarningFilters {

@@ -40,6 +40,17 @@ interface AlignmentResolution {
   offsetMm: number
 }
 
+const HIGHLIGHT_CAPTURE_THRESHOLD_MM = 4
+
+function hasMeaningfulHighlightArea(startMm: Vector2Mm, endMm: Vector2Mm) {
+  const boundsMm = boundsFromPointsMm(startMm, endMm)
+
+  return (
+    boundsMm.width >= HIGHLIGHT_CAPTURE_THRESHOLD_MM ||
+    boundsMm.height >= HIGHLIGHT_CAPTURE_THRESHOLD_MM
+  )
+}
+
 function getBoundsAlignmentAnchors(bounds: {
   height: number
   width: number
@@ -185,6 +196,11 @@ export function SchemaStage({
   }>({
     isActive: false,
   })
+  const highlightGestureRef = useRef<{
+    suppressNextEmptyClickReset: boolean
+  }>({
+    suppressNextEmptyClickReset: false,
+  })
   const scene = useEditorStore((state) => state.scene)
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const opticalTable = useMemo(() => getOpticalTable(scene), [scene])
@@ -245,10 +261,14 @@ export function SchemaStage({
   const clearBeamInspectionSelection = useEditorStore(
     (state) => state.clearBeamInspectionSelection,
   )
+  const clearHighlightSelection = useEditorStore(
+    (state) => state.clearHighlightSelection,
+  )
   const startLineDrawAt = useEditorStore((state) => state.startLineDrawAt)
   const commitLineDraw = useEditorStore((state) => state.commitLineDraw)
   const beginBreadboardDrag = useEditorStore((state) => state.beginBreadboardDrag)
   const commitBreadboardDrag = useEditorStore((state) => state.commitBreadboardDrag)
+  const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const [hoveredComponentId, setHoveredComponentId] = useState<string>()
   const [hoveredBeamSegmentId, setHoveredBeamSegmentId] = useState<string>()
   const [cursorWorldMm, setCursorWorldMm] = useState<Vector2Mm>()
@@ -934,6 +954,7 @@ export function SchemaStage({
         return
       }
 
+      highlightGestureRef.current.suppressNextEmptyClickReset = false
       event.evt.preventDefault()
       setHighlightDragStartMm(pointerMm)
       setHighlightDragBoundsMm({
@@ -1039,7 +1060,12 @@ export function SchemaStage({
     }
 
     if (isHighlightTool && highlightDragStartMm) {
-      commitHighlightSelectionBounds(highlightDragStartMm, getStagePointerWorldMm(event))
+      const pointerMm = getStagePointerWorldMm(event) ?? highlightDragStartMm
+      highlightGestureRef.current.suppressNextEmptyClickReset = hasMeaningfulHighlightArea(
+        highlightDragStartMm,
+        pointerMm,
+      )
+      commitHighlightSelectionBounds(highlightDragStartMm, pointerMm)
       setHighlightDragBoundsMm(undefined)
       setHighlightDragStartMm(undefined)
       clearAnnotationGuides()
@@ -1094,12 +1120,27 @@ export function SchemaStage({
       return
     }
 
-    if (isHighlightTool) {
+    if (isAnnotationPlacementTool) {
+      handleAnnotationToolClick(event)
       return
     }
 
-    if (isAnnotationPlacementTool) {
-      handleAnnotationToolClick(event)
+    if (isHighlightTool) {
+      if (highlightGestureRef.current.suppressNextEmptyClickReset) {
+        highlightGestureRef.current.suppressNextEmptyClickReset = false
+        return
+      }
+
+      clearHighlightSelection()
+      setActiveTool('select')
+      clearBeamInspectionSelection()
+      clearAnnotationGuides()
+      if (scene.workspace.kind === 'optical-table') {
+        selectOpticalTable()
+        return
+      }
+
+      selectBreadboard(SINGLE_BREADBOARD_SURFACE_ID)
       return
     }
 
@@ -1129,10 +1170,6 @@ export function SchemaStage({
   const handleOpticalTableSelect = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
-    if (isHighlightTool) {
-      return
-    }
-
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
@@ -1140,6 +1177,20 @@ export function SchemaStage({
 
     if (isAnnotationPlacementTool) {
       handleAnnotationToolClick(event)
+      return
+    }
+
+    if (isHighlightTool) {
+      if (highlightGestureRef.current.suppressNextEmptyClickReset) {
+        highlightGestureRef.current.suppressNextEmptyClickReset = false
+        return
+      }
+
+      clearHighlightSelection()
+      setActiveTool('select')
+      clearBeamInspectionSelection()
+      clearAnnotationGuides()
+      selectOpticalTable()
       return
     }
 
@@ -1164,10 +1215,6 @@ export function SchemaStage({
     surfaceId: string,
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
   ) => {
-    if (isHighlightTool) {
-      return
-    }
-
     if (isPanMode || panStateRef.current.didMove) {
       panStateRef.current.didMove = false
       return
@@ -1175,6 +1222,20 @@ export function SchemaStage({
 
     if (isAnnotationPlacementTool) {
       handleAnnotationToolClick(event)
+      return
+    }
+
+    if (isHighlightTool) {
+      if (highlightGestureRef.current.suppressNextEmptyClickReset) {
+        highlightGestureRef.current.suppressNextEmptyClickReset = false
+        return
+      }
+
+      clearHighlightSelection()
+      setActiveTool('select')
+      clearBeamInspectionSelection()
+      clearAnnotationGuides()
+      selectBreadboard(surfaceId)
       return
     }
 
@@ -1272,6 +1333,7 @@ export function SchemaStage({
 
   useEffect(() => {
     if (!isHighlightTool) {
+      highlightGestureRef.current.suppressNextEmptyClickReset = false
       setHighlightDragBoundsMm(undefined)
       setHighlightDragStartMm(undefined)
     }
@@ -1342,6 +1404,7 @@ export function SchemaStage({
             setHoveredBeamSegmentId(undefined)
             setDragPreview(undefined)
             setBreadboardDragPreview(undefined)
+            highlightGestureRef.current.suppressNextEmptyClickReset = false
             setHighlightDragBoundsMm(undefined)
             setHighlightDragStartMm(undefined)
           }}

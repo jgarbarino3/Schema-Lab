@@ -170,9 +170,9 @@ export type SceneAnnotation = AnnotationLine | AnnotationText | ShapeAnnotation
 export type BeamFidelityMode = 'geometric' | 'angle-sensitive'
 export type GaussianInputMode = 'derived' | 'explicit-waist'
 export type RenderMode = 'realistic' | 'simple'
-export const SIMPLE_ICON_STYLE_VALUES = ['clean', 'classic'] as const
+export const SIMPLE_ICON_STYLE_VALUES = ['enhanced', 'classic'] as const
 export type SimpleIconStyle = (typeof SIMPLE_ICON_STYLE_VALUES)[number]
-export const DEFAULT_SIMPLE_ICON_STYLE: SimpleIconStyle = 'clean'
+export const DEFAULT_SIMPLE_ICON_STYLE: SimpleIconStyle = 'enhanced'
 export type ToolbarMenu =
   | 'import'
   | 'export'
@@ -292,23 +292,55 @@ export type ComponentCategory =
 
 export type ComponentGlyph =
   | 'laser'
+  | 'laser-fs-source'
+  | 'laser-compact-table'
+  | 'laser-libra'
+  | 'laser-pharos'
+  | 'laser-clark'
   | 'mount'
   | 'support'
+  | 'support-clamp-fork'
+  | 'support-mounting-base'
+  | 'support-pedestal-post'
+  | 'support-post-holder'
+  | 'support-pedestal-assembly'
+  | 'support-linear-slide'
+  | 'support-beam-block'
+  | 'support-periscope'
+  | 'support-white-light-cell'
+  | 'support-pump-seed-combiner'
   | 'mirror'
+  | 'mirror-flip'
   | 'curved-mirror'
   | 'beamsplitter'
   | 'lens'
   | 'filter'
   | 'attenuator'
+  | 'attenuator-horizontal'
+  | 'attenuator-vertical'
   | 'polarizer'
   | 'waveplate'
+  | 'waveplate-half'
+  | 'waveplate-quarter'
   | 'iris'
+  | 'iris-standard'
+  | 'iris-zero'
+  | 'iris-sm1-ring'
+  | 'iris-sm1-graduated'
+  | 'iris-sm1-zero'
   | 'bbo'
   | 'telescope'
+  | 'telescope-transmission'
+  | 'telescope-reflective'
   | 'opa'
   | 'sample'
+  | 'sample-generic'
+  | 'sample-delay-stage'
+  | 'sample-motorized-stage'
   | 'fiber'
   | 'spectrometer'
+  | 'spectrometer-compact'
+  | 'spectrometer-bench'
   | 'detector'
   | 'beam-dump'
 
@@ -801,7 +833,15 @@ export interface ComponentInstance {
 }
 
 export function isSimpleIconStyle(value: string | undefined): value is SimpleIconStyle {
-  return value === 'clean' || value === 'classic'
+  return value === 'enhanced' || value === 'classic'
+}
+
+export function parseSimpleIconStyle(value: string | undefined): SimpleIconStyle | undefined {
+  if (value === 'clean') {
+    return 'enhanced'
+  }
+
+  return isSimpleIconStyle(value) ? value : undefined
 }
 
 export interface SceneDocument {

@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
-import { COMPONENT_DEFINITIONS, getResolvedComponentSpec } from '../domain/componentCatalog'
-import type {
-  ComponentCategory,
-  ComponentDefinition,
-  ComponentGlyph as ComponentGlyphType,
-  ComponentType,
-} from '../domain/types'
+import { COMPONENT_DEFINITIONS } from '../domain/componentCatalog'
 import { useEditorStore } from '../state/editorStore'
 import { LibraryGlyphPreview } from './LibraryGlyphPreview'
+import {
+  buildCompactLibraryComponentEntries,
+  DISPLAY_GROUPS,
+  getDisplayGroupForCategory,
+  type LibraryComponentEntry,
+  matchesLibraryQuery,
+} from './componentLibraryCatalog'
 import {
   LIBRARY_RECENTS_CLEAR_EVENT,
   MAX_RECENT_ITEMS,
@@ -20,158 +21,13 @@ import {
 
 interface ComponentLibraryProps {
   onCollapse: () => void
+  onOpenFullLibrary: () => void
 }
 
-interface DisplayGroup {
-  key: string
-  label: string
-  categories: ComponentCategory[]
-}
-
-interface LibraryComponentEntry {
-  category: ComponentCategory
-  familyLabel: string
-  key: string
-  previewFill: string
-  previewGlyph: ComponentGlyphType
-  previewIsConvex?: boolean
-  previewStroke: string
-  recentLabel: string
-  searchText: string
-  testId: string
-  type: ComponentType
-  variantCount: number
-  variantId?: string
-}
-
-const DISPLAY_GROUPS: DisplayGroup[] = [
-  { key: 'sources', label: 'Sources', categories: ['source'] },
-  { key: 'beam-steering', label: 'Beam steering', categories: ['steering', 'splitting'] },
-  { key: 'beam-control', label: 'Beam control', categories: ['attenuation', 'conditioning', 'aperture'] },
-  { key: 'focusing-shaping', label: 'Focusing & shaping', categories: ['focusing', 'nonlinear', 'coupling'] },
-  { key: 'sample-delay', label: 'Sample & delay', categories: ['sample'] },
-  { key: 'measurement', label: 'Measurement', categories: ['measurement', 'termination'] },
-  { key: 'mounting', label: 'Mounting', categories: ['mounting'] },
-]
-
-function describeMountMode(mode: string) {
-  switch (mode) {
-    case 'external-source':
-      return 'launch edge'
-    case 'hole-mounted':
-      return 'hole mounted'
-    case 'clamp-capable':
-      return 'clamp capable'
-    default:
-      return mode
-  }
-}
-
-function getDisplayGroupForCategory(category: ComponentCategory): string | undefined {
-  return DISPLAY_GROUPS.find((group) => group.categories.includes(category))?.key
-}
-
-function matchesQuery(value: string, query: string) {
-  return value.toLowerCase().includes(query.toLowerCase())
-}
-
-function getRecentComponentLabel(
-  definition: ComponentDefinition,
-  variantId?: string,
-) {
-  if (definition.type === 'mirror' && variantId === 'flip-mirror') {
-    return 'Flip Mirror'
-  }
-
-  return definition.defaultLabel
-}
-
-function buildLibraryComponentEntries(
-  definition: ComponentDefinition,
-): LibraryComponentEntry[] {
-  const variantLabels = definition.variants.map((variant) => variant.label).join(' ')
-  const defaultSpec = getResolvedComponentSpec(definition.type)
-
-  if (definition.type !== 'mirror') {
-    return [
-      {
-        category: definition.category,
-        familyLabel: definition.familyLabel,
-        key: definition.type,
-        previewFill: defaultSpec.renderHint.fill,
-        previewGlyph: defaultSpec.renderHint.glyph,
-        previewIsConvex:
-          definition.type === 'curved-mirror' && defaultSpec.variantId.includes('convex')
-            ? true
-            : undefined,
-        previewStroke: defaultSpec.renderHint.stroke,
-        recentLabel: getRecentComponentLabel(definition),
-        searchText: [
-          definition.familyLabel,
-          definition.defaultLabel,
-          definition.category,
-          describeMountMode(definition.mount.mode),
-          variantLabels,
-        ].join(' '),
-        testId: `library-item-${definition.type}`,
-        type: definition.type,
-        variantCount: definition.variants.length,
-      },
-    ]
-  }
-
-  const planarVariants = definition.variants.filter((variant) => variant.id !== 'flip-mirror')
-  const flipVariant = definition.variants.find((variant) => variant.id === 'flip-mirror')
-  const flipSpec = flipVariant ? getResolvedComponentSpec(definition.type, flipVariant.id) : undefined
-  const entries: LibraryComponentEntry[] = [
-    {
-      category: definition.category,
-      familyLabel: 'Planar Mirror',
-      key: definition.type,
-      previewFill: defaultSpec.renderHint.fill,
-      previewGlyph: defaultSpec.renderHint.glyph,
-      previewStroke: defaultSpec.renderHint.stroke,
-      recentLabel: getRecentComponentLabel(definition),
-      searchText: [
-        'Planar Mirror',
-        definition.familyLabel,
-        definition.defaultLabel,
-        definition.category,
-        describeMountMode(definition.mount.mode),
-        planarVariants.map((variant) => variant.label).join(' '),
-      ].join(' '),
-      testId: 'library-item-mirror',
-      type: definition.type,
-      variantCount: planarVariants.length,
-    },
-  ]
-
-  if (flipVariant) {
-    entries.push({
-      category: definition.category,
-      familyLabel: 'Flip Mirror',
-      key: `${definition.type}-${flipVariant.id}`,
-      previewFill: flipSpec?.renderHint.fill ?? defaultSpec.renderHint.fill,
-      previewGlyph: flipSpec?.renderHint.glyph ?? defaultSpec.renderHint.glyph,
-      previewStroke: flipSpec?.renderHint.stroke ?? defaultSpec.renderHint.stroke,
-      recentLabel: getRecentComponentLabel(definition, flipVariant.id),
-      searchText: [
-        'Flip Mirror',
-        flipVariant.label,
-        definition.category,
-        describeMountMode(definition.mount.mode),
-      ].join(' '),
-      testId: 'library-item-flip-mirror',
-      type: definition.type,
-      variantCount: 1,
-      variantId: flipVariant.id,
-    })
-  }
-
-  return entries
-}
-
-export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
+export function ComponentLibrary({
+  onCollapse,
+  onOpenFullLibrary,
+}: ComponentLibraryProps) {
   const addComponent = useEditorStore((state) => state.addComponent)
   const addBreadboardInstance = useEditorStore((state) => state.addBreadboardInstance)
   const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
@@ -191,7 +47,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
   const [isRecentExpanded, setIsRecentExpanded] = useState(false)
 
   const allComponentEntries = useMemo(
-    () => COMPONENT_DEFINITIONS.flatMap(buildLibraryComponentEntries),
+    () => COMPONENT_DEFINITIONS.flatMap(buildCompactLibraryComponentEntries),
     [],
   )
   const groupedDefinitions = useMemo(() => {
@@ -486,7 +342,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             {(isSearchActive || expandedGroups.has('__breadboards')) && breadboardCatalogPreset ? (
               <div className="component-library__group-body is-open">
                 {(!isSearchActive ||
-                  matchesQuery(
+                  matchesLibraryQuery(
                     `${breadboardCatalogLabel} breadboard preset optical table custom`,
                     normalizedQuery,
                   ) ||
@@ -531,7 +387,7 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
             }
 
             return (
-              matchesQuery(entry.searchText, normalizedQuery) ||
+              matchesLibraryQuery(entry.searchText, normalizedQuery) ||
               isComponentEntryArmed(entry)
             )
           })
@@ -610,14 +466,24 @@ export function ComponentLibrary({ onCollapse }: ComponentLibraryProps) {
 
         {isSearchActive &&
         recentCards.length === 0 &&
-        !matchesQuery(breadboardCatalogLabel, normalizedQuery) &&
+        !matchesLibraryQuery(breadboardCatalogLabel, normalizedQuery) &&
         !allComponentEntries.some((entry) =>
-          matchesQuery(entry.searchText, normalizedQuery),
+          matchesLibraryQuery(entry.searchText, normalizedQuery),
         ) ? (
           <div className="component-library__empty">
             No matching components.
           </div>
         ) : null}
+      </div>
+      <div className="component-library__footer">
+        <button
+          className="component-library__footer-button"
+          data-testid="library-open-full"
+          onClick={onOpenFullLibrary}
+          type="button"
+        >
+          Full Library
+        </button>
       </div>
     </aside>
   )

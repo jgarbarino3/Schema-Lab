@@ -186,6 +186,51 @@ describe('scene serialization', () => {
     expect(parsed).toEqual(scene)
   })
 
+  it('round-trips enhanced simple icon overrides through JSON', () => {
+    const scene = createEmptyScene()
+    const lensDefinition = getComponentDefinition('lens')
+
+    scene.components.push({
+      id: 'lens-1',
+      type: 'lens',
+      label: 'Lens 1',
+      variantId: lensDefinition.defaultVariantId,
+      anchorMm: { x: 125, y: 125 },
+      rotationQuarterTurns: 0,
+      simpleIconStyleOverride: 'enhanced',
+      config: createDefaultComponentConfig('lens', lensDefinition.defaultVariantId),
+    })
+
+    const parsed = parseSceneDocument(serializeSceneDocument(scene))
+
+    expect(parsed.components[0]?.simpleIconStyleOverride).toBe('enhanced')
+    expect(parsed).toEqual(scene)
+  })
+
+  it('maps legacy clean simple icon overrides onto enhanced', () => {
+    const scene = createEmptyScene()
+    const mirrorDefinition = getComponentDefinition('mirror')
+    const legacyJson = JSON.stringify({
+      ...scene,
+      components: [
+        {
+          id: 'mirror-1',
+          type: 'mirror',
+          label: 'Mirror 1',
+          variantId: mirrorDefinition.defaultVariantId,
+          anchorMm: { x: 125, y: 125 },
+          rotationQuarterTurns: 0,
+          simpleIconStyleOverride: 'clean',
+          config: createDefaultComponentConfig('mirror', mirrorDefinition.defaultVariantId),
+        },
+      ],
+    })
+
+    const parsed = parseSceneDocument(legacyJson)
+
+    expect(parsed.components[0]?.simpleIconStyleOverride).toBe('enhanced')
+  })
+
   it('migrates legacy line annotations without explicit kinds', () => {
     const scene = createEmptyScene()
     const legacyJson = JSON.stringify({

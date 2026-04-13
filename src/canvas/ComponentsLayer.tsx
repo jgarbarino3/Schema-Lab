@@ -20,7 +20,7 @@ import type {
   SnapMode,
   ViewportState,
 } from '../domain/types'
-import { ComponentNodeView, type SimpleGlyphAppearance } from './ComponentNode'
+import { ComponentNode, type SimpleGlyphAppearance } from './ComponentNode'
 
 interface DragPreviewState {
   componentId: string
@@ -216,7 +216,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   return (
     <Layer>
       {components.map((component) => (
-        <ComponentNodeView
+        <ComponentNode
           isHighlighted={highlightedComponentIds?.includes(component.id)}
           instance={(() => {
             const breadboardShiftedComponent =
@@ -331,7 +331,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
 
       {pendingPlacement && pendingPlacementResult ? (
         <>
-          <ComponentNodeView
+        <ComponentNode
             instance={{
               ...pendingPlacement.draft,
               anchorMm: pendingPlacementResult.resolvedAnchorMm,
@@ -390,7 +390,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
 
       {previewedComponent && previewPlacement ? (
         <>
-          <ComponentNodeView
+        <ComponentNode
             instance={{
               ...previewedComponent,
               anchorMm: previewPlacement.resolvedAnchorMm,

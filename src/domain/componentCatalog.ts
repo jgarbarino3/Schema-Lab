@@ -116,21 +116,56 @@ function renderHint(
 }
 
 const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
+  'laser',
+  'laser-fs-source',
+  'laser-compact-table',
+  'laser-libra',
+  'laser-pharos',
+  'laser-clark',
+  'mount',
+  'support',
+  'support-clamp-fork',
+  'support-mounting-base',
+  'support-pedestal-post',
+  'support-post-holder',
+  'support-pedestal-assembly',
+  'support-linear-slide',
+  'support-beam-block',
+  'support-periscope',
+  'support-white-light-cell',
+  'support-pump-seed-combiner',
   'mirror',
+  'mirror-flip',
   'curved-mirror',
   'beamsplitter',
   'lens',
   'filter',
   'attenuator',
+  'attenuator-horizontal',
+  'attenuator-vertical',
   'polarizer',
   'waveplate',
+  'waveplate-half',
+  'waveplate-quarter',
   'iris',
+  'iris-standard',
+  'iris-zero',
+  'iris-sm1-ring',
+  'iris-sm1-graduated',
+  'iris-sm1-zero',
   'bbo',
   'telescope',
+  'telescope-transmission',
+  'telescope-reflective',
   'opa',
   'sample',
+  'sample-generic',
+  'sample-delay-stage',
+  'sample-motorized-stage',
   'fiber',
   'spectrometer',
+  'spectrometer-compact',
+  'spectrometer-bench',
   'detector',
   'beam-dump',
 ])
@@ -138,10 +173,7 @@ const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
 export function supportsSimpleGlyphAppearance(
   spec: Pick<ResolvedComponentSpec, 'renderHint' | 'type'>,
 ) {
-  return (
-    spec.type !== 'laser-source' &&
-    SIMPLE_GLYPH_APPEARANCE_GLYPHS.has(spec.renderHint.glyph)
-  )
+  return SIMPLE_GLYPH_APPEARANCE_GLYPHS.has(spec.renderHint.glyph)
 }
 
 function realisticVisualPreset(
@@ -680,6 +712,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: 'Femtosecond Source Head',
         shortLabel: 'FS Source',
         description: 'External off-board ultrafast source head for FROG and SHG planning.',
+        renderHint: {
+          glyph: 'laser-fs-source',
+        },
       },
       {
         id: 'compact-table-source',
@@ -696,7 +731,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           shape: 'capsule',
           fill: '#4b6d7f',
           stroke: '#c5e8f8',
-          glyph: 'laser',
+          glyph: 'laser-compact-table',
         },
         realisticVisualPreset: {
           finish: 'teal-anodized',
@@ -721,7 +756,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           shape: 'rect',
           fill: '#8b928f',
           stroke: '#dce3df',
-          glyph: 'laser',
+          glyph: 'laser-libra',
         },
         realisticVisualPreset: {
           finish: 'silver-machined',
@@ -746,7 +781,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           shape: 'rect',
           fill: '#798892',
           stroke: '#c7d7e2',
-          glyph: 'laser',
+          glyph: 'laser-pharos',
         },
         realisticVisualPreset: {
           finish: 'silver-machined',
@@ -771,7 +806,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           shape: 'rect',
           fill: '#6d7d88',
           stroke: '#c8d7df',
-          glyph: 'laser',
+          glyph: 'laser-clark',
         },
         realisticVisualPreset: {
           finish: 'silver-machined',
@@ -863,6 +898,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'CF125C/M',
         description: 'Clamping fork for 1.25 in pedestal bases; standard choice.',
         footprintBoundsMm: bounds(-37.5, -18, 75, 36),
+        renderHint: {
+          glyph: 'support-clamp-fork',
+        },
       },
       {
         id: 'cf175c-m',
@@ -871,6 +909,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'CF175C/M',
         description: 'Longer-slot clamping fork for awkward hole access.',
         footprintBoundsMm: bounds(-20, -12, 40, 24),
+        renderHint: {
+          glyph: 'support-clamp-fork',
+        },
       },
       {
         id: 'ba2-m',
@@ -879,6 +920,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'BA2/M',
         description: 'Mounting base for pedestal-style hardware.',
         footprintBoundsMm: bounds(-15, -15, 30, 30),
+        renderHint: {
+          glyph: 'support-mounting-base',
+        },
       },
       {
         id: 'rs1-5p4m',
@@ -887,6 +931,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'RS1.5P4M',
         description: '25 mm pedestal pillar post, 38 mm long, with M4 taps.',
         footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-pedestal-post',
+        },
       },
       {
         id: 'rsht1-5-m',
@@ -895,6 +942,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'RSHT1.5/M',
         description: '25 mm post holder with flexure lock, 38 mm long.',
         footprintBoundsMm: bounds(-11, -11, 22, 22),
+        renderHint: {
+          glyph: 'support-post-holder',
+        },
       },
       {
         id: 'pedestal-assembly-31.8',
@@ -903,6 +953,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'PED-31.8',
         description: 'Pedestal base, post, and post-holder style assembly for mounted optics.',
         footprintBoundsMm: bounds(-18, -18, 36, 36),
+        renderHint: {
+          glyph: 'support-pedestal-assembly',
+        },
       },
       {
         id: 'linear-slide-mini',
@@ -911,6 +964,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'LIN-SLIDE-MINI',
         description: 'Small translation or positioning base used under compact optics.',
         footprintBoundsMm: bounds(-28, -16, 56, 32),
+        renderHint: {
+          glyph: 'support-linear-slide',
+        },
       },
       {
         id: 'beam-block-plate',
@@ -919,6 +975,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'PLATE-BLOCK',
         description: 'Opaque plate or beam-block style hardware.',
         footprintBoundsMm: bounds(-20, -14, 40, 28),
+        renderHint: {
+          glyph: 'support-beam-block',
+        },
       },
       {
         id: 'manual-delay-axis',
@@ -929,6 +988,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         footprintBoundsMm: bounds(-80, -30, 160, 60),
         visualBodyBoundsMm: bounds(-74, -22, 148, 44),
         hitBoundsMm: bounds(-84, -34, 168, 68),
+        renderHint: {
+          glyph: 'support-linear-slide',
+        },
         opticalCenterMm: { x: 0, y: 0 },
         ports: [
           port('west', 'Input', 'beam-input', -80, 0, 'west'),
@@ -945,6 +1007,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         footprintBoundsMm: bounds(-22, -48, 44, 96),
         visualBodyBoundsMm: bounds(-16, -42, 32, 84),
         hitBoundsMm: bounds(-26, -52, 52, 104),
+        renderHint: {
+          glyph: 'support-periscope',
+        },
         opticalCenterMm: { x: 0, y: 0 },
         ports: [
           port('south', 'Input', 'beam-input', 0, 48, 'south'),
@@ -959,6 +1024,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'WLG',
         description: 'White-light generation hardware block for OPA-style layouts.',
         footprintBoundsMm: bounds(-18, -18, 36, 36),
+        renderHint: {
+          glyph: 'support-white-light-cell',
+        },
       },
       {
         id: 'pump-seed-combiner',
@@ -967,6 +1035,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'PUMP-SEED',
         description: 'Mechanically distinct pump and seed handling hardware.',
         footprintBoundsMm: bounds(-26, -18, 52, 36),
+        renderHint: {
+          glyph: 'support-pump-seed-combiner',
+        },
       },
     ],
   },
@@ -1030,6 +1101,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         sku: 'FLIP-MIRROR',
         description:
           'Flip mount mirror with two states: down reflects into a branch, up passes the beam straight through.',
+        renderHint: {
+          glyph: 'mirror-flip',
+        },
         physics: mirrorPhysics(450, 2000, 96.5, 1.8),
       },
     ],
@@ -1369,6 +1443,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'variable-nd-horizontal',
         label: 'Variable ND Attenuator (Horizontal)',
         description: 'Scalar attenuation optic in a horizontal mount orientation.',
+        renderHint: {
+          glyph: 'attenuator-horizontal',
+        },
         physics: attenuatorPhysics({
           transmissionPercent: 50,
           minNm: 350,
@@ -1381,6 +1458,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'variable-nd-vertical',
         label: 'Variable ND Attenuator (Vertical)',
         description: 'Scalar attenuation optic in a vertical mount orientation.',
+        renderHint: {
+          glyph: 'attenuator-vertical',
+        },
         physics: attenuatorPhysics({
           transmissionPercent: 50,
           minNm: 350,
@@ -1452,12 +1532,18 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'half-wave',
         label: 'Half-Wave Plate',
         description: 'Half-wave plate for polarization rotation.',
+        renderHint: {
+          glyph: 'waveplate-half',
+        },
         physics: waveplatePhysics(180, 98, 25.4),
       },
       {
         id: 'quarter-wave',
         label: 'Quarter-Wave Plate',
         description: 'Quarter-wave plate for linear/circular conversion.',
+        renderHint: {
+          glyph: 'waveplate-quarter',
+        },
         physics: waveplatePhysics(90, 98, 25.4),
       },
     ],
@@ -1497,6 +1583,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'ID8/M',
         description: '8.0 mm max aperture post-mounted iris.',
+        renderHint: {
+          glyph: 'iris-standard',
+        },
         physics: irisPhysics(8, 6),
       },
       {
@@ -1505,6 +1594,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'ID12/M',
         description: '12.0 mm max aperture post-mounted iris; best default alignment choice.',
+        renderHint: {
+          glyph: 'iris-standard',
+        },
         physics: irisPhysics(12, 10),
       },
       {
@@ -1513,6 +1605,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'ID15/M',
         description: '15.0 mm max aperture post-mounted iris with more clearance.',
+        renderHint: {
+          glyph: 'iris-standard',
+        },
         physics: irisPhysics(15, 12),
       },
       {
@@ -1521,6 +1616,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'ID25/M',
         description: '25.0 mm max aperture post-mounted iris for expanded beams.',
+        renderHint: {
+          glyph: 'iris-standard',
+        },
         physics: irisPhysics(25, 18),
       },
       {
@@ -1529,6 +1627,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'ID12Z/M',
         description: '12.0 mm max aperture zero-aperture iris.',
+        renderHint: {
+          glyph: 'iris-zero',
+        },
         physics: irisPhysics(12, 8),
       },
       {
@@ -1537,6 +1638,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'SM1D12D',
         description: 'SM1-threaded iris with 0.8-12.0 mm aperture.',
+        renderHint: {
+          glyph: 'iris-sm1-ring',
+        },
         physics: irisPhysics(12, 8),
       },
       {
@@ -1545,6 +1649,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'SM1D12C',
         description: 'SM1-threaded graduated iris with 1.0-12.0 mm aperture.',
+        renderHint: {
+          glyph: 'iris-sm1-graduated',
+        },
         physics: irisPhysics(12, 8),
       },
       {
@@ -1553,6 +1660,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'SM1D12SZ',
         description: 'SM1-threaded zero-aperture iris that closes fully.',
+        renderHint: {
+          glyph: 'iris-sm1-zero',
+        },
         physics: irisPhysics(12, 8),
       },
     ],
@@ -1622,11 +1732,17 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'beam-expander-2x',
         label: 'Transmission Telescope',
         description: 'Two-lens telescope for ~2x beam expansion.',
+        renderHint: {
+          glyph: 'telescope-transmission',
+        },
       },
       {
         id: 'reflective-compressor-2x',
         label: 'Reflective Telescope',
         description: 'Two-mirror reflective telescope with spherical elements.',
+        renderHint: {
+          glyph: 'telescope-reflective',
+        },
         physics: telescopePhysics({
           mode: 'reflection',
           element1Mm: 200,
@@ -1664,6 +1780,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'sample-stage-generic',
         label: 'Sample / Stage',
         description: 'Generic sample holder or delay stage footprint.',
+        renderHint: {
+          glyph: 'sample-generic',
+        },
       },
       {
         id: 'pi-m-112-1dg1',
@@ -1671,6 +1790,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'PI',
         sku: 'M-112.1DG1',
         description: 'Compact linear delay stage for optical path length tuning.',
+        renderHint: {
+          glyph: 'sample-delay-stage',
+        },
         footprintBoundsMm: bounds(-42.5, -17, 85, 34),
         visualBodyBoundsMm: bounds(-39, -12, 78, 24),
         hitBoundsMm: bounds(-45, -20, 90, 40),
@@ -1691,6 +1813,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'PI',
         sku: 'LS-180',
         description: 'Large PI LS-180 stage with carriage and cable-chain sweep envelope.',
+        renderHint: {
+          glyph: 'sample-motorized-stage',
+        },
         footprintBoundsMm: bounds(-325.5, -90, 651, 180),
         visualBodyBoundsMm: bounds(-325.5, -75, 651, 150),
         hitBoundsMm: bounds(-360, -120, 720, 240),
@@ -1807,6 +1932,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Ocean Optics',
         sku: 'SR6',
         description: 'Approximately 200-1000 nm spectrometer range.',
+        renderHint: {
+          glyph: 'spectrometer-compact',
+        },
       },
       {
         id: 'spectrapro-sp-2150',
@@ -1814,6 +1942,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Teledyne Princeton Instruments',
         sku: 'SpectraPro SP-2150',
         description: 'Top-view SP-2150 body with practical footprint and side attachment silhouette.',
+        renderHint: {
+          glyph: 'spectrometer-bench',
+        },
         footprintBoundsMm: bounds(-89, -89, 178, 178),
         visualBodyBoundsMm: bounds(-89, -89, 178, 178),
         hitBoundsMm: bounds(-104, -104, 208, 208),

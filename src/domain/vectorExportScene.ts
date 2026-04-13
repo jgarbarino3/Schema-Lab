@@ -656,12 +656,59 @@ function renderSimpleLocalGlyph(
   },
   iconStyle: SimpleIconStyle,
 ): VectorNode[] {
+  const resolvedGlyph = (() => {
+    switch (glyph) {
+      case 'laser-fs-source':
+      case 'laser-compact-table':
+      case 'laser-libra':
+      case 'laser-pharos':
+      case 'laser-clark':
+        return 'laser'
+      case 'support-clamp-fork':
+      case 'support-mounting-base':
+      case 'support-pedestal-post':
+      case 'support-post-holder':
+      case 'support-pedestal-assembly':
+      case 'support-linear-slide':
+      case 'support-beam-block':
+      case 'support-periscope':
+      case 'support-white-light-cell':
+      case 'support-pump-seed-combiner':
+        return 'support'
+      case 'mirror-flip':
+        return 'mirror'
+      case 'attenuator-horizontal':
+      case 'attenuator-vertical':
+        return 'attenuator'
+      case 'waveplate-half':
+      case 'waveplate-quarter':
+        return 'waveplate'
+      case 'iris-standard':
+      case 'iris-zero':
+      case 'iris-sm1-ring':
+      case 'iris-sm1-graduated':
+      case 'iris-sm1-zero':
+        return 'iris'
+      case 'telescope-transmission':
+      case 'telescope-reflective':
+        return 'telescope'
+      case 'sample-generic':
+      case 'sample-delay-stage':
+      case 'sample-motorized-stage':
+        return 'sample'
+      case 'spectrometer-compact':
+      case 'spectrometer-bench':
+        return 'spectrometer'
+      default:
+        return glyph
+    }
+  })()
   const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
   const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
   const opticRadius = Math.max(3.4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.28)
   const isClassic = iconStyle === 'classic'
 
-  switch (glyph) {
+  switch (resolvedGlyph) {
     case 'mirror':
     case 'curved-mirror':
       return [

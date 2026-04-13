@@ -70,6 +70,7 @@ import {
 } from './ui/CanvasContextMenu'
 import { ComponentLibrary } from './ui/ComponentLibrary'
 import { ExportOptionsModal } from './ui/ExportOptionsModal'
+import { FullLibraryModal } from './ui/FullLibraryModal'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
@@ -277,6 +278,7 @@ function App() {
   const setActiveTool = useEditorStore((state) => state.setActiveTool)
   const setRenderMode = useEditorStore((state) => state.setRenderMode)
   const setSelectedWarningId = useEditorStore((state) => state.setSelectedWarningId)
+  const addComponent = useEditorStore((state) => state.addComponent)
   const cancelActiveInteraction = useEditorStore(
     (state) => state.cancelActiveInteraction,
   )
@@ -345,6 +347,7 @@ function App() {
   const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
+  const [isFullLibraryOpen, setIsFullLibraryOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
     readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
   )
@@ -1230,6 +1233,7 @@ function App() {
       if (
         event.key === ' ' &&
         !isJsonModalOpen &&
+        !isFullLibraryOpen &&
         !isSvgImportOptionsOpen &&
         !isSvgCalibrationOpen &&
         !isSvgAmbiguityOpen &&
@@ -1260,6 +1264,12 @@ function App() {
           event.preventDefault()
           setJsonError(undefined)
           setIsJsonModalOpen(false)
+          return
+        }
+
+        if (isFullLibraryOpen) {
+          event.preventDefault()
+          setIsFullLibraryOpen(false)
           return
         }
 
@@ -1355,6 +1365,7 @@ function App() {
 
       if (
         isJsonModalOpen ||
+        isFullLibraryOpen ||
         isSvgImportOptionsOpen ||
         isSvgCalibrationOpen ||
         isSvgAmbiguityOpen ||
@@ -1537,6 +1548,7 @@ function App() {
     isSvgCalibrationOpen,
     isSvgImportOptionsOpen,
     isHelpOpen,
+    isFullLibraryOpen,
     isJsonModalOpen,
     isTutorialModalOpen,
     isVersionHistoryOpen,
@@ -2031,7 +2043,10 @@ function App() {
       >
         <div className="workspace__left-panel">
           {!isLibraryCollapsed ? (
-            <ComponentLibrary onCollapse={handleToggleLibrary} />
+            <ComponentLibrary
+              onCollapse={handleToggleLibrary}
+              onOpenFullLibrary={() => setIsFullLibraryOpen(true)}
+            />
           ) : (
             <button
               className="workspace__edge-tab workspace__edge-tab--left"
@@ -2273,6 +2288,15 @@ function App() {
         }}
         onLoad={handleLoadFromJson}
         schemaVersion={SCENE_DOCUMENT_VERSION}
+      />
+
+      <FullLibraryModal
+        isOpen={isFullLibraryOpen}
+        onArm={(type, variantId) => {
+          setIsFullLibraryOpen(false)
+          addComponent(type, variantId)
+        }}
+        onClose={() => setIsFullLibraryOpen(false)}
       />
 
       <WarningReviewModal

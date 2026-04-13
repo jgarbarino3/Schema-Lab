@@ -37,7 +37,7 @@ export function LibraryGlyphPreview({
   className,
   fill,
   stroke = '#26313a',
-  style = 'clean',
+  style = 'enhanced',
   ...rest
 }: LibraryGlyphPreviewProps) {
   return (
