@@ -23,6 +23,9 @@ import {
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import {
   COMPONENT_CATEGORY_LABELS,
+  SAMPLE_MATERIAL_OPTIONS,
+  STAGE_FINISH_OPTIONS,
+  isStageComponentType,
   getComponentDefinition,
   getComponentVariants,
   getResolvedComponentSpecForInstance,
@@ -223,6 +226,11 @@ function normalizeIconStylePreviewGlyph(glyph: string) {
       return 'support'
     case 'mirror-flip':
       return 'mirror'
+    case 'filter-longpass':
+    case 'filter-shortpass':
+    case 'filter-bandpass':
+    case 'filter-colored-glass':
+      return 'filter'
     case 'attenuator-horizontal':
     case 'attenuator-vertical':
       return 'attenuator'
@@ -238,7 +246,14 @@ function normalizeIconStylePreviewGlyph(glyph: string) {
     case 'telescope-transmission':
     case 'telescope-reflective':
       return 'telescope'
+    case 'opa-white-light':
+    case 'opa-combiner':
+    case 'opa-gain':
+      return 'opa'
     case 'sample-generic':
+    case 'sample-xy-stage':
+    case 'sample-xyz-stage':
+    case 'sample-manual-xyz-stage':
     case 'sample-delay-stage':
     case 'sample-motorized-stage':
       return 'sample'
@@ -2410,6 +2425,8 @@ export function InspectorPanel({
       ? `${placement.status === 'warning' ? 'Warning' : placementStateLabel} (${placement.reason})`
       : placementStateLabel
   const showSimpleAppearanceStrip = supportsSimpleGlyphAppearance(spec)
+  const showStageFinishControl = isStageComponentType(inspectedComponent.type)
+  const showSampleMaterialControl = inspectedComponent.type === 'sample'
   const effectiveSimpleGlyphAppearance = simpleGlyphAppearance ?? {
     color: SIMPLE_APPEARANCE_SWATCHS[0],
     scale: 1,
@@ -2561,6 +2578,44 @@ export function InspectorPanel({
                 ))}
                 </select>
               </Field>
+
+              {showStageFinishControl ? (
+                <Field className="inspector__field--compact inspector__field--compact-variant" label="Finish">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedComponent({
+                        finishId: event.target.value as (typeof STAGE_FINISH_OPTIONS)[number]['id'],
+                      })
+                    }
+                    value={inspectedComponent.finishId ?? 'silver-machined'}
+                  >
+                    {STAGE_FINISH_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
+
+              {showSampleMaterialControl ? (
+                <Field className="inspector__field--compact inspector__field--compact-variant" label="Material">
+                  <select
+                    onChange={(event) =>
+                      updateSelectedComponent({
+                        materialId: event.target.value as (typeof SAMPLE_MATERIAL_OPTIONS)[number]['id'],
+                      })
+                    }
+                    value={inspectedComponent.materialId ?? 'generic-chip'}
+                  >
+                    {SAMPLE_MATERIAL_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              ) : null}
 
             {showSimpleAppearanceStrip ? (
               <div className="inspector__appearance-card inspector__placement-card--full" style={{ paddingBottom: '0.2rem' }}>
@@ -3769,7 +3824,7 @@ export function InspectorPanel({
           </div>
         ) : null}
 
-        {(inspectedComponent.type === 'sample-stage' ||
+        {(inspectedComponent.type === 'delay-stage' ||
           inspectedComponent.type === 'support-hardware') &&
         inspectedComponent.config.delayLine ? (
           <div className="inspector__subsection">

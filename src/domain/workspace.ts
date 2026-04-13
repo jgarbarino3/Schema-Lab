@@ -258,8 +258,18 @@ export function transformSurfaceLocalBoundsToWorld(
 
 export function getHostSurfaceIdForComponent(
   scene: SceneDocument,
-  component: Pick<ComponentInstance, 'hostSurfaceId'>,
+  component: Pick<ComponentInstance, 'attachment' | 'hostSurfaceId' | 'id'>,
 ) {
+  if (component.attachment) {
+    const parent = scene.components.find(
+      (candidate) => candidate.id === component.attachment?.parentComponentId,
+    )
+
+    if (parent) {
+      return getHostSurfaceIdForComponent(scene, parent)
+    }
+  }
+
   if (component.hostSurfaceId) {
     return component.hostSurfaceId
   }
@@ -500,16 +510,185 @@ export function translateComponentWorld(
   }
 }
 
+function normalizeQuarterTurns(value: number): QuarterTurn {
+  return ((((value % 4) + 4) % 4) as QuarterTurn)
+}
+
+export function getComponentById(
+  scene: SceneDocument,
+  componentId: string,
+): ComponentInstance | undefined {
+  return scene.components.find((component) => component.id === componentId)
+}
+
+export function getAttachedChildComponents(
+  scene: SceneDocument,
+  parentComponentId: string,
+): ComponentInstance[] {
+  return scene.components.filter(
+    (component) => component.attachment?.parentComponentId === parentComponentId,
+  )
+}
+
+export function getComponentRootId(
+  scene: SceneDocument,
+  componentId: string,
+): string | undefined {
+  let current = getComponentById(scene, componentId)
+  const visited = new Set<string>()
+
+  while (current?.attachment?.parentComponentId) {
+    if (visited.has(current.id)) {
+      return current.id
+    }
+
+    visited.add(current.id)
+    const parent = getComponentById(scene, current.attachment.parentComponentId)
+
+    if (!parent) {
+      return current.id
+    }
+
+    current = parent
+  }
+
+  return current?.id
+}
+
+export function getComponentTreeIds(
+  scene: SceneDocument,
+  rootComponentId: string,
+): string[] {
+  const resolvedIds: string[] = []
+  const queue = [rootComponentId]
+
+  while (queue.length > 0) {
+    const nextId = queue.shift()!
+    resolvedIds.push(nextId)
+
+    for (const child of getAttachedChildComponents(scene, nextId)) {
+      queue.push(child.id)
+    }
+  }
+
+  return resolvedIds
+}
+
+export function componentLocalToWorld(
+  scene: SceneDocument,
+  parentComponentId: string,
+  pointMm: Vector2Mm,
+): Vector2Mm {
+  const parent = getComponentById(scene, parentComponentId)
+
+  if (!parent) {
+    return pointMm
+  }
+
+  const rotatedPointMm = rotatePointQuarterTurns(pointMm, parent.rotationQuarterTurns)
+
+  return {
+    x: roundMm(parent.anchorMm.x + rotatedPointMm.x),
+    y: roundMm(parent.anchorMm.y + rotatedPointMm.y),
+  }
+}
+
+export function componentWorldToLocal(
+  scene: SceneDocument,
+  parentComponentId: string,
+  pointMm: Vector2Mm,
+): Vector2Mm {
+  const parent = getComponentById(scene, parentComponentId)
+
+  if (!parent) {
+    return pointMm
+  }
+
+  const translatedPointMm = {
+    x: roundMm(pointMm.x - parent.anchorMm.x),
+    y: roundMm(pointMm.y - parent.anchorMm.y),
+  }
+
+  return rotatePointQuarterTurns(
+    translatedPointMm,
+    ((4 - parent.rotationQuarterTurns) % 4) as QuarterTurn,
+  )
+}
+
+export function syncAttachedComponentTransforms(scene: SceneDocument): SceneDocument {
+  if (!scene.components.some((component) => component.attachment)) {
+    return scene
+  }
+
+  const componentById = new Map(
+    scene.components.map((component) => [component.id, component] as const),
+  )
+  const syncedById = new Map<string, ComponentInstance>()
+
+  const syncComponent = (component: ComponentInstance): ComponentInstance => {
+    const cached = syncedById.get(component.id)
+
+    if (cached) {
+      return cached
+    }
+
+    if (!component.attachment) {
+      syncedById.set(component.id, component)
+      return component
+    }
+
+    const parent = componentById.get(component.attachment.parentComponentId)
+
+    if (!parent) {
+      const detached = {
+        ...component,
+        attachment: undefined,
+      }
+      syncedById.set(component.id, detached)
+      return detached
+    }
+
+    const syncedParent = syncComponent(parent)
+    const worldAnchorMm = componentLocalToWorld(
+      {
+        ...scene,
+        components: scene.components.map((candidate) =>
+          candidate.id === syncedParent.id ? syncedParent : candidate,
+        ),
+      },
+      syncedParent.id,
+      component.attachment.localAnchorMm,
+    )
+    const syncedComponent = {
+      ...component,
+      anchorMm: worldAnchorMm,
+      hostSurfaceId: syncedParent.hostSurfaceId,
+      rotationQuarterTurns: normalizeQuarterTurns(
+        syncedParent.rotationQuarterTurns +
+          component.attachment.localRotationQuarterTurns,
+      ),
+    }
+
+    syncedById.set(component.id, syncedComponent)
+    return syncedComponent
+  }
+
+  return {
+    ...scene,
+    components: scene.components.map((component) => syncComponent(component)),
+  }
+}
+
 export function convertSceneToOpticalTable(scene: SceneDocument): SceneDocument {
   if (scene.workspace.kind === 'optical-table') {
-    return scene
+    return syncAttachedComponentTransforms(scene)
   }
 
   const workspace = createCenteredTableWorkspaceFromSingle(scene.workspace.breadboard)
   const hostSurfaceId = workspace.breadboards[0]?.id
   const breadboardAnchorMm = workspace.breadboards[0]?.anchorMm ?? { x: 0, y: 0 }
 
-  return {
+  return syncAttachedComponentTransforms({
     ...scene,
     version: SCENE_DOCUMENT_VERSION,
     workspace,
@@ -521,7 +700,7 @@ export function convertSceneToOpticalTable(scene: SceneDocument): SceneDocument 
         y: roundMm(component.anchorMm.y + breadboardAnchorMm.y),
       },
     })),
-  }
+  })
 }
 
 export function convertSceneToSingleBreadboard(args: {
@@ -532,7 +711,7 @@ export function convertSceneToSingleBreadboard(args: {
   const { scene, breadboardId, createFresh } = args
 
   if (scene.workspace.kind === 'single-breadboard') {
-    return scene
+    return syncAttachedComponentTransforms(scene)
   }
 
   const chosenBreadboard =
@@ -547,7 +726,7 @@ export function convertSceneToSingleBreadboard(args: {
       }
   const originMm = chosenBreadboard?.anchorMm ?? { x: 0, y: 0 }
 
-  return {
+  return syncAttachedComponentTransforms({
     ...scene,
     version: SCENE_DOCUMENT_VERSION,
     workspace: nextWorkspace,
@@ -563,5 +742,5 @@ export function convertSceneToSingleBreadboard(args: {
           y: roundMm(component.anchorMm.y - originMm.y),
         },
       })),
-  }
+  })
 }

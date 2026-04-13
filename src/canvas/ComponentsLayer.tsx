@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Layer, Rect } from 'react-konva'
 import {
@@ -132,11 +132,45 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   const previewedComponent = dragPreview
     ? components.find((component) => component.id === dragPreview.componentId)
     : undefined
+  const componentById = useMemo(
+    () => new Map(components.map((component) => [component.id, component] as const)),
+    [components],
+  )
+  const orderedComponents = useMemo(() => {
+    const getDepth = (component: ComponentInstance) => {
+      let depth = 0
+      let current = component
+      const visited = new Set<string>()
+
+      while (current.attachment?.parentComponentId && !visited.has(current.id)) {
+        visited.add(current.id)
+        const parent = componentById.get(current.attachment.parentComponentId)
+
+        if (!parent) {
+          break
+        }
+
+        depth += 1
+        current = parent
+      }
+
+      return depth
+    }
+
+    return [...components].sort((left, right) => getDepth(left) - getDepth(right))
+  }, [componentById, components])
   const draggedComponentIds =
     dragPreview?.componentIds?.length ? dragPreview.componentIds : undefined
   const draggedComponentIdSet = draggedComponentIds
     ? new Set(draggedComponentIds)
     : undefined
+  const previewDragDeltaMm =
+    dragPreview && previewedComponent
+      ? {
+          x: dragPreview.candidateAnchorMm.x - previewedComponent.anchorMm.x,
+          y: dragPreview.candidateAnchorMm.y - previewedComponent.anchorMm.y,
+        }
+      : undefined
   const breadboardDragDeltaMm =
     scene.workspace.kind === 'optical-table' && breadboardDragPreview
       ? (() => {
@@ -174,6 +208,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
     previewComponent && dragPreview
       ? annotateScenePlacementOccupancy({
           scene,
+          component: previewComponent,
           components,
           ignoreComponentId: previewComponent.id,
           hostSurfaceId: previewComponent.hostSurfaceId,
@@ -194,6 +229,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   const pendingPlacementResult = pendingPlacement
     ? annotateScenePlacementOccupancy({
         scene,
+        component: pendingPlacement.draft,
         components,
         ignoreComponentId: pendingPlacement.draft.id,
         hostSurfaceId: pendingPlacement.draft.hostSurfaceId,
@@ -212,10 +248,29 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   const pendingPreviewAccent = pendingPlacementResult
     ? getPreviewAccent(pendingPlacementResult.status)
     : undefined
+  const isDraggedSubtreeMember = (componentId: string) => {
+    if (!draggedComponentIdSet) {
+      return false
+    }
+
+    let current = componentById.get(componentId)
+
+    while (current) {
+      if (draggedComponentIdSet.has(current.id)) {
+        return true
+      }
+
+      current = current.attachment?.parentComponentId
+        ? componentById.get(current.attachment.parentComponentId)
+        : undefined
+    }
+
+    return false
+  }
 
   return (
     <Layer>
-      {components.map((component) => (
+      {orderedComponents.map((component) => (
         <ComponentNode
           isHighlighted={highlightedComponentIds?.includes(component.id)}
           instance={(() => {
@@ -234,7 +289,8 @@ export const ComponentsLayer = memo(function ComponentsLayer({
             if (
               !dragPreview ||
               !previewedComponent ||
-              !draggedComponentIdSet?.has(component.id)
+              !previewDragDeltaMm ||
+              !isDraggedSubtreeMember(component.id)
             ) {
               return breadboardShiftedComponent
             }
@@ -249,8 +305,8 @@ export const ComponentsLayer = memo(function ComponentsLayer({
             return {
               ...breadboardShiftedComponent,
               anchorMm: {
-                x: dragPreview.candidateAnchorMm.x + (component.anchorMm.x - previewedComponent.anchorMm.x),
-                y: dragPreview.candidateAnchorMm.y + (component.anchorMm.y - previewedComponent.anchorMm.y),
+                x: breadboardShiftedComponent.anchorMm.x + previewDragDeltaMm.x,
+                y: breadboardShiftedComponent.anchorMm.y + previewDragDeltaMm.y,
               },
             }
           })()}

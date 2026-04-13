@@ -1,66 +1,85 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
+import { getComponentDefinition } from '../domain/componentCatalog'
 import type {
-  SvgImportAmbiguousElement,
   SvgImportDocument,
   SvgImportManualResolution,
+  SvgImportReviewItem,
 } from '../domain/svgImport'
-import { listSvgImportComponentChoices } from '../domain/svgImport'
-import type { ComponentType } from '../domain/types'
 import { SvgImportPreview } from './SvgImportPreview'
+import { SvgImportVariantChooser } from './SvgImportVariantChooser'
 
 interface SvgAmbiguityModalProps {
-  ambiguous: SvgImportAmbiguousElement[]
   document: SvgImportDocument
   isOpen: boolean
   onCancel: () => void
   onConfirm: (resolutions: SvgImportManualResolution[]) => void
+  reviewItems: SvgImportReviewItem[]
 }
 
-type ResolutionValue = ComponentType | '__skip__' | undefined
+type ResolutionState =
+  | {
+      componentType?: SvgImportManualResolution['componentType']
+      disposition: SvgImportManualResolution['disposition']
+      variantId?: string
+    }
+  | undefined
+
 const AUTO_RESOLVE_GAP_THRESHOLD = 0.15
 
+function describeReviewItem(item: SvgImportReviewItem) {
+  switch (item.kind) {
+    case 'missing-junction':
+      return 'Potential missing beam-turn optic'
+    case 'linework-fragment':
+      return 'Review thin line fragment'
+    default:
+      return 'Resolve SVG symbol'
+  }
+}
+
 export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
-  const { ambiguous, document, isOpen, onCancel, onConfirm } = props
+  const { document, isOpen, onCancel, onConfirm, reviewItems } = props
   const [index, setIndex] = useState(0)
-  const [resolutions, setResolutions] = useState<Record<string, ResolutionValue>>({})
+  const [resolutions, setResolutions] = useState<Record<string, ResolutionState>>({})
   const [autoResolveSummary, setAutoResolveSummary] = useState<string | undefined>()
   const [autoSelectUsed, setAutoSelectUsed] = useState(false)
-  const choices = useMemo(
-    () =>
-      [...listSvgImportComponentChoices()].sort((left, right) =>
-        left.label.localeCompare(right.label),
-      ),
-    [],
-  )
-
-  const current = ambiguous[index]
+  const current = reviewItems[index]
 
   if (!isOpen || !current) {
     return null
   }
 
-  const currentResolution = resolutions[current.elementId]
-  const canAdvance = currentResolution !== undefined
-  const isLast = index === ambiguous.length - 1
-  const unresolvedCount = ambiguous.filter(
-    (item) => resolutions[item.elementId] === undefined,
+  const currentResolution = resolutions[current.id]
+  const canAdvance =
+    currentResolution !== undefined &&
+    (currentResolution.disposition !== 'component' || currentResolution.componentType !== undefined)
+  const isLast = index === reviewItems.length - 1
+  const unresolvedCount = reviewItems.filter(
+    (item) => resolutions[item.id] === undefined,
   ).length
   const allResolved = unresolvedCount === 0
 
-  const buildConfirmPayload = (nextResolutions: Record<string, ResolutionValue>) =>
-    ambiguous.map((item) => {
-      const value = nextResolutions[item.elementId]
+  const buildConfirmPayload = (nextResolutions: Record<string, ResolutionState>) =>
+    reviewItems.map((item) => {
+      const resolution = nextResolutions[item.id]
+
       return {
+        componentType: resolution?.componentType,
+        disposition: resolution?.disposition ?? 'skip',
         elementId: item.elementId,
-        componentType:
-          value && value !== '__skip__' ? (value as ComponentType) : undefined,
-      }
+        reviewItemId: item.id,
+        variantId: resolution?.variantId,
+      } satisfies SvgImportManualResolution
     })
 
-  const setResolution = (elementId: string, value: ResolutionValue, autoAdvance = false) => {
-    const nextResolutions = { ...resolutions, [elementId]: value }
-    const nextUnresolvedCount = ambiguous.filter(
-      (item) => nextResolutions[item.elementId] === undefined,
+  const setResolution = (
+    reviewItemId: string,
+    value: Exclude<ResolutionState, undefined>,
+    autoAdvance = false,
+  ) => {
+    const nextResolutions = { ...resolutions, [reviewItemId]: value }
+    const nextUnresolvedCount = reviewItems.filter(
+      (item) => nextResolutions[item.id] === undefined,
     ).length
 
     setResolutions(nextResolutions)
@@ -72,18 +91,23 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
     }
 
     if (autoAdvance && !isLast) {
-      setIndex((previous) => Math.min(ambiguous.length - 1, previous + 1))
+      setIndex((previous) => Math.min(reviewItems.length - 1, previous + 1))
     }
   }
 
+  const selectedType =
+    currentResolution?.disposition === 'component' ? currentResolution.componentType : undefined
+  const selectedVariantId =
+    currentResolution?.disposition === 'component' ? currentResolution.variantId : undefined
+
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Resolve SVG ambiguities">
+    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Resolve SVG import review">
       <button className="modal-shell__backdrop" onClick={onCancel} type="button" />
       <div className="modal-shell__card svg-ambiguity-modal">
         <header className="modal-shell__header">
-          <h2>Resolve Ambiguous Symbols</h2>
+          <h2>Review SVG Import</h2>
           <p>
-            {index + 1} of {ambiguous.length}: <strong>{current.label}</strong>
+            {index + 1} of {reviewItems.length}: <strong>{describeReviewItem(current)}</strong>
           </p>
         </header>
 
@@ -91,59 +115,95 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
           <SvgImportPreview
             className="svg-import-preview"
             document={document}
-            highlightedElementIds={[current.elementId]}
+            focusOverlay={{
+              bounds: current.bounds,
+              center: current.center,
+              label: current.kind === 'missing-junction' ? 'junction' : undefined,
+            }}
+            highlightedElementIds={current.sourceElementIds}
           />
 
           <div className="svg-ambiguity-modal__controls">
             <fieldset className="modal-shell__fieldset">
-              <legend>Top Suggestions</legend>
-              <div className="svg-ambiguity-modal__suggestions">
-                {current.suggestions.slice(0, 3).map((suggestion) => {
-                  const familyLabel =
-                    choices.find((choice) => choice.type === suggestion.componentType)?.label ??
-                    suggestion.componentType
-
-                  return (
-                    <button
-                      className={
-                        currentResolution === suggestion.componentType ? 'is-active-tool' : undefined
-                      }
-                      key={`${current.elementId}-${suggestion.componentType}`}
-                      onClick={() => {
-                        setResolution(current.elementId, suggestion.componentType, true)
-                      }}
-                      type="button"
-                    >
-                      {familyLabel} ({Math.round(suggestion.confidence * 100)}%)
-                    </button>
-                  )
-                })}
-              </div>
+              <legend>Review Target</legend>
+              <p className="modal-shell__hint">{current.label}</p>
+              {current.kind === 'missing-junction' ? (
+                <p className="modal-shell__hint">
+                  These beam-like segments nearly meet, but no explicit optic was detected at the turn.
+                </p>
+              ) : null}
             </fieldset>
 
-            <fieldset className="modal-shell__fieldset">
-              <legend>All Component Families</legend>
-              <label className="svg-import-field">
-                Assign family
-                <select
-                  onChange={(event) => {
-                    const value = event.target.value
-                    setResolution(
-                      current.elementId,
-                      value === '__skip__' ? '__skip__' : (value as ComponentType),
-                    )
-                  }}
-                  value={currentResolution ?? ''}
-                >
-                  <option value="">Select a family...</option>
-                  <option value="__skip__">Skip this element</option>
-                  {choices.map((choice) => (
-                    <option key={choice.type} value={choice.type}>
-                      {choice.label}
-                    </option>
+            {current.suggestions.length > 0 ? (
+              <fieldset className="modal-shell__fieldset">
+                <legend>Top Suggestions</legend>
+                <div className="svg-ambiguity-modal__suggestions">
+                  {current.suggestions.slice(0, 3).map((suggestion) => (
+                    <button
+                      className={
+                        selectedType === suggestion.componentType ? 'is-active-tool' : undefined
+                      }
+                      key={`${current.id}-${suggestion.componentType}`}
+                      onClick={() =>
+                        setResolution(
+                          current.id,
+                          {
+                            componentType: suggestion.componentType,
+                            disposition: 'component',
+                          },
+                          true,
+                        )
+                      }
+                      type="button"
+                    >
+                      {getComponentDefinition(suggestion.componentType).familyLabel} (
+                      {Math.round(suggestion.confidence * 100)}%)
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+              </fieldset>
+            ) : null}
+
+            <SvgImportVariantChooser
+              onSelect={(selection) =>
+                setResolution(current.id, {
+                  componentType: selection.componentType,
+                  disposition: 'component',
+                  variantId: selection.variantId,
+                })
+              }
+              selectedComponentType={selectedType}
+              selectedVariantId={selectedVariantId}
+            />
+
+            <fieldset className="modal-shell__fieldset">
+              <legend>Disposition</legend>
+              {current.allowKeepAsLinework ? (
+                <button
+                  className={
+                    currentResolution?.disposition === 'linework' ? 'is-active-tool' : undefined
+                  }
+                  onClick={() =>
+                    setResolution(current.id, {
+                      disposition: 'linework',
+                    })
+                  }
+                  type="button"
+                >
+                  Keep as linework
+                </button>
+              ) : null}
+              <button
+                className={currentResolution?.disposition === 'skip' ? 'is-active-tool' : undefined}
+                onClick={() =>
+                  setResolution(current.id, {
+                    disposition: 'skip',
+                  })
+                }
+                type="button"
+              >
+                Skip this item
+              </button>
             </fieldset>
           </div>
         </div>
@@ -165,8 +225,13 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
                 let autoAssignedCount = 0
                 let requiresManualCount = 0
 
-                for (const item of ambiguous) {
-                  if (nextResolutions[item.elementId] !== undefined) {
+                for (const item of reviewItems) {
+                  if (nextResolutions[item.id] !== undefined) {
+                    continue
+                  }
+
+                  if (item.kind !== 'ambiguous-symbol') {
+                    requiresManualCount += 1
                     continue
                   }
 
@@ -187,12 +252,15 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
                     continue
                   }
 
-                  nextResolutions[item.elementId] = topSuggestion.componentType
+                  nextResolutions[item.id] = {
+                    componentType: topSuggestion.componentType,
+                    disposition: 'component',
+                  }
                   autoAssignedCount += 1
                 }
 
-                const nextUnresolvedCount = ambiguous.filter(
-                  (item) => nextResolutions[item.elementId] === undefined,
+                const nextUnresolvedCount = reviewItems.filter(
+                  (item) => nextResolutions[item.id] === undefined,
                 ).length
 
                 setResolutions(nextResolutions)
@@ -203,17 +271,17 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
                   return
                 }
 
-                const firstUnresolvedIndex = ambiguous.findIndex(
-                  (item) => nextResolutions[item.elementId] === undefined,
+                const firstUnresolvedIndex = reviewItems.findIndex(
+                  (item) => nextResolutions[item.id] === undefined,
                 )
 
                 setIndex(
                   firstUnresolvedIndex >= 0
                     ? firstUnresolvedIndex
-                    : Math.max(0, ambiguous.length - 1),
+                    : Math.max(0, reviewItems.length - 1),
                 )
                 setAutoResolveSummary(
-                  `Auto-selected ${autoAssignedCount} symbol${autoAssignedCount === 1 ? '' : 's'}. ${requiresManualCount} still require manual choice.`,
+                  `Auto-selected ${autoAssignedCount} item${autoAssignedCount === 1 ? '' : 's'}. ${requiresManualCount} still require manual review.`,
                 )
               }}
               type="button"
@@ -225,7 +293,7 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
             <button
               className="modal-shell__primary"
               disabled={!canAdvance}
-              onClick={() => setIndex((value) => Math.min(ambiguous.length - 1, value + 1))}
+              onClick={() => setIndex((value) => Math.min(reviewItems.length - 1, value + 1))}
               type="button"
             >
               Next

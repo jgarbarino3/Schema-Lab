@@ -10,6 +10,7 @@ import { findBreadboardPresetId } from './breadboardPresets'
 import { createDefaultPolarizationConfig } from './polarization'
 import {
   createFreshSingleBreadboardWorkspace,
+  syncAttachedComponentTransforms,
 } from './workspace'
 import {
   COMPONENT_DEFINITIONS_BY_TYPE,
@@ -38,12 +39,16 @@ import type {
   SceneBeamSettings,
   SceneDocument,
   PolarizationPresetId,
+  SampleMaterialId,
   SourceLane,
+  StageFinishId,
   Vector2Mm,
   WorkspaceModel,
 } from './types'
 import {
   LEGACY_SCENE_DOCUMENT_VERSION,
+  LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION,
+  OLDER_LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION,
   parseSimpleIconStyle,
   PREVIOUS_SCENE_DOCUMENT_VERSION,
   SCENE_DOCUMENT_KIND,
@@ -81,6 +86,20 @@ const WAVEPLATE_KIND_VALUES = ['quarter', 'half', 'custom'] as const
 const TELESCOPE_MODE_VALUES = ['transmission', 'reflection'] as const
 const OPA_ROLE_VALUES = ['white-light', 'combiner', 'gain'] as const
 const OPA_OUTPUT_MODE_VALUES = ['signal', 'idler', 'signal+idler'] as const
+const STAGE_FINISH_VALUES: StageFinishId[] = [
+  'silver-machined',
+  'graphite',
+  'black-anodized',
+  'clear-anodized',
+]
+const SAMPLE_MATERIAL_VALUES: SampleMaterialId[] = [
+  'generic-chip',
+  'ti-sapphire',
+  'tin',
+  'glass',
+  'silicon',
+  'sapphire',
+]
 
 const ANNOTATION_FONT_FAMILY_VALUES = [
   'clean-sans',
@@ -299,7 +318,7 @@ function parseWorkspace(
   }
 }
 
-function migrateLegacyType(type: string) {
+function migrateLegacyType(type: string, variantId?: string) {
   switch (type) {
     case 'edge-clamp':
       return {
@@ -321,6 +340,45 @@ function migrateLegacyType(type: string) {
         type: 'support-hardware' as const,
         variantId: 'rsht1-5-m',
       }
+    case 'sample-stage': {
+      if (
+        variantId === 'pi-m-112-1dg1' ||
+        variantId === 'pi-ls-180' ||
+        variantId === 'generic-manual-delay-stage'
+      ) {
+        return {
+          type: 'delay-stage' as const,
+          variantId:
+            variantId === 'pi-m-112-1dg1' || variantId === 'pi-ls-180'
+              ? variantId
+              : 'generic-manual-delay-stage',
+        }
+      }
+
+      if (
+        variantId === 'generic-xy-stage' ||
+        variantId === 'generic-xyz-stage' ||
+        variantId === 'newport-m-423' ||
+        variantId === 'thorlabs-st1xy-s-m' ||
+        variantId === 'thorlabs-pt1-m' ||
+        variantId === 'thorlabs-pt3-m' ||
+        variantId === 'sample-manual-xyz-stage'
+      ) {
+        return {
+          type: 'translation-stage' as const,
+          variantId:
+            variantId === 'sample-manual-xyz-stage' ? 'newport-m-423' : variantId,
+        }
+      }
+
+      return {
+        type: 'sample-holder' as const,
+        variantId:
+          variantId === 'slotted-silver-sample-holder'
+            ? 'slotted-silver-sample-holder'
+            : 'compact-slotted-sample-holder',
+      }
+    }
     default:
       return {
         type: type as ComponentType,
@@ -507,7 +565,7 @@ function parseComponentConfig(
         : defaults.bboCrystal,
     delayLine:
       isRecord(value.delayLine) &&
-      (type === 'sample-stage' || type === 'support-hardware')
+      (type === 'delay-stage' || type === 'support-hardware')
         ? {
             positionMm:
               typeof value.delayLine.positionMm === 'number'
@@ -628,10 +686,9 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
   }
 
   const rawType = expectString(value, 'type')
-  const migratedType = migrateLegacyType(rawType)
-  let type = migratedType.type
-
   const rawVariantId = typeof value.variantId === 'string' ? value.variantId : undefined
+  const migratedType = migrateLegacyType(rawType, rawVariantId)
+  let type = migratedType.type
   if (type === 'mirror' && (rawVariantId === 'concave-1in' || rawVariantId === 'convex-1in')) {
     type = 'curved-mirror'
   }
@@ -642,7 +699,8 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
 
   const variantId =
     version === LEGACY_SCENE_DOCUMENT_VERSION ||
-    version === STAGE1_SCENE_DOCUMENT_VERSION
+    version === STAGE1_SCENE_DOCUMENT_VERSION ||
+    rawType !== type
       ? migratedType.variantId
       : typeof value.variantId === 'string'
         ? value.variantId
@@ -650,6 +708,21 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
   const simpleIconStyleOverride =
     typeof value.simpleIconStyleOverride === 'string'
       ? parseSimpleIconStyle(value.simpleIconStyleOverride)
+      : undefined
+  const attachment =
+    isRecord(value.attachment) &&
+    typeof value.attachment.parentComponentId === 'string' &&
+    typeof value.attachment.parentMountSiteId === 'string' &&
+    isRecord(value.attachment.localAnchorMm) &&
+    typeof value.attachment.localRotationQuarterTurns === 'number'
+      ? {
+          parentComponentId: expectString(value.attachment, 'parentComponentId'),
+          parentMountSiteId: expectString(value.attachment, 'parentMountSiteId'),
+          localAnchorMm: expectVector2(value.attachment, 'localAnchorMm'),
+          localRotationQuarterTurns: parseQuarterTurn(
+            expectNumber(value.attachment, 'localRotationQuarterTurns'),
+          ),
+        }
       : undefined
 
   return {
@@ -663,7 +736,12 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
     rotationQuarterTurns: parseQuarterTurn(
       expectNumber(value, 'rotationQuarterTurns'),
     ),
+    attachment,
     simpleIconStyleOverride,
+    finishId:
+      typeof value.finishId === 'string'
+        ? expectEnum(value, 'finishId', STAGE_FINISH_VALUES)
+        : undefined,
     geometryOverride:
       isRecord(value.geometryOverride) &&
       (typeof value.geometryOverride.widthMm === 'number' ||
@@ -678,6 +756,10 @@ function parseComponent(value: unknown, version: number): ComponentInstance {
                 ? expectNumber(value.geometryOverride, 'heightMm')
                 : undefined,
           }
+        : undefined,
+    materialId:
+      typeof value.materialId === 'string'
+        ? expectEnum(value, 'materialId', SAMPLE_MATERIAL_VALUES)
         : undefined,
     config:
       version === LEGACY_SCENE_DOCUMENT_VERSION ||
@@ -704,7 +786,7 @@ function parseBeamSettings(value: unknown): SceneBeamSettings {
 }
 
 export function createEmptyScene(): SceneDocument {
-  return {
+  return syncAttachedComponentTransforms({
     kind: SCENE_DOCUMENT_KIND,
     version: SCENE_DOCUMENT_VERSION,
     metadata: {
@@ -714,7 +796,7 @@ export function createEmptyScene(): SceneDocument {
     beamSettings: cloneBeamSettings(),
     components: [],
     annotations: [],
-  }
+  })
 }
 
 function parseAnnotationLine(value: Record<string, unknown>): AnnotationLine | undefined {
@@ -923,6 +1005,8 @@ export function parseSceneDocument(rawText: string): SceneDocument {
   if (
     version !== SCENE_DOCUMENT_VERSION &&
     version !== PREVIOUS_SCENE_DOCUMENT_VERSION &&
+    version !== LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION &&
+    version !== OLDER_LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION &&
     version !== WORKSPACE_SCENE_DOCUMENT_VERSION &&
     version !== STAGE2_SCENE_DOCUMENT_VERSION &&
     version !== LEGACY_SCENE_DOCUMENT_VERSION &&
@@ -943,7 +1027,7 @@ export function parseSceneDocument(rawText: string): SceneDocument {
     throw new Error('components must be an array.')
   }
 
-  return {
+  return syncAttachedComponentTransforms({
     kind: SCENE_DOCUMENT_KIND,
     version: SCENE_DOCUMENT_VERSION,
     metadata: {
@@ -969,5 +1053,5 @@ export function parseSceneDocument(rawText: string): SceneDocument {
     annotations: Array.isArray(parsedValue.annotations)
       ? (parsedValue.annotations.map(parseAnnotation).filter(Boolean) as SceneAnnotation[])
       : [],
-  }
+  })
 }

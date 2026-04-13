@@ -222,12 +222,12 @@ describe('deterministic beam tracing', () => {
     const source = makeEnabledSource({
       anchorMm: { x: -60, y: 137.5 },
     })
-    const stage = makeComponent('sample-stage', {
+    const stage = makeComponent('delay-stage', {
       id: 'stage-1',
       variantId: 'pi-m-112-1dg1',
       anchorMm: { x: 120, y: 137.5 },
       config: {
-        ...createDefaultComponentConfig('sample-stage', 'pi-m-112-1dg1'),
+        ...createDefaultComponentConfig('delay-stage', 'pi-m-112-1dg1'),
         delayLine: {
           positionMm: 10,
           travelMm: 25,

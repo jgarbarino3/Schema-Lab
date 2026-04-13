@@ -1,4 +1,4 @@
-import { Arc, Circle, Ellipse, Line, Rect } from 'react-konva'
+import { Circle, Ellipse, Line, Rect } from 'react-konva'
 import type {
   BoundsMm,
   ComponentGlyph as ComponentGlyphType,
@@ -36,6 +36,11 @@ function normalizeClassicGlyph(glyph: ComponentGlyphType): ComponentGlyphType {
     case 'support-white-light-cell':
     case 'support-pump-seed-combiner':
       return 'support'
+    case 'filter-longpass':
+    case 'filter-shortpass':
+    case 'filter-bandpass':
+    case 'filter-colored-glass':
+      return 'filter'
     case 'attenuator-horizontal':
     case 'attenuator-vertical':
       return 'attenuator'
@@ -51,9 +56,21 @@ function normalizeClassicGlyph(glyph: ComponentGlyphType): ComponentGlyphType {
     case 'telescope-transmission':
     case 'telescope-reflective':
       return 'telescope'
+    case 'opa-white-light':
+    case 'opa-combiner':
+    case 'opa-gain':
+      return 'opa'
+    case 'sample-holder-generic':
+    case 'sample-holder-slotted':
     case 'sample-generic':
+    case 'sample-xy-stage':
+    case 'sample-xyz-stage':
+    case 'sample-manual-xyz-stage':
     case 'sample-delay-stage':
     case 'sample-motorized-stage':
+    case 'sample-chip':
+    case 'sample-crystal':
+    case 'sample-substrate':
       return 'sample'
     case 'spectrometer-compact':
     case 'spectrometer-bench':
@@ -406,6 +423,7 @@ export function ComponentGlyph({
     }
     case 'beamsplitter': {
       const bsSize = Math.max(6, Math.min(width, height) * 0.38)
+      const coatingOffset = bsSize * 0.16
       return (
         <>
           <Rect
@@ -427,7 +445,19 @@ export function ComponentGlyph({
               centerY - bsSize * 0.5,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.1)}
+            strokeWidth={strokeWidth(1.15)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - bsSize * 0.38 + coatingOffset,
+              centerY + bsSize * 0.38,
+              centerX + bsSize * 0.38 + coatingOffset,
+              centerY - bsSize * 0.38,
+            ]}
+            opacity={0.5}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.8)}
           />
         </>
       )
@@ -445,29 +475,119 @@ export function ComponentGlyph({
         />
       )
     case 'filter':
+    case 'filter-longpass':
+    case 'filter-shortpass':
+    case 'filter-bandpass':
+    case 'filter-colored-glass':
       return (
         <>
           <Rect
-            fill={fill ?? 'rgba(150, 201, 205, 0.12)'}
-            height={Math.max(8, height * 0.5)}
+            fill={
+              glyph === 'filter-colored-glass'
+                ? fill ?? 'rgba(232, 215, 182, 0.2)'
+                : fill ?? 'rgba(150, 201, 205, 0.12)'
+            }
+            height={Math.max(glyph === 'filter-colored-glass' ? 9 : 8, height * 0.5)}
             rotation={45}
             stroke={stroke}
-            strokeWidth={strokeWidth(0.9)}
-            width={Math.max(8, width * 0.5)}
-            x={centerX - Math.max(8, width * 0.5) / 2}
-            y={centerY - Math.max(8, width * 0.5) / 2}
+            strokeWidth={strokeWidth(glyph === 'filter-colored-glass' ? 0.95 : 0.9)}
+            width={Math.max(glyph === 'filter-colored-glass' ? 9 : 8, width * 0.5)}
+            x={centerX - Math.max(glyph === 'filter-colored-glass' ? 9 : 8, width * 0.5) / 2}
+            y={centerY - Math.max(glyph === 'filter-colored-glass' ? 9 : 8, width * 0.5) / 2}
           />
-          <Line
-            lineCap="round"
-            points={[
-              boundsMm.x + width * 0.25,
-              boundsMm.y + height * 0.72,
-              boundsMm.x + width * 0.72,
-              boundsMm.y + height * 0.25,
-            ]}
-            stroke={stroke}
-            strokeWidth={strokeWidth(1.1)}
-          />
+          {glyph === 'filter-longpass' ? (
+            <Line
+              lineCap="round"
+              lineJoin="round"
+              points={[
+                boundsMm.x + width * 0.27,
+                boundsMm.y + height * 0.68,
+                boundsMm.x + width * 0.4,
+                boundsMm.y + height * 0.68,
+                boundsMm.x + width * 0.62,
+                boundsMm.y + height * 0.36,
+                boundsMm.x + width * 0.74,
+                boundsMm.y + height * 0.36,
+              ]}
+              stroke={stroke}
+              strokeWidth={strokeWidth(1.05)}
+            />
+          ) : glyph === 'filter-shortpass' ? (
+            <Line
+              lineCap="round"
+              lineJoin="round"
+              points={[
+                boundsMm.x + width * 0.27,
+                boundsMm.y + height * 0.36,
+                boundsMm.x + width * 0.4,
+                boundsMm.y + height * 0.36,
+                boundsMm.x + width * 0.62,
+                boundsMm.y + height * 0.68,
+                boundsMm.x + width * 0.74,
+                boundsMm.y + height * 0.68,
+              ]}
+              stroke={stroke}
+              strokeWidth={strokeWidth(1.05)}
+            />
+          ) : glyph === 'filter-bandpass' ? (
+            <Line
+              lineCap="round"
+              lineJoin="round"
+              points={[
+                boundsMm.x + width * 0.24,
+                centerY,
+                boundsMm.x + width * 0.38,
+                centerY,
+                centerX,
+                boundsMm.y + height * 0.34,
+                boundsMm.x + width * 0.62,
+                centerY,
+                boundsMm.x + width * 0.76,
+                centerY,
+              ]}
+              stroke={stroke}
+              strokeWidth={strokeWidth(1.02)}
+            />
+          ) : glyph === 'filter-colored-glass' ? (
+            <>
+              <Line
+                lineCap="round"
+                points={[
+                  boundsMm.x + width * 0.28,
+                  boundsMm.y + height * 0.72,
+                  boundsMm.x + width * 0.72,
+                  boundsMm.y + height * 0.28,
+                ]}
+                opacity={0.75}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1.05)}
+              />
+              <Line
+                lineCap="round"
+                points={[
+                  boundsMm.x + width * 0.3,
+                  boundsMm.y + height * 0.3,
+                  boundsMm.x + width * 0.7,
+                  boundsMm.y + height * 0.7,
+                ]}
+                opacity={0.45}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.8)}
+              />
+            </>
+          ) : (
+            <Line
+              lineCap="round"
+              points={[
+                boundsMm.x + width * 0.25,
+                boundsMm.y + height * 0.72,
+                boundsMm.x + width * 0.72,
+                boundsMm.y + height * 0.25,
+              ]}
+              stroke={stroke}
+              strokeWidth={strokeWidth(1.1)}
+            />
+          )}
         </>
       )
     case 'attenuator-horizontal':
@@ -542,6 +662,7 @@ export function ComponentGlyph({
     case 'polarizer': {
       const pr = opticRadius
       const ax = 0.707
+      const gridRadius = pr * 0.52
       return (
         <>
           <Circle
@@ -562,19 +683,34 @@ export function ComponentGlyph({
             stroke={stroke}
             strokeWidth={strokeWidth(1.05)}
           />
+          {[-0.18, 0, 0.18].map((offset) => (
+            <Line
+              key={offset}
+              lineCap="round"
+              points={[
+                centerX - gridRadius * 0.48 + pr * offset,
+                centerY - gridRadius * 0.1 - pr * offset,
+                centerX + gridRadius * 0.48 + pr * offset,
+                centerY + gridRadius * 0.1 - pr * offset,
+              ]}
+              opacity={0.55}
+              stroke={stroke}
+              strokeWidth={strokeWidth(0.72)}
+            />
+          ))}
           <Line
             lineCap="round"
             lineJoin="round"
             points={[
-              centerX + pr * ax - pr * 0.3,
-              centerY - pr * ax - pr * 0.15,
+              centerX + pr * ax - pr * 0.28,
+              centerY - pr * ax - pr * 0.08,
               centerX + pr * ax,
               centerY - pr * ax,
-              centerX + pr * ax + pr * 0.15,
-              centerY - pr * ax + pr * 0.3,
+              centerX + pr * ax - pr * 0.08,
+              centerY - pr * ax + pr * 0.28,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(0.9)}
+            strokeWidth={strokeWidth(0.88)}
           />
         </>
       )
@@ -936,6 +1072,9 @@ export function ComponentGlyph({
         </>
       )
     case 'opa':
+    case 'opa-white-light':
+    case 'opa-combiner':
+    case 'opa-gain':
       return (
         <>
           <Rect
@@ -948,33 +1087,193 @@ export function ComponentGlyph({
             x={centerX - Math.max(18, width * 0.5) / 2}
             y={centerY - Math.max(10, height * 0.42) / 2}
           />
-          <Line
-            points={[boundsMm.x + inset, centerY, centerX - width * 0.25, centerY]}
-            stroke={stroke}
-            strokeWidth={strokeWidth(1)}
-          />
-          <Line
-            points={[centerX + width * 0.25, centerY, boundsMm.x + width - inset, centerY]}
-            stroke={stroke}
-            strokeWidth={strokeWidth(1)}
-          />
+          {glyph === 'opa-white-light' ? (
+            <>
+              <Line
+                points={[boundsMm.x + inset, centerY, centerX - width * 0.25, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[centerX + width * 0.22, centerY, boundsMm.x + width - inset, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                lineCap="round"
+                points={[centerX, centerY - height * 0.13, centerX, centerY + height * 0.13]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.9)}
+              />
+              <Line
+                lineCap="round"
+                points={[centerX - width * 0.11, centerY, centerX + width * 0.11, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.9)}
+              />
+              <Line
+                lineCap="round"
+                points={[
+                  centerX - width * 0.08,
+                  centerY - height * 0.08,
+                  centerX + width * 0.08,
+                  centerY + height * 0.08,
+                ]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.75)}
+              />
+              <Line
+                lineCap="round"
+                points={[
+                  centerX - width * 0.08,
+                  centerY + height * 0.08,
+                  centerX + width * 0.08,
+                  centerY - height * 0.08,
+                ]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.75)}
+              />
+            </>
+          ) : glyph === 'opa-combiner' ? (
+            <>
+              <Line
+                points={[boundsMm.x + inset, centerY, centerX - width * 0.12, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[centerX + width * 0.18, centerY, boundsMm.x + width - inset, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[centerX, boundsMm.y + inset, centerX, centerY - height * 0.16]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.95)}
+              />
+              <Line
+                points={[centerX, centerY + height * 0.16, centerX, boundsMm.y + height - inset]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.95)}
+              />
+              <Line
+                closed
+                fill="rgba(255,255,255,0.04)"
+                lineJoin="round"
+                points={[
+                  centerX - width * 0.08,
+                  centerY,
+                  centerX,
+                  centerY - height * 0.1,
+                  centerX + width * 0.08,
+                  centerY,
+                  centerX,
+                  centerY + height * 0.1,
+                ]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.85)}
+              />
+            </>
+          ) : glyph === 'opa-gain' ? (
+            <>
+              <Line
+                points={[boundsMm.x + inset, centerY, centerX - width * 0.22, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[centerX, boundsMm.y + inset, centerX, centerY - height * 0.16]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.95)}
+              />
+              <Line
+                points={[centerX + width * 0.15, centerY, boundsMm.x + width - inset, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[
+                  centerX + width * 0.05,
+                  centerY + height * 0.04,
+                  centerX + width * 0.18,
+                  centerY + height * 0.16,
+                ]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.8)}
+              />
+              <Rect
+                cornerRadius={1.4}
+                fill="rgba(255,255,255,0.06)"
+                height={Math.max(6, height * 0.22)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.75)}
+                width={Math.max(8, width * 0.18)}
+                x={centerX - Math.max(8, width * 0.18) / 2}
+                y={centerY - Math.max(6, height * 0.22) / 2}
+              />
+            </>
+          ) : (
+            <>
+              <Line
+                points={[boundsMm.x + inset, centerY, centerX - width * 0.25, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+              <Line
+                points={[centerX + width * 0.25, centerY, boundsMm.x + width - inset, centerY]}
+                stroke={stroke}
+                strokeWidth={strokeWidth(1)}
+              />
+            </>
+          )}
         </>
       )
+    case 'sample-holder-generic':
+    case 'sample-holder-slotted':
     case 'sample-generic':
+    case 'sample-xy-stage':
+    case 'sample-xyz-stage':
+    case 'sample-manual-xyz-stage':
     case 'sample-delay-stage':
     case 'sample-motorized-stage': {
-      const stageWidth =
-        glyph === 'sample-motorized-stage'
-          ? Math.max(22, width * 0.72)
-          : glyph === 'sample-delay-stage'
-            ? Math.max(18, width * 0.62)
-            : Math.max(18, width * 0.56)
-      const stageHeight =
-        glyph === 'sample-motorized-stage'
-          ? Math.max(12, height * 0.44)
-          : Math.max(12, height * 0.5)
+      const isSlottedHolder = glyph === 'sample-holder-slotted'
+      const isGenericHolder = glyph === 'sample-holder-generic'
+      const isMotorized = glyph === 'sample-motorized-stage'
+      const isDelayStage = glyph === 'sample-delay-stage'
+      const isXyStage = glyph === 'sample-xy-stage'
+      const isXyzStage = glyph === 'sample-xyz-stage'
+      const isManualXyzStage = glyph === 'sample-manual-xyz-stage'
+      const showSeat =
+        glyph !== 'sample-generic' || isXyStage || isXyzStage || isManualXyzStage || isGenericHolder || isSlottedHolder
+      const showMicrometerKnob = isDelayStage || isManualXyzStage || isSlottedHolder
+      const stageWidth = isMotorized
+        ? Math.max(22, width * 0.72)
+        : isSlottedHolder
+          ? Math.max(24, width * 0.8)
+        : isManualXyzStage
+          ? Math.max(20, width * 0.66)
+          : isXyzStage
+            ? Math.max(20, width * 0.62)
+            : isXyStage
+              ? Math.max(19, width * 0.6)
+              : isDelayStage
+                ? Math.max(18, width * 0.62)
+                : Math.max(18, width * 0.56)
+      const stageHeight = isMotorized
+        ? Math.max(12, height * 0.44)
+        : isSlottedHolder
+          ? Math.max(10, height * 0.42)
+        : isManualXyzStage
+          ? Math.max(14, height * 0.56)
+          : isXyzStage
+            ? Math.max(14, height * 0.54)
+            : Math.max(12, height * 0.5)
       const stageX = centerX - stageWidth / 2
       const stageY = centerY - stageHeight / 2
+      const seatWidth = Math.max(10, stageWidth * (isMotorized ? 0.22 : 0.3))
+      const seatHeight = Math.max(8, stageHeight * (isMotorized ? 0.42 : 0.46))
+      const seatX = centerX - seatWidth / 2
+      const seatY = centerY - seatHeight / 2
       return (
         <>
           <Rect
@@ -987,19 +1286,118 @@ export function ComponentGlyph({
             x={stageX}
             y={stageY}
           />
-          {glyph !== 'sample-generic' ? (
+          {isSlottedHolder ? (
+            <>
+              <Rect
+                cornerRadius={Math.max(3, stageHeight * 0.28)}
+                fill="rgba(18, 23, 28, 0.52)"
+                height={Math.max(8, stageHeight * 0.46)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.72)}
+                width={Math.max(10, stageWidth * 0.18)}
+                x={stageX + stageWidth * 0.2}
+                y={centerY - Math.max(8, stageHeight * 0.46) / 2}
+              />
+              <Rect
+                cornerRadius={Math.max(2.8, stageHeight * 0.24)}
+                fill="rgba(14, 18, 23, 0.26)"
+                height={Math.max(6.8, stageHeight * 0.34)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.62)}
+                width={Math.max(16, stageWidth * 0.42)}
+                x={stageX + stageWidth * 0.38}
+                y={centerY - Math.max(6.8, stageHeight * 0.34) / 2}
+              />
+              <Rect
+                cornerRadius={Math.max(2.2, stageHeight * 0.18)}
+                fill="rgba(236, 241, 245, 0.16)"
+                height={Math.max(3.4, stageHeight * 0.16)}
+                stroke="rgba(255,255,255,0.18)"
+                strokeWidth={strokeWidth(0.34)}
+                width={Math.max(18, stageWidth * 0.48)}
+                x={stageX + stageWidth * 0.22}
+                y={stageY + Math.max(3, stageHeight * 0.12)}
+              />
+              <Circle
+                fill="rgba(9, 12, 15, 0.72)"
+                radius={Math.max(3.2, stageHeight * 0.26)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.72)}
+                x={stageX + stageWidth * 0.29}
+                y={centerY}
+              />
+              <Circle
+                fill="rgba(228, 236, 242, 0.22)"
+                radius={Math.max(2.1, stageHeight * 0.14)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.54)}
+                x={stageX + stageWidth * 0.62}
+                y={centerY}
+              />
+              <Circle
+                fill="rgba(228, 236, 242, 0.24)"
+                radius={Math.max(1.8, stageHeight * 0.12)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.48)}
+                x={stageX + stageWidth * 0.8}
+                y={centerY}
+              />
+            </>
+          ) : null}
+          {(isXyStage || isXyzStage || isManualXyzStage) ? (
+            <>
+              <Line
+                lineCap="round"
+                points={[stageX + stageWidth * 0.18, centerY, stageX + stageWidth * 0.82, centerY]}
+                opacity={0.65}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.82)}
+              />
+              <Line
+                lineCap="round"
+                points={[centerX, stageY + stageHeight * 0.18, centerX, stageY + stageHeight * 0.82]}
+                opacity={0.55}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.78)}
+              />
+            </>
+          ) : null}
+          {showSeat ? (
             <Rect
               cornerRadius={1.6}
               fill="rgba(255,255,255,0.04)"
-              height={stageHeight * 0.36}
+              height={seatHeight}
               stroke={stroke}
               strokeWidth={strokeWidth(0.75)}
-              width={stageWidth * (glyph === 'sample-motorized-stage' ? 0.26 : 0.22)}
-              x={stageX + stageWidth * 0.14}
-              y={centerY - stageHeight * 0.18}
+              width={seatWidth}
+              x={seatX}
+              y={seatY}
             />
           ) : null}
-          {glyph === 'sample-motorized-stage' ? (
+          {showMicrometerKnob ? (
+            <>
+              <Rect
+                cornerRadius={Math.max(1.8, stageHeight * 0.14)}
+                fill="rgba(222, 231, 236, 0.22)"
+                height={Math.max(5.2, stageHeight * 0.3)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.72)}
+                width={Math.max(10, stageWidth * 0.18)}
+                x={stageX + stageWidth - Math.max(10, stageWidth * 0.18) * 0.56}
+                y={centerY - Math.max(5.2, stageHeight * 0.3) / 2}
+              />
+              <Ellipse
+                fill="rgba(244, 248, 251, 0.32)"
+                radiusX={Math.max(2.6, stageHeight * 0.18)}
+                radiusY={Math.max(4.2, stageHeight * 0.24)}
+                stroke={stroke}
+                strokeWidth={strokeWidth(0.72)}
+                x={stageX + stageWidth + Math.max(2.6, stageHeight * 0.18) * 0.35}
+                y={centerY}
+              />
+            </>
+          ) : null}
+          {isMotorized ? (
             <Line
               dash={[1.5, 1.2]}
               points={[
@@ -1016,15 +1414,38 @@ export function ComponentGlyph({
       )
     }
     case 'sample':
+    case 'sample-chip':
+    case 'sample-crystal':
+    case 'sample-substrate':
       return (
-        <Rect
-          height={Math.max(12, height * 0.5)}
-          stroke={stroke}
-          strokeWidth={strokeWidth(1)}
-          width={Math.max(18, width * 0.56)}
-          x={centerX - Math.max(18, width * 0.56) / 2}
-          y={centerY - Math.max(12, height * 0.5) / 2}
-        />
+        glyph === 'sample-crystal' ? (
+          <Line
+            closed
+            fill={fill ?? 'rgba(255,255,255,0.12)'}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.18,
+              centerY,
+              centerX,
+              centerY - height * 0.24,
+              centerX + width * 0.18,
+              centerY,
+              centerX,
+              centerY + height * 0.24,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+          />
+        ) : (
+          <Rect
+            height={Math.max(12, height * 0.5)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
+            width={Math.max(18, width * 0.56)}
+            x={centerX - Math.max(18, width * 0.56) / 2}
+            y={centerY - Math.max(12, height * 0.5) / 2}
+          />
+        )
       )
     case 'fiber':
       return (
@@ -1033,11 +1454,35 @@ export function ComponentGlyph({
             radius={Math.max(3, Math.min(width, height) * 0.18)}
             stroke={stroke}
             strokeWidth={strokeWidth(1)}
-            x={centerX - 5}
+            x={boundsMm.x + width * 0.26}
             y={centerY}
           />
           <Line
-            points={[centerX - 2, centerY, centerX + 8, centerY]}
+            closed
+            fill={fill ?? 'rgba(138, 217, 214, 0.12)'}
+            lineJoin="round"
+            points={[
+              boundsMm.x + width * 0.34,
+              centerY - height * 0.18,
+              boundsMm.x + width * 0.58,
+              centerY - height * 0.12,
+              boundsMm.x + width * 0.58,
+              centerY + height * 0.12,
+              boundsMm.x + width * 0.34,
+              centerY + height * 0.18,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.95)}
+          />
+          <Circle
+            radius={Math.max(2.4, Math.min(width, height) * 0.11)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.9)}
+            x={boundsMm.x + width * 0.7}
+            y={centerY}
+          />
+          <Line
+            points={[boundsMm.x + width * 0.16, centerY, boundsMm.x + width * 0.84, centerY]}
             stroke={stroke}
             strokeWidth={strokeWidth(1.2)}
           />
@@ -1133,36 +1578,51 @@ export function ComponentGlyph({
         </>
       )
     case 'detector': {
-      const dr = Math.max(4.5, Math.min(width, height) * 0.26)
+      const bodyWidth = Math.max(10, width * 0.42)
+      const bodyHeight = Math.max(12, height * 0.46)
+      const bodyX = centerX - bodyWidth * 0.1
+      const bodyY = centerY - bodyHeight / 2
       return (
         <>
-          <Arc
-            angle={180}
-            innerRadius={0}
-            outerRadius={dr}
-            rotation={-90}
+          <Rect
+            cornerRadius={Math.max(2.4, bodyHeight * 0.24)}
+            fill={fill ?? 'rgba(240, 201, 221, 0.1)'}
+            height={bodyHeight}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.1)}
-            x={centerX + dr * 0.15}
+            strokeWidth={strokeWidth(1)}
+            width={bodyWidth}
+            x={bodyX}
+            y={bodyY}
+          />
+          <Circle
+            radius={Math.max(2.4, Math.min(width, height) * 0.1)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+            x={bodyX + bodyWidth * 0.18}
             y={centerY}
+          />
+          <Rect
+            cornerRadius={1}
+            fill="rgba(255,255,255,0.04)"
+            height={bodyHeight * 0.2}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.65)}
+            width={bodyWidth * 0.28}
+            x={bodyX + bodyWidth * 0.46}
+            y={centerY - bodyHeight * 0.1}
           />
           <Line
             lineCap="round"
-            points={[
-              centerX + dr * 0.15,
-              centerY - dr,
-              centerX + dr * 0.15,
-              centerY + dr,
-            ]}
+            points={[boundsMm.x + inset, centerY, bodyX, centerY]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.1)}
+            strokeWidth={strokeWidth(0.95)}
           />
         </>
       )
     }
     case 'beam-dump': {
-      const bdW = Math.max(10, width * 0.4)
-      const bdH = Math.max(10, height * 0.42)
+      const bdW = Math.max(12, width * 0.46)
+      const bdH = Math.max(12, height * 0.46)
       const bdX = centerX - bdW / 2
       const bdY = centerY - bdH / 2
       return (
@@ -1177,15 +1637,25 @@ export function ComponentGlyph({
             x={bdX}
             y={bdY}
           />
-          {[0.25, 0.5, 0.75].map((f) => (
+          <Circle
+            fill="rgba(0,0,0,0.12)"
+            radius={Math.max(1.9, bdH * 0.11)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.65)}
+            x={bdX + bdW * 0.24}
+            y={centerY}
+          />
+          {[0.46, 0.66].map((f) => (
             <Line
               key={f}
               lineCap="round"
               points={[
-                bdX + bdW * f - bdH * 0.15,
-                bdY,
-                bdX + bdW * f + bdH * 0.15,
-                bdY + bdH,
+                bdX + bdW * 0.32,
+                bdY + bdH * f,
+                bdX + bdW * 0.72,
+                centerY,
+                bdX + bdW * 0.32,
+                bdY + bdH * (1 - (f - 0.46)),
               ]}
               opacity={0.7}
               stroke={stroke}
@@ -1616,9 +2086,9 @@ function renderClassicComponentGlyph({
           />
           <Line
             lineCap="round"
-            points={[centerX - width * 0.18, centerY + height * 0.18, centerX + width * 0.18, centerY - height * 0.18]}
+            points={[centerX - width * 0.08, centerY + height * 0.1, centerX + width * 0.22, centerY - height * 0.2]}
             stroke={stroke}
-            strokeWidth={strokeWidth(0.95)}
+            strokeWidth={strokeWidth(0.8)}
           />
         </>
       )
@@ -1664,7 +2134,15 @@ function renderClassicComponentGlyph({
           />
           <Line
             lineCap="round"
-            points={[right - 8, centerY - 3, right - 2, centerY, right - 8, centerY + 3]}
+            lineJoin="round"
+            points={[
+              centerX - width * 0.16,
+              centerY + height * 0.08,
+              centerX,
+              centerY - height * 0.08,
+              centerX + width * 0.16,
+              centerY - height * 0.08,
+            ]}
             stroke={stroke}
             strokeWidth={strokeWidth(0.95)}
           />
@@ -1726,10 +2204,10 @@ function renderClassicComponentGlyph({
           <Line
             lineCap="round"
             points={[
-              centerX + width * 0.1,
-              centerY + height * 0.16,
-              centerX + width * 0.1,
-              centerY - height * 0.16,
+              centerX - width * 0.03,
+              centerY + height * 0.14,
+              centerX + width * 0.12,
+              centerY - height * 0.01,
             ]}
             stroke={stroke}
             strokeWidth={strokeWidth(0.85)}
@@ -1906,12 +2384,12 @@ function renderClassicComponentGlyph({
             fill={fill ?? 'rgba(255, 255, 255, 0.16)'}
             lineJoin="round"
             points={[
-              centerX - width * 0.08,
-              centerY - height * 0.12,
+              centerX - width * 0.09,
+              centerY - height * 0.13,
               centerX + width * 0.08,
               centerY,
-              centerX - width * 0.08,
-              centerY + height * 0.12,
+              centerX - width * 0.09,
+              centerY + height * 0.13,
             ]}
             stroke={stroke}
             strokeWidth={strokeWidth(0.9)}
@@ -1949,10 +2427,10 @@ function renderClassicComponentGlyph({
             y={centerY}
           />
           <Circle
-            radius={Math.max(3, Math.min(width, height) * 0.16)}
+            radius={Math.max(2.6, Math.min(width, height) * 0.13)}
             stroke={stroke}
             strokeWidth={strokeWidth(1)}
-            x={right - Math.max(3, Math.min(width, height) * 0.16)}
+            x={right - Math.max(2.8, Math.min(width, height) * 0.18)}
             y={centerY}
           />
           <Line
@@ -2007,25 +2485,26 @@ function renderClassicComponentGlyph({
     case 'detector':
       return (
         <>
-          <Arc
-            angle={180}
-            innerRadius={0}
-            outerRadius={Math.max(4.5, Math.min(width, height) * 0.24)}
-            rotation={-90}
+          <Rect
+            cornerRadius={1.6}
+            fill={primaryFill}
+            height={Math.max(10, height * 0.4)}
             stroke={stroke}
             strokeWidth={strokeWidth(1)}
-            x={centerX + 2}
+            width={Math.max(8, width * 0.34)}
+            x={centerX - width * 0.02}
+            y={centerY - Math.max(10, height * 0.4) / 2}
+          />
+          <Circle
+            radius={Math.max(1.9, Math.min(width, height) * 0.08)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.8)}
+            x={centerX + width * 0.04}
             y={centerY}
           />
           <Line
             lineCap="round"
-            points={[centerX + 2, centerY - 8, centerX + 2, centerY + 8]}
-            stroke={stroke}
-            strokeWidth={strokeWidth(1)}
-          />
-          <Line
-            lineCap="round"
-            points={[left + width * 0.22, centerY, centerX - 4, centerY]}
+            points={[left + width * 0.18, centerY, centerX - width * 0.08, centerY]}
             stroke={stroke}
             strokeWidth={strokeWidth(1)}
           />
@@ -2048,15 +2527,22 @@ function renderClassicComponentGlyph({
             x={bdX}
             y={bdY}
           />
-          {[0.2, 0.5, 0.8].map((fraction) => (
+          <Circle
+            radius={Math.max(1.8, bdH * 0.12)}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.7)}
+            x={bdX + bdW * 0.24}
+            y={centerY}
+          />
+          {[0.28, 0.5, 0.72].map((fraction) => (
             <Line
               key={fraction}
               lineCap="round"
               points={[
-                bdX + bdW * fraction - bdH * 0.16,
-                bdY,
-                bdX + bdW * fraction + bdH * 0.16,
-                bdY + bdH,
+                bdX + bdW * 0.38,
+                bdY + bdH * fraction,
+                bdX + bdW * 0.78,
+                centerY,
               ]}
               opacity={0.75}
               stroke={stroke}

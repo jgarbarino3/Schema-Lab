@@ -9,6 +9,7 @@ import type {
   ComponentDefinition,
   ComponentInstance,
   ComponentMount,
+  ComponentMountSite,
   ComponentRenderHint,
   ComponentType,
   ComponentVariant,
@@ -20,9 +21,12 @@ import type {
   PortDefinition,
   PortKind,
   FlipMirrorConfig,
+  MountSeatRole,
   RealisticVisualPreset,
   ResolvedComponentSpec,
+  SampleMaterialId,
   SourceLane,
+  StageFinishId,
   TelescopeConfig,
   WaveplateConfig,
 } from './types'
@@ -101,6 +105,44 @@ function mount(
   }
 }
 
+function mountSite(
+  id: string,
+  label: string,
+  role: MountSeatRole,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  allowedChildMountModes: MountMode[] = ['clamp-capable'],
+  allowedChildTypes?: ComponentType[],
+): ComponentMountSite {
+  // Optic seats need a slightly larger local envelope so 1 in mounts, irises,
+  // and compact detectors can actually attach instead of falling back to the board.
+  const seatWidth = role === 'optic-seat' ? Math.max(width, 30) : width
+  const seatHeight = role === 'optic-seat' ? Math.max(height, 30) : height
+  const seatX = x - (seatWidth - width) / 2
+  const seatY = y - (seatHeight - height) / 2
+  const normalizedAllowedChildMountModes =
+    role === 'optic-seat'
+      ? Array.from(
+          new Set<MountMode>([...allowedChildMountModes, 'hole-mounted']),
+        )
+      : allowedChildMountModes
+
+  return {
+    id,
+    label,
+    role,
+    seatBoundsMm: bounds(seatX, seatY, seatWidth, seatHeight),
+    defaultLocalAnchorMm: {
+      x: seatX + seatWidth / 2,
+      y: seatY + seatHeight / 2,
+    },
+    allowedChildMountModes: normalizedAllowedChildMountModes,
+    allowedChildTypes,
+  }
+}
+
 function renderHint(
   shape: ComponentRenderHint['shape'],
   fill: string,
@@ -140,6 +182,10 @@ const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
   'beamsplitter',
   'lens',
   'filter',
+  'filter-longpass',
+  'filter-shortpass',
+  'filter-bandpass',
+  'filter-colored-glass',
   'attenuator',
   'attenuator-horizontal',
   'attenuator-vertical',
@@ -158,10 +204,21 @@ const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
   'telescope-transmission',
   'telescope-reflective',
   'opa',
+  'opa-white-light',
+  'opa-combiner',
+  'opa-gain',
   'sample',
+  'sample-holder-generic',
+  'sample-holder-slotted',
   'sample-generic',
+  'sample-xy-stage',
+  'sample-xyz-stage',
+  'sample-manual-xyz-stage',
   'sample-delay-stage',
   'sample-motorized-stage',
+  'sample-chip',
+  'sample-crystal',
+  'sample-substrate',
   'fiber',
   'spectrometer',
   'spectrometer-compact',
@@ -238,6 +295,169 @@ function mergeRealisticVisualPreset(
     glassTint: next.glassTint ?? base.glassTint,
   }
 }
+
+interface StageFinishAppearance {
+  accentFill: string
+  accentStroke: string
+  label: string
+  realisticFinish: RealisticVisualPreset['finish']
+  renderFill: string
+  renderStroke: string
+}
+
+interface SampleMaterialAppearance {
+  accentFill: string
+  accentStroke: string
+  label: string
+  realisticFinish: RealisticVisualPreset['finish']
+  renderFill: string
+  renderStroke: string
+}
+
+export const STAGE_COMPONENT_TYPES: ComponentType[] = [
+  'sample-holder',
+  'translation-stage',
+  'delay-stage',
+]
+
+export const STAGE_FINISH_OPTIONS: Array<{
+  id: StageFinishId
+  label: string
+}> = [
+  { id: 'silver-machined', label: 'Silver machined' },
+  { id: 'graphite', label: 'Graphite' },
+  { id: 'black-anodized', label: 'Black anodized' },
+  { id: 'clear-anodized', label: 'Clear anodized' },
+]
+
+export const SAMPLE_MATERIAL_OPTIONS: Array<{
+  id: SampleMaterialId
+  label: string
+}> = [
+  { id: 'generic-chip', label: 'Generic chip' },
+  { id: 'ti-sapphire', label: 'Ti:Sapphire' },
+  { id: 'tin', label: 'TiN' },
+  { id: 'glass', label: 'Glass' },
+  { id: 'silicon', label: 'Silicon' },
+  { id: 'sapphire', label: 'Sapphire' },
+]
+
+const STAGE_FINISH_APPEARANCES: Record<StageFinishId, StageFinishAppearance> = {
+  'silver-machined': {
+    accentFill: '#c1c7cc',
+    accentStroke: '#f3f8fc',
+    label: 'Silver machined',
+    realisticFinish: 'silver-machined',
+    renderFill: '#8f979d',
+    renderStroke: '#e6edf2',
+  },
+  graphite: {
+    accentFill: '#515c66',
+    accentStroke: '#d6e0e6',
+    label: 'Graphite',
+    realisticFinish: 'graphite',
+    renderFill: '#59636d',
+    renderStroke: '#d6dde3',
+  },
+  'black-anodized': {
+    accentFill: '#2f3941',
+    accentStroke: '#dbe5ec',
+    label: 'Black anodized',
+    realisticFinish: 'graphite',
+    renderFill: '#384148',
+    renderStroke: '#dae4eb',
+  },
+  'clear-anodized': {
+    accentFill: '#b3bcc2',
+    accentStroke: '#edf4f9',
+    label: 'Clear anodized',
+    realisticFinish: 'silver-machined',
+    renderFill: '#7e8b95',
+    renderStroke: '#edf4f8',
+  },
+}
+
+const SAMPLE_MATERIAL_APPEARANCES: Record<SampleMaterialId, SampleMaterialAppearance> = {
+  'generic-chip': {
+    accentFill: '#5c6872',
+    accentStroke: '#e7eef5',
+    label: 'Generic chip',
+    realisticFinish: 'cool-metal',
+    renderFill: '#5f6770',
+    renderStroke: '#e2eaf2',
+  },
+  'ti-sapphire': {
+    accentFill: '#4f5fb2',
+    accentStroke: '#dae2ff',
+    label: 'Ti:Sapphire',
+    realisticFinish: 'cool-metal',
+    renderFill: '#6173c7',
+    renderStroke: '#dce4ff',
+  },
+  tin: {
+    accentFill: '#8b7b4d',
+    accentStroke: '#f0e2ac',
+    label: 'TiN',
+    realisticFinish: 'warm-metal',
+    renderFill: '#a68c3f',
+    renderStroke: '#f6df8a',
+  },
+  glass: {
+    accentFill: '#7fb6c3',
+    accentStroke: '#e1f7ff',
+    label: 'Glass',
+    realisticFinish: 'cool-metal',
+    renderFill: '#8fd0dc',
+    renderStroke: '#e2f9ff',
+  },
+  silicon: {
+    accentFill: '#59616d',
+    accentStroke: '#e4ebf2',
+    label: 'Silicon',
+    realisticFinish: 'graphite',
+    renderFill: '#6e7681',
+    renderStroke: '#ebf2f8',
+  },
+  sapphire: {
+    accentFill: '#6485d9',
+    accentStroke: '#e0ebff',
+    label: 'Sapphire',
+    realisticFinish: 'cool-metal',
+    renderFill: '#6f8fe3',
+    renderStroke: '#e3edff',
+  },
+}
+
+export function isStageComponentType(type: ComponentType) {
+  return STAGE_COMPONENT_TYPES.includes(type)
+}
+
+export function getStageFinishAppearance(finishId: StageFinishId = 'silver-machined') {
+  return STAGE_FINISH_APPEARANCES[finishId]
+}
+
+export function getSampleMaterialAppearance(
+  materialId: SampleMaterialId = 'generic-chip',
+) {
+  return SAMPLE_MATERIAL_APPEARANCES[materialId]
+}
+
+const STAGE_SAMPLE_CHILD_TYPES: ComponentType[] = ['sample']
+const STAGE_OPTIC_CHILD_TYPES: ComponentType[] = [
+  'optic-mount',
+  'mirror',
+  'curved-mirror',
+  'beamsplitter',
+  'lens',
+  'filter',
+  'attenuator',
+  'polarizer',
+  'waveplate',
+  'iris',
+  'bbo-crystal',
+  'fiber-coupler',
+  'detector',
+]
 
 const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
   'mirror',
@@ -853,6 +1073,29 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         description: 'Fixed 1 in optic mount for filters or passive optics.',
       },
       {
+        id: 'fm90-m',
+        label: 'Flip Mount',
+        vendor: 'Thorlabs',
+        sku: 'FM90/M',
+        description: '90 degree flip mount for routing optics in and out of the beam path.',
+      },
+      {
+        id: 'fh2',
+        label: 'Fiberport Holder',
+        vendor: 'Thorlabs',
+        sku: 'FH2',
+        description: 'Compact holder for fiber launch hardware or slim cylindrical optomechanics.',
+        footprintBoundsMm: bounds(-12, -12, 24, 24),
+      },
+      {
+        id: 'pt101-m',
+        label: 'Goniometric Tilt Platform',
+        vendor: 'Thorlabs',
+        sku: 'PT101/M',
+        description: 'Compact tilt platform for pitch-angle adjustment of mounted optics.',
+        footprintBoundsMm: bounds(-20, -18, 40, 36),
+      },
+      {
         id: 'rsp1-m',
         label: 'Rotation Mount',
         vendor: 'Thorlabs',
@@ -918,11 +1161,27 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: 'Mounting Base',
         vendor: 'Thorlabs',
         sku: 'BA2/M',
-        description: 'Mounting base for pedestal-style hardware.',
-        footprintBoundsMm: bounds(-15, -15, 30, 30),
+        description: '50 mm × 75 mm mounting base for pedestal-style hardware.',
+        footprintBoundsMm: bounds(-25, -37.5, 50, 75),
         renderHint: {
           glyph: 'support-mounting-base',
         },
+      },
+      {
+        id: 'fp01',
+        label: 'Fixed Post Mount',
+        vendor: 'Thorlabs',
+        sku: 'FP01',
+        description: 'Compact fixed mount for slim optics or beam sampling targets.',
+        footprintBoundsMm: bounds(-12.5, -12.5, 25, 25),
+      },
+      {
+        id: 'dh1-m',
+        label: 'Diode Holder',
+        vendor: 'Thorlabs',
+        sku: 'DH1/M',
+        description: 'Pedestal-style diode holder or detector mount body.',
+        footprintBoundsMm: bounds(-13, -13, 26, 26),
       },
       {
         id: 'rs1-5p4m',
@@ -969,6 +1228,25 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         },
       },
       {
+        id: 'xe25l225-m',
+        label: 'Long Translation Rail',
+        vendor: 'Thorlabs',
+        sku: 'XE25L225/M',
+        description: '225 mm extrusion or rail used for compact linear travel assemblies.',
+        footprintBoundsMm: bounds(-112.5, -12.5, 225, 25),
+        renderHint: {
+          glyph: 'support-linear-slide',
+        },
+      },
+      {
+        id: 'ab90h',
+        label: 'Right-Angle Bracket',
+        vendor: 'Thorlabs',
+        sku: 'AB90H',
+        description: 'Right-angle bracket for orthogonal mounting between posts, plates, or stages.',
+        footprintBoundsMm: bounds(-20, -20, 40, 40),
+      },
+      {
         id: 'beam-block-plate',
         label: 'Beam Block / Plate Holder',
         vendor: 'Generic',
@@ -977,6 +1255,113 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         footprintBoundsMm: bounds(-20, -14, 40, 28),
         renderHint: {
           glyph: 'support-beam-block',
+        },
+      },
+      {
+        id: 'cl5',
+        label: 'Clamp Arm',
+        vendor: 'Thorlabs',
+        sku: 'CL5',
+        description: 'Compact clamp arm or utility hold-down for odd mechanical assemblies.',
+        footprintBoundsMm: bounds(-20, -10, 40, 20),
+      },
+      {
+        id: 'cf038c-m',
+        label: 'Compact Clamping Fork',
+        vendor: 'Thorlabs',
+        sku: 'CF038C/M',
+        description: 'Compact clamping fork for smaller pedestal bases or tight access.',
+        footprintBoundsMm: bounds(-24, -12, 48, 24),
+        renderHint: {
+          glyph: 'support-clamp-fork',
+        },
+      },
+      {
+        id: 'ph20e-m',
+        label: 'Pedestal Post',
+        vendor: 'Thorlabs',
+        sku: 'PH20E/M',
+        description: '20 mm pedestal post for compact mounted optics.',
+        footprintBoundsMm: bounds(-8, -8, 16, 16),
+        renderHint: {
+          glyph: 'support-pedestal-post',
+        },
+      },
+      {
+        id: 'ph40e-m',
+        label: 'Pedestal Post',
+        vendor: 'Thorlabs',
+        sku: 'PH40E/M',
+        description: '40 mm pedestal post for mounted optics or detectors.',
+        footprintBoundsMm: bounds(-8, -8, 16, 16),
+        renderHint: {
+          glyph: 'support-pedestal-post',
+        },
+      },
+      {
+        id: 'ph50e-m',
+        label: 'Pedestal Post',
+        vendor: 'Thorlabs',
+        sku: 'PH50E/M',
+        description: '50 mm pedestal post for mounted optics or larger assemblies.',
+        footprintBoundsMm: bounds(-8, -8, 16, 16),
+        renderHint: {
+          glyph: 'support-pedestal-post',
+        },
+      },
+      {
+        id: 'tr20-m',
+        label: 'Pedestal Post Holder',
+        vendor: 'Thorlabs',
+        sku: 'TR20/M',
+        description: '20 mm pedestal post holder block.',
+        footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-post-holder',
+        },
+      },
+      {
+        id: 'tr30-m',
+        label: 'Pedestal Post Holder',
+        vendor: 'Thorlabs',
+        sku: 'TR30/M',
+        description: '30 mm pedestal post holder block.',
+        footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-post-holder',
+        },
+      },
+      {
+        id: 'tr40-m',
+        label: 'Pedestal Post Holder',
+        vendor: 'Thorlabs',
+        sku: 'TR40/M',
+        description: '40 mm pedestal post holder block.',
+        footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-post-holder',
+        },
+      },
+      {
+        id: 'tr50-m',
+        label: 'Pedestal Post Holder',
+        vendor: 'Thorlabs',
+        sku: 'TR50/M',
+        description: '50 mm pedestal post holder block.',
+        footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-post-holder',
+        },
+      },
+      {
+        id: 'tr75-m',
+        label: 'Pedestal Post Holder',
+        vendor: 'Thorlabs',
+        sku: 'TR75/M',
+        description: '75 mm pedestal post holder block.',
+        footprintBoundsMm: bounds(-10, -10, 20, 20),
+        renderHint: {
+          glyph: 'support-post-holder',
         },
       },
       {
@@ -1215,6 +1600,27 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: '1 in Plate Beamsplitter',
         description: 'Generic 1 in plate beamsplitter with user-defined ratio and loss.',
       },
+      {
+        id: 'bsw10',
+        label: 'Visible Wedge Beamsplitter',
+        vendor: 'Thorlabs',
+        sku: 'BSW10',
+        description: '1 in visible wedge beamsplitter with practical 50:50 default behavior.',
+        physics: {
+          kind: 'beamsplitter',
+          opticalApertureMm: 25.4,
+          supportedWavelengthNm: {
+            minNm: 450,
+            maxNm: 700,
+          },
+          designIncidenceDeg: 45,
+          designWavelengthNm: 550,
+          defaultReflectPercent: 50,
+          defaultLossPercent: 3,
+          sReflectBiasPercent: 4,
+          pReflectBiasPercent: -4,
+        },
+      },
     ],
   },
   {
@@ -1282,6 +1688,72 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         description: 'Generic thin lens preset with 300 mm focal length and 24 mm clear aperture.',
         physics: lensPhysics(300, 24),
       },
+      {
+        id: 'la4148-a-ab',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4148-A/AB',
+        description: '1 in plano-convex lens with a practical short focal-length layout footprint.',
+        physics: lensPhysics(50, 25.4),
+      },
+      {
+        id: 'la4725-a-ab',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4725-A/AB',
+        description: '1 in plano-convex lens with a medium focal-length default.',
+        physics: lensPhysics(75, 25.4),
+      },
+      {
+        id: 'la4236-a',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4236-A',
+        description: '1 in plano-convex lens commonly used near 100 mm focal length.',
+        physics: lensPhysics(100, 25.4),
+      },
+      {
+        id: 'la4874-a-ab',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4874-A/AB',
+        description: '1 in plano-convex lens with a longer focal-length default.',
+        physics: lensPhysics(150, 25.4),
+      },
+      {
+        id: 'la4102-ab',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4102-AB',
+        description: '2 in plano-convex lens for larger beam footprints and relay optics.',
+        footprintBoundsMm: bounds(-25.4, -29, 50.8, 58),
+        visualBodyBoundsMm: bounds(-14, -22, 28, 44),
+        mountVisualBoundsMm: bounds(-29, -29, 58, 58),
+        hitBoundsMm: bounds(-27.5, -31, 55, 62),
+        mount: mount('clamp-capable', -14, -14, 28, 28),
+        ports: [
+          port('west', 'Input', 'beam-input', -25.4, 0, 'west'),
+          port('east', 'Output', 'beam-output', 25.4, 0, 'east'),
+        ],
+        physics: lensPhysics(200, 50.8),
+      },
+      {
+        id: 'la4158-ab',
+        label: 'Plano-Convex Lens',
+        vendor: 'Thorlabs',
+        sku: 'LA4158-AB',
+        description: '2 in plano-convex lens for broad relay or focusing paths.',
+        footprintBoundsMm: bounds(-25.4, -29, 50.8, 58),
+        visualBodyBoundsMm: bounds(-14, -22, 28, 44),
+        mountVisualBoundsMm: bounds(-29, -29, 58, 58),
+        hitBoundsMm: bounds(-27.5, -31, 55, 62),
+        mount: mount('clamp-capable', -14, -14, 28, 28),
+        ports: [
+          port('west', 'Input', 'beam-input', -25.4, 0, 'west'),
+          port('east', 'Output', 'beam-output', 25.4, 0, 'east'),
+        ],
+        physics: lensPhysics(300, 50.8),
+      },
     ],
   },
   {
@@ -1321,6 +1793,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FELH0400',
         description: '400 nm longpass filter for visible pass and deeper-UV rejection.',
+        renderHint: {
+          fill: '#576249',
+          glyph: 'filter-longpass',
+          stroke: '#efe1a6',
+        },
+        realisticVisualPreset: {
+          accentFill: '#6e6948',
+          accentStroke: '#f3e8c8',
+          glassTint: '#8bd0ba',
+        },
         physics: filterPhysics('longpass', {
           cutoffNm: 400,
         }),
@@ -1331,6 +1813,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FELH0450',
         description: '450 nm longpass filter with stronger UV rejection.',
+        renderHint: {
+          fill: '#5b684d',
+          glyph: 'filter-longpass',
+          stroke: '#f1e4ad',
+        },
+        realisticVisualPreset: {
+          accentFill: '#706d4f',
+          accentStroke: '#f4ead0',
+          glassTint: '#9ad8be',
+        },
         physics: filterPhysics('longpass', {
           cutoffNm: 450,
         }),
@@ -1341,6 +1833,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FESH0600',
         description: '600 nm shortpass filter for trimming longer visible/NIR light.',
+        renderHint: {
+          fill: '#475d71',
+          glyph: 'filter-shortpass',
+          stroke: '#cee6fb',
+        },
+        realisticVisualPreset: {
+          accentFill: '#4f6782',
+          accentStroke: '#e3f3ff',
+          glassTint: '#90c4ff',
+        },
         physics: filterPhysics('shortpass', {
           cutoffNm: 600,
         }),
@@ -1351,6 +1853,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FESH0350',
         description: '350 nm shortpass filter for separating UV SHG from visible fundamentals.',
+        renderHint: {
+          fill: '#42566b',
+          glyph: 'filter-shortpass',
+          stroke: '#c7dcff',
+        },
+        realisticVisualPreset: {
+          accentFill: '#4d6280',
+          accentStroke: '#ddeeff',
+          glassTint: '#8ea7ff',
+        },
         physics: filterPhysics('shortpass', {
           cutoffNm: 350,
         }),
@@ -1361,6 +1873,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FGUV5-UV',
         description: 'UG5 UV colored-glass filter for broad UV cleanup.',
+        renderHint: {
+          fill: '#6f4e2f',
+          glyph: 'filter-colored-glass',
+          stroke: '#ffd08a',
+        },
+        realisticVisualPreset: {
+          accentFill: '#825e34',
+          accentStroke: '#ffe1b0',
+          glassTint: '#f2b46e',
+        },
         physics: filterPhysics('bandpass', {
           centerNm: 330,
           fwhmNm: 120,
@@ -1374,6 +1896,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FBH248-10',
         description: '248 nm bandpass filter with 10 nm FWHM.',
+        renderHint: {
+          fill: '#50456f',
+          glyph: 'filter-bandpass',
+          stroke: '#d7caff',
+        },
+        realisticVisualPreset: {
+          accentFill: '#635683',
+          accentStroke: '#e8defe',
+          glassTint: '#b6b0ff',
+        },
         physics: filterPhysics('bandpass', {
           centerNm: 248,
           fwhmNm: 10,
@@ -1387,6 +1919,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FBH254-10',
         description: '254 nm bandpass filter with 10 nm FWHM.',
+        renderHint: {
+          fill: '#52476f',
+          glyph: 'filter-bandpass',
+          stroke: '#dacbff',
+        },
+        realisticVisualPreset: {
+          accentFill: '#645885',
+          accentStroke: '#e9dffd',
+          glassTint: '#beb0ff',
+        },
         physics: filterPhysics('bandpass', {
           centerNm: 254,
           fwhmNm: 10,
@@ -1400,11 +1942,67 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Thorlabs',
         sku: 'FBH266-10',
         description: '266 nm bandpass filter with 10 nm FWHM.',
+        renderHint: {
+          fill: '#54486d',
+          glyph: 'filter-bandpass',
+          stroke: '#dfceff',
+        },
+        realisticVisualPreset: {
+          accentFill: '#685985',
+          accentStroke: '#ecdefe',
+          glassTint: '#c8b7ff',
+        },
         physics: filterPhysics('bandpass', {
           centerNm: 266,
           fwhmNm: 10,
           peakTransmissionPercent: 72,
           stopbandTransmissionPercent: 1,
+        }),
+      },
+      {
+        id: 'fgb37',
+        label: 'Colored-Glass Filter',
+        vendor: 'Thorlabs',
+        sku: 'FGB37',
+        description: 'Blue colored-glass filter used for visible cleanup or shortpass-style shaping.',
+        renderHint: {
+          fill: '#466381',
+          glyph: 'filter-colored-glass',
+          stroke: '#c8e1ff',
+        },
+        realisticVisualPreset: {
+          accentFill: '#5878a0',
+          accentStroke: '#deebff',
+          glassTint: '#8abfff',
+        },
+        physics: filterPhysics('bandpass', {
+          centerNm: 470,
+          fwhmNm: 180,
+          peakTransmissionPercent: 74,
+          stopbandTransmissionPercent: 9,
+        }),
+      },
+      {
+        id: 'fgb39',
+        label: 'Colored-Glass Filter',
+        vendor: 'Thorlabs',
+        sku: 'FGB39',
+        description: 'Blue-green colored-glass filter used for broadband visible conditioning.',
+        renderHint: {
+          fill: '#3f6d6d',
+          glyph: 'filter-colored-glass',
+          stroke: '#cbf0e4',
+        },
+        realisticVisualPreset: {
+          accentFill: '#4b8585',
+          accentStroke: '#dcfaf0',
+          glassTint: '#8ad7c8',
+        },
+        physics: filterPhysics('bandpass', {
+          centerNm: 510,
+          fwhmNm: 200,
+          peakTransmissionPercent: 76,
+          stopbandTransmissionPercent: 8,
         }),
       },
     ],
@@ -1467,6 +2065,23 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           maxNm: 2000,
           apertureMm: 25.4,
           orientation: 'vertical',
+        }),
+      },
+      {
+        id: 'ndl-10c-2',
+        label: 'Variable ND Filter',
+        vendor: 'Thorlabs',
+        sku: 'NDL-10C-2',
+        description: '1 in continuously variable ND filter for beam power balancing.',
+        renderHint: {
+          glyph: 'attenuator-horizontal',
+        },
+        physics: attenuatorPhysics({
+          transmissionPercent: 35,
+          minNm: 400,
+          maxNm: 700,
+          apertureMm: 25.4,
+          orientation: 'horizontal',
         }),
       },
     ],
@@ -1665,6 +2280,17 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         },
         physics: irisPhysics(12, 8),
       },
+      {
+        id: 'ida12-m',
+        label: 'Adjustable Iris',
+        vendor: 'Thorlabs',
+        sku: 'IDA12/M',
+        description: 'Adjustable mounted iris aligned to the 12 mm aperture class.',
+        renderHint: {
+          glyph: 'iris-standard',
+        },
+        physics: irisPhysics(12, 9),
+      },
     ],
   },
   {
@@ -1755,33 +2381,436 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
   },
   {
-    type: 'sample-stage',
+    type: 'sample-holder',
     category: 'sample',
-    defaultLabel: 'Sample / Stage',
-    familyLabel: 'Sample / Stage',
-    defaultVariantId: 'sample-stage-generic',
-    footprintBoundsMm: bounds(-25, -19, 50, 38),
-    visualBodyBoundsMm: bounds(-22, -14, 44, 28),
-    hitBoundsMm: bounds(-26, -20, 52, 40),
-    mount: mount('hole-mounted', -25, -19, 50, 38),
-    opticalCenterMm: { x: 0, y: 0 },
-    ports: [
-      port('west', 'Input', 'beam-input', -25, 0, 'west'),
-      port('east', 'Output', 'beam-output', 25, 0, 'east'),
+    defaultLabel: 'Sample Holder',
+    familyLabel: 'Sample Holder',
+    defaultVariantId: 'compact-slotted-sample-holder',
+    footprintBoundsMm: bounds(-37.5, -16, 75, 32),
+    visualBodyBoundsMm: bounds(-33.5, -11, 67, 22),
+    hitBoundsMm: bounds(-41, -20, 82, 40),
+    mount: mount('hole-mounted', -37.5, -16, 75, 32),
+    ports: [],
+    mountSites: [
+      mountSite(
+        'sample-seat',
+        'Sample Seat',
+        'sample-seat',
+        -17,
+        -9,
+        18,
+        18,
+        ['clamp-capable'],
+        STAGE_SAMPLE_CHILD_TYPES,
+      ),
+      mountSite(
+        'optic-seat',
+        'Optic Seat',
+        'optic-seat',
+        10,
+        -9,
+        18,
+        18,
+        undefined,
+        STAGE_OPTIC_CHILD_TYPES,
+      ),
     ],
-    renderHint: renderHint('rect', '#5d342d', '#efab98', 'sample'),
-    physics: delayLinePhysics('manual-stage', 25, 18, 97),
+    renderHint: renderHint('capsule', '#8f979d', '#e6edf2', 'sample-holder-slotted'),
+    realisticVisualPreset: realisticVisualPreset('stage', 'silver-machined', 'none', {
+      accentFill: '#c1c7cc',
+      accentStroke: '#f2f7fb',
+    }),
+    physics: nonePhysics(),
     recommendedHardware: {
-      mount: 'Integrated translation stage base',
+      mount: 'Direct breadboard-mounted sample holder',
       post: 'Direct breadboard mounting',
     },
     variants: [
       {
-        id: 'sample-stage-generic',
-        label: 'Sample / Stage',
-        description: 'Generic sample holder or delay stage footprint.',
+        id: 'compact-slotted-sample-holder',
+        label: 'Compact Slotted Holder',
+        description:
+          'Photo-inspired 3-hole silver sample holder with a short slotted base, black mount well, and micrometer-side hardware cues.',
         renderHint: {
-          glyph: 'sample-generic',
+          glyph: 'sample-holder-slotted',
+        },
+      },
+      {
+        id: 'sample-holder-generic',
+        label: 'Generic Sample Holder',
+        description:
+          'Compact 2.5-hole sample holder for a small sample and one mounted optic.',
+        footprintBoundsMm: bounds(-31.25, -17, 62.5, 34),
+        visualBodyBoundsMm: bounds(-27.5, -12, 55, 24),
+        hitBoundsMm: bounds(-34.5, -20, 69, 40),
+        mount: mount('hole-mounted', -31.25, -17, 62.5, 34),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -19,
+            -9,
+            18,
+            18,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            8,
+            -9,
+            18,
+            18,
+            undefined,
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-holder-generic',
+        },
+      },
+      {
+        id: 'slotted-silver-sample-holder',
+        label: 'Large Slotted Sample Holder',
+        description:
+          'Longer silver slotted sample holder with extra travel and a larger optic seat span.',
+        footprintBoundsMm: bounds(-43.75, -18, 87.5, 36),
+        visualBodyBoundsMm: bounds(-39.5, -13, 79, 26),
+        hitBoundsMm: bounds(-48, -22, 96, 44),
+        mount: mount('hole-mounted', -43.75, -18, 87.5, 36),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -9,
+            18,
+            18,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            12,
+            -9,
+            18,
+            18,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-holder-slotted',
+        },
+      },
+    ],
+  },
+  {
+    type: 'translation-stage',
+    category: 'sample',
+    defaultLabel: 'Translation Stage',
+    familyLabel: 'Translation Stage',
+    defaultVariantId: 'generic-xy-stage',
+    footprintBoundsMm: bounds(-37.5, -27.5, 75, 55),
+    visualBodyBoundsMm: bounds(-34, -23, 68, 46),
+    hitBoundsMm: bounds(-40, -30, 80, 60),
+    mount: mount('hole-mounted', -37.5, -27.5, 75, 55),
+    ports: [],
+    mountSites: [
+      mountSite(
+        'sample-seat',
+        'Sample Seat',
+        'sample-seat',
+        -18,
+        -10,
+        18,
+        20,
+        ['clamp-capable'],
+        STAGE_SAMPLE_CHILD_TYPES,
+      ),
+      mountSite(
+        'optic-seat',
+        'Optic Seat',
+        'optic-seat',
+        8,
+        -10,
+        18,
+        20,
+        ['clamp-capable'],
+        STAGE_OPTIC_CHILD_TYPES,
+      ),
+    ],
+    renderHint: renderHint('rect', '#8f979d', '#e6edf2', 'sample-xy-stage'),
+    realisticVisualPreset: realisticVisualPreset('stage', 'silver-machined', 'none', {
+      accentFill: '#c1c7cc',
+      accentStroke: '#f2f7fb',
+    }),
+    physics: nonePhysics(),
+    recommendedHardware: {
+      mount: 'Direct breadboard-mounted translation stage',
+      post: 'Direct breadboard mounting',
+    },
+    variants: [
+      {
+        id: 'generic-xy-stage',
+        label: 'XY Translation Stage',
+        description: 'Generic crossed XY translation stage with two payload seats.',
+        renderHint: {
+          glyph: 'sample-xy-stage',
+        },
+      },
+      {
+        id: 'generic-xyz-stage',
+        label: 'XYZ Translation Stage',
+        description: 'Generic stacked XYZ translation stage with separated sample and optic seats.',
+        footprintBoundsMm: bounds(-42.5, -32.5, 85, 65),
+        visualBodyBoundsMm: bounds(-38.5, -28, 77, 56),
+        hitBoundsMm: bounds(-46, -36, 92, 72),
+        mount: mount('hole-mounted', -42.5, -32.5, 85, 65),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            10,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-xyz-stage',
+        },
+      },
+      {
+        id: 'newport-m-423',
+        label: 'Manual XYZ Stage',
+        vendor: 'Newport',
+        sku: 'M-423',
+        description: 'Manual stacked XYZ translation stage with compact top plate and micrometer-driven slides.',
+        footprintBoundsMm: bounds(-47.5, -35, 95, 70),
+        visualBodyBoundsMm: bounds(-43, -30.5, 86, 61),
+        hitBoundsMm: bounds(-52, -39, 104, 78),
+        mount: mount('hole-mounted', -47.5, -35, 95, 70),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            11,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-manual-xyz-stage',
+        },
+      },
+      {
+        id: 'thorlabs-st1xy-s-m',
+        label: 'XY Translator',
+        vendor: 'Thorlabs',
+        sku: 'ST1XY-S/M',
+        description: 'Thorlabs XY translator with micrometer drives for Ø1 in optics.',
+        footprintBoundsMm: bounds(-44.5, -31.5, 89, 63),
+        visualBodyBoundsMm: bounds(-40, -26, 80, 52),
+        hitBoundsMm: bounds(-49, -36, 98, 72),
+        mount: mount('hole-mounted', -44.5, -31.5, 89, 63),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -10,
+            20,
+            20,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            10,
+            -10,
+            20,
+            20,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-xy-stage',
+        },
+      },
+      {
+        id: 'thorlabs-pt1-m',
+        label: 'Translation Stage',
+        vendor: 'Thorlabs',
+        sku: 'PT1/M',
+        description: 'Single-axis 25 mm translation stage with standard micrometer and compact slotted carriage.',
+        footprintBoundsMm: bounds(-42.5, -18, 85, 36),
+        visualBodyBoundsMm: bounds(-38, -13, 76, 26),
+        hitBoundsMm: bounds(-47, -22, 94, 44),
+        mount: mount('hole-mounted', -42.5, -18, 85, 36),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -9,
+            18,
+            18,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            10,
+            -9,
+            18,
+            18,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-holder-slotted',
+        },
+      },
+      {
+        id: 'thorlabs-pt3-m',
+        label: 'XYZ Translation Stage',
+        vendor: 'Thorlabs',
+        sku: 'PT3/M',
+        description: 'Three-axis 25 mm translation stage with stacked micrometers and top payload plate.',
+        footprintBoundsMm: bounds(-48, -36, 96, 72),
+        visualBodyBoundsMm: bounds(-43, -31, 86, 62),
+        hitBoundsMm: bounds(-53, -41, 106, 82),
+        mount: mount('hole-mounted', -48, -36, 96, 72),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -18,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            11,
+            -12,
+            20,
+            22,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
+        renderHint: {
+          glyph: 'sample-xyz-stage',
+        },
+      },
+    ],
+  },
+  {
+    type: 'delay-stage',
+    category: 'sample',
+    defaultLabel: 'Delay Stage',
+    familyLabel: 'Delay Stage',
+    defaultVariantId: 'generic-manual-delay-stage',
+    footprintBoundsMm: bounds(-42.5, -17, 85, 34),
+    visualBodyBoundsMm: bounds(-39, -12, 78, 24),
+    hitBoundsMm: bounds(-45, -20, 90, 40),
+    mount: mount('hole-mounted', -42.5, -17, 85, 34),
+    mountSites: [
+      mountSite(
+        'sample-seat',
+        'Sample Seat',
+        'sample-seat',
+        -18,
+        -9,
+        18,
+        18,
+        ['clamp-capable'],
+        STAGE_SAMPLE_CHILD_TYPES,
+      ),
+      mountSite(
+        'optic-seat',
+        'Optic Seat',
+        'optic-seat',
+        10,
+        -9,
+        18,
+        18,
+        ['clamp-capable'],
+        STAGE_OPTIC_CHILD_TYPES,
+      ),
+    ],
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [
+      port('west', 'Input', 'beam-input', -42.5, 0, 'west'),
+      port('east', 'Output', 'beam-output', 42.5, 0, 'east'),
+    ],
+    renderHint: renderHint('rect', '#8f979d', '#e6edf2', 'sample-delay-stage'),
+    realisticVisualPreset: realisticVisualPreset('stage', 'silver-machined', 'none', {
+      accentFill: '#c1c7cc',
+      accentStroke: '#f2f7fb',
+    }),
+    physics: delayLinePhysics('manual-stage', 25, 18, 97),
+    recommendedHardware: {
+      mount: 'Integrated delay stage base',
+      post: 'Direct breadboard mounting',
+    },
+    variants: [
+      {
+        id: 'generic-manual-delay-stage',
+        label: 'Manual Delay Stage',
+        description: 'Generic compact manual delay stage with a micrometer-driven carriage.',
+        renderHint: {
+          glyph: 'sample-delay-stage',
         },
       },
       {
@@ -1793,18 +2822,6 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         renderHint: {
           glyph: 'sample-delay-stage',
         },
-        footprintBoundsMm: bounds(-42.5, -17, 85, 34),
-        visualBodyBoundsMm: bounds(-39, -12, 78, 24),
-        hitBoundsMm: bounds(-45, -20, 90, 40),
-        mount: mount('hole-mounted', -42.5, -17, 85, 34),
-        recommendedHardware: {
-          mount: 'Integrated stage base',
-          post: 'Direct breadboard mounting',
-        },
-        ports: [
-          port('west', 'Input', 'beam-input', -42.5, 0, 'west'),
-          port('east', 'Output', 'beam-output', 42.5, 0, 'east'),
-        ],
         physics: delayLinePhysics('manual-stage', 25, 18, 97),
       },
       {
@@ -1820,6 +2837,30 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         visualBodyBoundsMm: bounds(-325.5, -75, 651, 150),
         hitBoundsMm: bounds(-360, -120, 720, 240),
         mount: mount('hole-mounted', -360, -120, 720, 240),
+        mountSites: [
+          mountSite(
+            'sample-seat',
+            'Sample Seat',
+            'sample-seat',
+            -48,
+            -30,
+            44,
+            60,
+            ['clamp-capable'],
+            STAGE_SAMPLE_CHILD_TYPES,
+          ),
+          mountSite(
+            'optic-seat',
+            'Optic Seat',
+            'optic-seat',
+            18,
+            -30,
+            44,
+            60,
+            ['clamp-capable'],
+            STAGE_OPTIC_CHILD_TYPES,
+          ),
+        ],
         recommendedHardware: {
           mount: 'Integrated stage base with cable chain envelope',
           post: 'Direct table mounting',
@@ -1829,6 +2870,83 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           port('east', 'Output', 'beam-output', 325.5, 0, 'east'),
         ],
         physics: delayLinePhysics('motorized-stage', 205, 18, 97),
+      },
+    ],
+  },
+  {
+    type: 'sample',
+    category: 'sample',
+    defaultLabel: 'Sample',
+    familyLabel: 'Sample',
+    defaultVariantId: 'generic-sample-chip',
+    footprintBoundsMm: bounds(-9, -6, 18, 12),
+    visualBodyBoundsMm: bounds(-8, -5, 16, 10),
+    hitBoundsMm: bounds(-11, -8, 22, 16),
+    mount: mount('clamp-capable', -9, -6, 18, 12),
+    ports: [],
+    renderHint: renderHint('rect', '#5f6770', '#e2eaf2', 'sample-chip'),
+    realisticVisualPreset: realisticVisualPreset('sample', 'cool-metal', 'none', {
+      accentFill: '#5c6872',
+      accentStroke: '#e7eef5',
+    }),
+    physics: nonePhysics(),
+    recommendedHardware: {
+      mount: 'Stage seat or compact carrier',
+      post: 'Optional free-placement sample carrier',
+    },
+    variants: [
+      {
+        id: 'generic-sample-chip',
+        label: 'Sample Chip',
+        description: 'Generic mounted chip or coupon sample.',
+        renderHint: {
+          glyph: 'sample-chip',
+        },
+      },
+      {
+        id: 'ti-sapphire-crystal',
+        label: 'Ti:Sapphire Crystal',
+        description: 'Compact Ti:sapphire sample or gain crystal placeholder for stage mounting.',
+        footprintBoundsMm: bounds(-8, -5, 16, 10),
+        renderHint: {
+          glyph: 'sample-crystal',
+        },
+      },
+      {
+        id: 'tin-substrate',
+        label: 'TiN Substrate',
+        description: 'Thin TiN-coated substrate sample for mount-first layouts.',
+        footprintBoundsMm: bounds(-8, -6, 16, 12),
+        renderHint: {
+          glyph: 'sample-substrate',
+        },
+      },
+      {
+        id: 'glass-substrate',
+        label: 'Glass Substrate',
+        description: 'Rectangular glass substrate sample.',
+        footprintBoundsMm: bounds(-9, -6, 18, 12),
+        renderHint: {
+          glyph: 'sample-substrate',
+        },
+      },
+      {
+        id: 'silicon-substrate',
+        label: 'Silicon Substrate',
+        description: 'Rectangular silicon substrate sample.',
+        footprintBoundsMm: bounds(-8, -8, 16, 16),
+        renderHint: {
+          glyph: 'sample-substrate',
+        },
+      },
+      {
+        id: 'sapphire-substrate',
+        label: 'Sapphire Substrate',
+        description: 'Rectangular sapphire substrate sample.',
+        footprintBoundsMm: bounds(-8, -8, 16, 16),
+        renderHint: {
+          glyph: 'sample-substrate',
+        },
       },
     ],
   },
@@ -1861,12 +2979,22 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: 'White-Light Generator',
         description:
           'Generates a broadband seed continuum that lets the OPA be aligned and tuned across a wide wavelength range.',
+        renderHint: {
+          fill: '#6b5532',
+          glyph: 'opa-white-light',
+          stroke: '#ffd89d',
+        },
       },
       {
         id: 'pump-seed-combiner',
         label: 'Pump / Seed Combiner',
         description:
           'Represents the section where pump and seed beams are timed, steered, and overlapped before they enter the gain crystal.',
+        renderHint: {
+          fill: '#355372',
+          glyph: 'opa-combiner',
+          stroke: '#c6e8ff',
+        },
         physics: opaCombinerPhysics(),
       },
       {
@@ -1874,6 +3002,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         label: 'OPA Gain Stage',
         description:
           'Represents the nonlinear gain stage where pump energy amplifies the seed and produces the signal and idler outputs.',
+        renderHint: {
+          fill: '#5b2f68',
+          glyph: 'opa-gain',
+          stroke: '#ffd0ff',
+        },
         physics: opaGainPhysics({
           signalWavelengthNm: 650,
           idlerWavelengthNm: 1350,
@@ -1953,6 +3086,22 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         opticalCenterMm: { x: -70, y: 0 },
         ports: [port('input', 'Input', 'beam-input', -89, 0, 'west')],
       },
+      {
+        id: 'cct10',
+        label: 'Compact CCD Spectrometer',
+        vendor: 'Thorlabs',
+        sku: 'CCT10',
+        description: 'Compact fiber-coupled spectrometer package for quick layout planning.',
+        renderHint: {
+          glyph: 'spectrometer-compact',
+        },
+        footprintBoundsMm: bounds(-42, -23, 84, 46),
+        visualBodyBoundsMm: bounds(-38, -19, 76, 38),
+        hitBoundsMm: bounds(-46, -27, 92, 54),
+        mount: mount('hole-mounted', -42, -23, 84, 46),
+        opticalCenterMm: { x: -26, y: 0 },
+        ports: [port('input', 'Input', 'beam-input', -42, 0, 'west')],
+      },
     ],
   },
   {
@@ -1983,6 +3132,31 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         id: 'detector-generic',
         label: 'Detector',
         description: 'Generic beam detector or power meter head.',
+      },
+      {
+        id: 'bc207vis-m',
+        label: 'Beam Profiler',
+        vendor: 'Thorlabs',
+        sku: 'BC207VIS/M',
+        description: 'CMOS beam profiler head for visible beam diagnostics.',
+        footprintBoundsMm: bounds(-24, -18, 48, 36),
+        visualBodyBoundsMm: bounds(-19, -13, 38, 26),
+        hitBoundsMm: bounds(-27, -21, 54, 42),
+        mountVisualBoundsMm: bounds(-18, -18, 36, 36),
+        opticalCenterMm: { x: -16, y: 0 },
+        ports: [port('input', 'Input', 'beam-input', -24, 0, 'west')],
+      },
+      {
+        id: 's120vc',
+        label: 'Photodiode Sensor',
+        vendor: 'Thorlabs',
+        sku: 'S120VC',
+        description: 'Compact photodiode power sensor head for visible beams.',
+        footprintBoundsMm: bounds(-16, -16, 32, 32),
+        visualBodyBoundsMm: bounds(-12, -12, 24, 24),
+        hitBoundsMm: bounds(-20, -20, 40, 40),
+        opticalCenterMm: { x: -9, y: 0 },
+        ports: [port('input', 'Input', 'beam-input', -16, 0, 'west')],
       },
     ],
   },
@@ -2085,6 +3259,7 @@ export function getResolvedComponentSpec(
     physics: mergePhysics(definition.physics, variant.physics),
     recommendedHardware:
       variant.recommendedHardware ?? definition.recommendedHardware,
+    mountSites: variant.mountSites ?? definition.mountSites ?? [],
   }
 }
 
@@ -2092,37 +3267,92 @@ export function getResolvedComponentSpecForInstance(
   component: ComponentInstance,
 ): ResolvedComponentSpec {
   const spec = getResolvedComponentSpec(component.type, component.variantId)
+  const appearanceAdjustedSpec = isStageComponentType(component.type)
+    ? (() => {
+        const finishAppearance = getStageFinishAppearance(component.finishId)
+
+        return {
+          ...spec,
+          renderHint: {
+            ...spec.renderHint,
+            fill: finishAppearance.renderFill,
+            stroke: finishAppearance.renderStroke,
+          },
+          realisticVisualPreset: spec.realisticVisualPreset
+            ? {
+                ...spec.realisticVisualPreset,
+                finish: finishAppearance.realisticFinish,
+                accentFill: finishAppearance.accentFill,
+                accentStroke: finishAppearance.accentStroke,
+              }
+            : undefined,
+        }
+      })()
+    : component.type === 'sample'
+      ? (() => {
+          const materialAppearance = getSampleMaterialAppearance(component.materialId)
+
+          return {
+            ...spec,
+            renderHint: {
+              ...spec.renderHint,
+              fill: materialAppearance.renderFill,
+              stroke: materialAppearance.renderStroke,
+            },
+            realisticVisualPreset: spec.realisticVisualPreset
+              ? {
+                  ...spec.realisticVisualPreset,
+                  finish: materialAppearance.realisticFinish,
+                  accentFill: materialAppearance.accentFill,
+                  accentStroke: materialAppearance.accentStroke,
+                }
+              : undefined,
+          }
+        })()
+      : spec
   const widthOverrideMm = component.geometryOverride?.widthMm
   const heightOverrideMm = component.geometryOverride?.heightMm
 
   if (!widthOverrideMm && !heightOverrideMm) {
-    return spec
+    return appearanceAdjustedSpec
   }
 
   const scaleX = widthOverrideMm
-    ? widthOverrideMm / spec.footprintBoundsMm.width
+    ? widthOverrideMm / appearanceAdjustedSpec.footprintBoundsMm.width
     : 1
   const scaleY = heightOverrideMm
-    ? heightOverrideMm / spec.footprintBoundsMm.height
+    ? heightOverrideMm / appearanceAdjustedSpec.footprintBoundsMm.height
     : 1
 
   return {
-    ...spec,
-    footprintBoundsMm: scaleBounds(spec.footprintBoundsMm, scaleX, scaleY)!,
-    visualBodyBoundsMm: scaleBounds(spec.visualBodyBoundsMm, scaleX, scaleY)!,
-    hitBoundsMm: scaleBounds(spec.hitBoundsMm, scaleX, scaleY)!,
-    mountVisualBoundsMm: scaleBounds(spec.mountVisualBoundsMm, scaleX, scaleY),
+    ...appearanceAdjustedSpec,
+    footprintBoundsMm: scaleBounds(appearanceAdjustedSpec.footprintBoundsMm, scaleX, scaleY)!,
+    visualBodyBoundsMm: scaleBounds(appearanceAdjustedSpec.visualBodyBoundsMm, scaleX, scaleY)!,
+    hitBoundsMm: scaleBounds(appearanceAdjustedSpec.hitBoundsMm, scaleX, scaleY)!,
+    mountVisualBoundsMm: scaleBounds(appearanceAdjustedSpec.mountVisualBoundsMm, scaleX, scaleY),
     mount: {
-      ...spec.mount,
-      supportBoundsMm: scaleBounds(spec.mount.supportBoundsMm, scaleX, scaleY)!,
+      ...appearanceAdjustedSpec.mount,
+      supportBoundsMm: scaleBounds(
+        appearanceAdjustedSpec.mount.supportBoundsMm,
+        scaleX,
+        scaleY,
+      )!,
     },
-    opticalCenterMm: spec.opticalCenterMm
+    opticalCenterMm: appearanceAdjustedSpec.opticalCenterMm
       ? {
-          x: spec.opticalCenterMm.x * scaleX,
-          y: spec.opticalCenterMm.y * scaleY,
+          x: appearanceAdjustedSpec.opticalCenterMm.x * scaleX,
+          y: appearanceAdjustedSpec.opticalCenterMm.y * scaleY,
         }
       : undefined,
-    ports: scalePorts(spec.ports, scaleX, scaleY),
+    ports: scalePorts(appearanceAdjustedSpec.ports, scaleX, scaleY),
+    mountSites: appearanceAdjustedSpec.mountSites.map((mountSite) => ({
+      ...mountSite,
+      seatBoundsMm: scaleBounds(mountSite.seatBoundsMm, scaleX, scaleY)!,
+      defaultLocalAnchorMm: {
+        x: mountSite.defaultLocalAnchorMm.x * scaleX,
+        y: mountSite.defaultLocalAnchorMm.y * scaleY,
+      },
+    })),
   }
 }
 
@@ -2334,7 +3564,7 @@ export function createDefaultComponentConfig(
         support: supportConfig,
       }
     }
-    case 'sample-stage':
+    case 'delay-stage':
     case 'support-hardware': {
       const physics = spec.physics.kind === 'delay-line' ? spec.physics : undefined
 

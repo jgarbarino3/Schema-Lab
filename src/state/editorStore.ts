@@ -30,6 +30,8 @@ import {
   createDefaultComponentConfig,
   getComponentDefinition,
   getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
+  isStageComponentType,
   isOpticalTarget,
   isPostMountedType,
   shouldIncludeDefaultMount,
@@ -46,6 +48,7 @@ import {
   LIVE_SURFACE_DETAIL_MIN_ZOOM_PX_PER_MM,
   normalizeQuarterTurns,
   panViewportByScreenDelta as panViewportByDelta,
+  rotateBoundsQuarterTurns,
   rotatePointAroundCenterQuarterTurns,
   roundMm,
   unionBoundsMm,
@@ -65,17 +68,22 @@ import {
 import { getDefaultBeamSettings, createEmptyScene } from '../domain/serialization'
 import { getSourcePreset } from '../domain/sourcePresets'
 import {
+  componentLocalToWorld,
   convertSceneToOpticalTable,
   convertSceneToSingleBreadboard,
+  componentWorldToLocal,
   createBreadboardInstance,
   createFreshOpticalTableWorkspace,
   getBreadboardAnchorForCenterMm,
   getBreadboardInstance,
   getBreadboardWorldBoundsMm,
+  getComponentById,
+  getComponentTreeIds,
   getDefaultSurfaceId,
   getWorkspaceWorldBoundsMm,
   resolveTopmostSurfaceIdAtWorldPoint,
   surfaceLocalToWorld,
+  syncAttachedComponentTransforms,
   translateComponentWorld,
 } from '../domain/workspace'
 import {
@@ -136,7 +144,10 @@ export type SelectionState =
   | { type: 'component'; componentId: string }
 
 type ComponentUpdate = Partial<
-  Pick<ComponentInstance, 'label' | 'anchorMm' | 'rotationQuarterTurns'>
+  Pick<
+    ComponentInstance,
+    'label' | 'anchorMm' | 'rotationQuarterTurns' | 'finishId' | 'materialId'
+  >
 >
 
 interface ComponentConfigUpdate {
@@ -1003,6 +1014,7 @@ function resolvePlacementForScene(args: {
 
   return annotateScenePlacementOccupancy({
     scene,
+    component,
     components: scene.components,
     ignoreComponentId: component.id,
     hostSurfaceId: component.hostSurfaceId,
@@ -1015,6 +1027,163 @@ function resolvePlacementForScene(args: {
       snapMode,
     }),
   })
+}
+
+function isBoundsWithinBounds(boundsMm: BoundsMm, containerMm: BoundsMm) {
+  return (
+    boundsMm.x >= containerMm.x &&
+    boundsMm.y >= containerMm.y &&
+    boundsMm.x + boundsMm.width <= containerMm.x + containerMm.width &&
+    boundsMm.y + boundsMm.height <= containerMm.y + containerMm.height
+  )
+}
+
+function clampAttachedAnchorToSeat(
+  seatBoundsMm: BoundsMm,
+  rotatedSupportBoundsMm: BoundsMm,
+  localAnchorMm: Vector2Mm,
+) {
+  const minX = seatBoundsMm.x - rotatedSupportBoundsMm.x
+  const maxX =
+    seatBoundsMm.x + seatBoundsMm.width - rotatedSupportBoundsMm.x - rotatedSupportBoundsMm.width
+  const minY = seatBoundsMm.y - rotatedSupportBoundsMm.y
+  const maxY =
+    seatBoundsMm.y + seatBoundsMm.height - rotatedSupportBoundsMm.y - rotatedSupportBoundsMm.height
+
+  return {
+    x: roundMm(clamp(localAnchorMm.x, Math.min(minX, maxX), Math.max(minX, maxX))),
+    y: roundMm(clamp(localAnchorMm.y, Math.min(minY, maxY), Math.max(minY, maxY))),
+  }
+}
+
+function resolveStageAttachmentCandidate(args: {
+  candidateAnchorMm: Vector2Mm
+  component: ComponentInstance
+  lockedParentComponentId?: string
+  lockedSiteId?: string
+  scene: SceneDocument
+}) {
+  const { candidateAnchorMm, component, lockedParentComponentId, lockedSiteId, scene } =
+    args
+  const componentSpec = getResolvedComponentSpecForInstance(component)
+
+  if (componentSpec.mount.mode !== 'clamp-capable') {
+    return undefined
+  }
+
+  const excludedIds = new Set(getComponentTreeIds(scene, component.id))
+  const parentCandidates = lockedParentComponentId
+    ? [getComponentById(scene, lockedParentComponentId)].filter(
+        (candidate): candidate is ComponentInstance => Boolean(candidate),
+      )
+    : scene.components.filter(
+        (candidate) =>
+          isStageComponentType(candidate.type) && !excludedIds.has(candidate.id),
+      )
+  let bestMatch:
+    | {
+        attachment: NonNullable<ComponentInstance['attachment']>
+        hostSurfaceId?: string
+        anchorMm: Vector2Mm
+        distanceScore: number
+        rotationQuarterTurns: QuarterTurn
+      }
+    | undefined
+
+  for (const parent of parentCandidates) {
+    const parentSpec = getResolvedComponentSpecForInstance(parent)
+
+    for (const mountSite of parentSpec.mountSites) {
+      if (lockedSiteId && mountSite.id !== lockedSiteId) {
+        continue
+      }
+
+      if (!mountSite.allowedChildMountModes.includes(componentSpec.mount.mode)) {
+        continue
+      }
+
+      if (
+        mountSite.allowedChildTypes &&
+        !mountSite.allowedChildTypes.includes(component.type)
+      ) {
+        continue
+      }
+
+      const seatOccupant = scene.components.find(
+        (candidate) =>
+          candidate.id !== component.id &&
+          candidate.attachment?.parentComponentId === parent.id &&
+          candidate.attachment.parentMountSiteId === mountSite.id,
+      )
+
+      if (seatOccupant) {
+        continue
+      }
+
+      const localRotationQuarterTurns = normalizeQuarterTurns(
+        component.rotationQuarterTurns - parent.rotationQuarterTurns,
+      ) as QuarterTurn
+      const localSupportBoundsMm = rotateBoundsQuarterTurns(
+        componentSpec.mount.supportBoundsMm,
+        localRotationQuarterTurns,
+      )
+      const unclampedLocalAnchorMm = componentWorldToLocal(
+        scene,
+        parent.id,
+        candidateAnchorMm,
+      )
+      const localAnchorMm =
+        lockedParentComponentId && lockedSiteId
+          ? clampAttachedAnchorToSeat(
+              mountSite.seatBoundsMm,
+              localSupportBoundsMm,
+              unclampedLocalAnchorMm,
+            )
+          : unclampedLocalAnchorMm
+      const placedSupportBoundsMm = {
+        x: roundMm(localAnchorMm.x + localSupportBoundsMm.x),
+        y: roundMm(localAnchorMm.y + localSupportBoundsMm.y),
+        width: localSupportBoundsMm.width,
+        height: localSupportBoundsMm.height,
+      }
+
+      if (!isBoundsWithinBounds(placedSupportBoundsMm, mountSite.seatBoundsMm)) {
+        continue
+      }
+
+      const worldAnchorMm = componentLocalToWorld(scene, parent.id, localAnchorMm)
+      const seatCenterMm = componentLocalToWorld(
+        scene,
+        parent.id,
+        mountSite.defaultLocalAnchorMm,
+      )
+      const distanceScore = Math.hypot(
+        seatCenterMm.x - candidateAnchorMm.x,
+        seatCenterMm.y - candidateAnchorMm.y,
+      )
+      const attachment = {
+        parentComponentId: parent.id,
+        parentMountSiteId: mountSite.id,
+        localAnchorMm,
+        localRotationQuarterTurns,
+      }
+      const resolvedRotationQuarterTurns = normalizeQuarterTurns(
+        parent.rotationQuarterTurns + localRotationQuarterTurns,
+      ) as QuarterTurn
+
+      if (!bestMatch || distanceScore < bestMatch.distanceScore) {
+        bestMatch = {
+          attachment,
+          hostSurfaceId: parent.hostSurfaceId,
+          anchorMm: worldAnchorMm,
+          distanceScore,
+          rotationQuarterTurns: resolvedRotationQuarterTurns,
+        }
+      }
+    }
+  }
+
+  return bestMatch
 }
 
 function resolveComponentHostSurfaceIdAtPoint(
@@ -1062,10 +1231,19 @@ function reconcileComponentsToScene(
   components: ComponentInstance[],
   scene: SceneDocument,
 ) {
-  return components.map((component) => ({
-    ...component,
-    anchorMm: reconcileComponentAnchorForScene(component, scene),
-  }))
+  const nextScene = syncAttachedComponentTransforms({
+    ...scene,
+    components: components.map((component) =>
+      component.attachment
+        ? component
+        : {
+            ...component,
+            anchorMm: reconcileComponentAnchorForScene(component, scene),
+          },
+    ),
+  })
+
+  return nextScene.components
 }
 
 function escapeRegExp(value: string) {
@@ -1254,8 +1432,22 @@ function resolveDraggedComponentIds(
           return candidate?.hostSurfaceId === component.hostSurfaceId
         })
       : highlightedComponentIds
+  const resolvedIdSet = new Set(resolvedIds)
+  const collapsedIds = resolvedIds.filter((componentId) => {
+    let current = getComponentById(scene, componentId)
 
-  return resolvedIds.length > 0 ? resolvedIds : [component.id]
+    while (current?.attachment?.parentComponentId) {
+      if (resolvedIdSet.has(current.attachment.parentComponentId)) {
+        return false
+      }
+
+      current = getComponentById(scene, current.attachment.parentComponentId)
+    }
+
+    return true
+  })
+
+  return collapsedIds.length > 0 ? collapsedIds : [component.id]
 }
 
 function applyMountVisibilityDefault(
@@ -1371,6 +1563,47 @@ function createComponentDraft(
   }
 
   draft = applyMountVisibilityDefault(draft, mountVisibilityDefaults)
+
+  if (selectedTarget && isStageComponentType(selectedTarget.type)) {
+    const selectedTargetSpec = getResolvedComponentSpecForInstance(selectedTarget)
+    const draftSpec = getResolvedComponentSpecForInstance(draft)
+    const defaultMountSite = selectedTargetSpec.mountSites.find(
+      (mountSite) =>
+        mountSite.allowedChildMountModes.includes(draftSpec.mount.mode) &&
+        (!mountSite.allowedChildTypes ||
+          mountSite.allowedChildTypes.includes(draft.type)) &&
+        !scene.components.some(
+          (candidate) =>
+            candidate.attachment?.parentComponentId === selectedTarget.id &&
+            candidate.attachment.parentMountSiteId === mountSite.id,
+        ),
+    )
+
+    if (defaultMountSite) {
+      const defaultMountAnchorMm = componentLocalToWorld(
+        scene,
+        selectedTarget.id,
+        defaultMountSite.defaultLocalAnchorMm,
+      )
+      const attachmentCandidate = resolveStageAttachmentCandidate({
+        candidateAnchorMm: defaultMountAnchorMm,
+        component: draft,
+        lockedParentComponentId: selectedTarget.id,
+        lockedSiteId: defaultMountSite.id,
+        scene,
+      })
+
+      if (attachmentCandidate) {
+        draft = {
+          ...draft,
+          attachment: attachmentCandidate.attachment,
+          anchorMm: attachmentCandidate.anchorMm,
+          hostSurfaceId: attachmentCandidate.hostSurfaceId,
+          rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+        }
+      }
+    }
+  }
 
   if (type === 'laser-source') {
     const existingSourceConfig = draft.config.source
@@ -1819,19 +2052,22 @@ function applyShapeAnnotationUpdate(
 }
 
 function translateBreadboardHostedComponents(
-  components: ComponentInstance[],
+  scene: SceneDocument,
   breadboardId: string,
   deltaMm: Vector2Mm,
 ) {
   if (deltaMm.x === 0 && deltaMm.y === 0) {
-    return components
+    return scene.components
   }
 
-  return components.map((component) =>
-    component.hostSurfaceId === breadboardId
-      ? translateComponentWorld(component, deltaMm)
-      : component,
-  )
+  return syncAttachedComponentTransforms({
+    ...scene,
+    components: scene.components.map((component) =>
+      !component.attachment && component.hostSurfaceId === breadboardId
+        ? translateComponentWorld(component, deltaMm)
+        : component,
+    ),
+  }).components
 }
 
 function createSceneHistoryState(): SceneHistoryState {
@@ -1909,9 +2145,11 @@ function withCommittedScene<StatePatch extends {
     createSceneHistorySnapshot(state),
     options,
   )
+  const syncedScene = syncAttachedComponentTransforms(patch.scene)
 
   return {
     ...patch,
+    scene: syncedScene,
     history,
     ...getSceneHistoryFlags(history),
   }
@@ -1924,9 +2162,11 @@ function withResetHistory<StatePatch extends {
   viewport?: ViewportState
 }>(patch: StatePatch) {
   const history = createSceneHistoryState()
+  const syncedScene = syncAttachedComponentTransforms(patch.scene)
 
   return {
     ...patch,
+    scene: syncedScene,
     history,
     ...getSceneHistoryFlags(history),
   }
@@ -2646,6 +2886,37 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const pendingAttachmentCandidate = resolveStageAttachmentCandidate({
+        candidateAnchorMm: anchorMm,
+        component: pendingPlacement.draft,
+        scene: state.scene,
+      })
+
+      if (pendingAttachmentCandidate) {
+        return {
+          interaction: {
+            ...state.interaction,
+            pendingPlacement: {
+              ...pendingPlacement,
+              draft: {
+                ...pendingPlacement.draft,
+                attachment: pendingAttachmentCandidate.attachment,
+                anchorMm: pendingAttachmentCandidate.anchorMm,
+                hostSurfaceId: pendingAttachmentCandidate.hostSurfaceId,
+                rotationQuarterTurns: pendingAttachmentCandidate.rotationQuarterTurns,
+              },
+              candidateAnchorMm: pendingAttachmentCandidate.anchorMm,
+            },
+            activeHostSurfaceId: pendingAttachmentCandidate.hostSurfaceId,
+            focusedBreadboardId:
+              pendingAttachmentCandidate.hostSurfaceId &&
+              pendingAttachmentCandidate.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+                ? pendingAttachmentCandidate.hostSurfaceId
+                : state.interaction.focusedBreadboardId,
+          },
+        }
+      }
+
       const retargetedDraft = retargetComponentHostSurfaceAtPoint(
         state.scene,
         pendingPlacement.draft,
@@ -2734,24 +3005,41 @@ export const useEditorStore = create<EditorStore>((set) => ({
         ...draft,
         anchorMm: placement.resolvedAnchorMm,
       }
+      const attachmentCandidate = resolveStageAttachmentCandidate({
+        candidateAnchorMm: placement.resolvedAnchorMm,
+        component: nextComponent,
+        scene: state.scene,
+      })
+      const resolvedComponent = attachmentCandidate
+        ? {
+            ...nextComponent,
+            attachment: attachmentCandidate.attachment,
+            anchorMm: attachmentCandidate.anchorMm,
+            hostSurfaceId: attachmentCandidate.hostSurfaceId,
+            rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+          }
+        : nextComponent
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
-          components: [...state.scene.components, nextComponent],
+          components: [...state.scene.components, resolvedComponent],
         },
-        selection: { type: 'component', componentId: nextComponent.id },
+        selection: { type: 'component', componentId: resolvedComponent.id },
         interaction: {
           ...state.interaction,
-          activeHostSurfaceId: nextComponent.hostSurfaceId,
+          activeHostSurfaceId: resolvedComponent.hostSurfaceId,
           focusedBreadboardId:
-            nextComponent.hostSurfaceId &&
-            nextComponent.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
-              ? nextComponent.hostSurfaceId
+            resolvedComponent.hostSurfaceId &&
+            resolvedComponent.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? resolvedComponent.hostSurfaceId
               : state.interaction.focusedBreadboardId,
           pendingPlacement: undefined,
           pendingBreadboardPlacement: undefined,
-          notice: describePlacementReason(placement.reason),
+          notice:
+            attachmentCandidate
+              ? 'Mounted optic attached to stage.'
+              : describePlacementReason(placement.reason),
         },
       })
     })
@@ -2875,7 +3163,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         scene: {
           ...state.scene,
           components: translateBreadboardHostedComponents(
-            state.scene.components,
+            state.scene,
             breadboardId,
             deltaMm,
           ),
@@ -2922,7 +3210,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
         scene: {
           ...state.scene,
           components: translateBreadboardHostedComponents(
-            state.scene.components,
+            state.scene,
             breadboardId,
             deltaMm,
           ),
@@ -2954,6 +3242,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
         state.interaction,
         component,
       )
+      const dragLeaderId = draggedComponentIds.includes(componentId)
+        ? componentId
+        : draggedComponentIds[0] ?? componentId
+      const dragLeader =
+        state.scene.components.find((item) => item.id === dragLeaderId) ?? component
 
       return {
         selection: { type: 'component', componentId },
@@ -2963,15 +3256,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
           activeHostSurfaceId:
             component.hostSurfaceId ?? state.interaction.activeHostSurfaceId,
           focusedBreadboardId:
-            component.hostSurfaceId &&
-            component.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
-              ? component.hostSurfaceId
+            dragLeader.hostSurfaceId &&
+            dragLeader.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+              ? dragLeader.hostSurfaceId
               : state.interaction.focusedBreadboardId,
           dragPreview: {
-            componentId,
-            candidateAnchorMm: component.anchorMm,
+            componentId: dragLeader.id,
+            candidateAnchorMm: dragLeader.anchorMm,
             componentIds: draggedComponentIds,
-            hostSurfaceId: component.hostSurfaceId,
+            hostSurfaceId: dragLeader.hostSurfaceId,
           },
           notice: undefined,
         },
@@ -2991,9 +3284,75 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const dragLeaderId = state.interaction.dragPreview?.componentId ?? componentId
+      const dragLeader =
+        state.scene.components.find((item) => item.id === dragLeaderId) ?? component
+      const directAttachmentDrag =
+        !!component.attachment &&
+        state.interaction.dragPreview?.componentIds?.length === 1 &&
+        state.interaction.dragPreview.componentIds[0] === component.id
+
+      if (directAttachmentDrag) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm: anchorMm,
+          component,
+          lockedParentComponentId: component.attachment?.parentComponentId,
+          lockedSiteId: component.attachment?.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        return {
+          interaction: {
+            ...state.interaction,
+            activeHostSurfaceId: component.hostSurfaceId,
+            focusedBreadboardId:
+              component.hostSurfaceId &&
+              component.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+                ? component.hostSurfaceId
+                : state.interaction.focusedBreadboardId,
+            dragPreview: {
+              componentId: dragLeaderId,
+              candidateAnchorMm:
+                attachmentCandidate?.anchorMm ?? state.interaction.dragPreview?.candidateAnchorMm ?? component.anchorMm,
+              componentIds: state.interaction.dragPreview?.componentIds,
+              hostSurfaceId: component.hostSurfaceId,
+            },
+          },
+        }
+      }
+
+      const stageAttachmentCandidate =
+        state.interaction.dragPreview?.componentIds?.length === 1
+          ? resolveStageAttachmentCandidate({
+              candidateAnchorMm: anchorMm,
+              component: dragLeader,
+              scene: state.scene,
+            })
+          : undefined
+
+      if (stageAttachmentCandidate) {
+        return {
+          interaction: {
+            ...state.interaction,
+            activeHostSurfaceId: stageAttachmentCandidate.hostSurfaceId,
+            focusedBreadboardId:
+              stageAttachmentCandidate.hostSurfaceId &&
+              stageAttachmentCandidate.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID
+                ? stageAttachmentCandidate.hostSurfaceId
+                : state.interaction.focusedBreadboardId,
+            dragPreview: {
+              componentId: dragLeaderId,
+              candidateAnchorMm: stageAttachmentCandidate.anchorMm,
+              componentIds: state.interaction.dragPreview?.componentIds,
+              hostSurfaceId: stageAttachmentCandidate.hostSurfaceId,
+            },
+          },
+        }
+      }
+
       const retargetedComponent = retargetComponentHostSurfaceAtPoint(
         state.scene,
-        component,
+        dragLeader,
         anchorMm,
       )
       const guidedAnchorMm = retargetedComponent.config.source
@@ -3019,7 +3378,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
               ? previewComponent.hostSurfaceId
               : state.interaction.focusedBreadboardId,
           dragPreview: {
-            componentId,
+            componentId: dragLeaderId,
             candidateAnchorMm: guidedAnchorMm,
             componentIds: state.interaction.dragPreview?.componentIds,
             hostSurfaceId: previewComponent.hostSurfaceId,
@@ -3047,12 +3406,124 @@ export const useEditorStore = create<EditorStore>((set) => ({
         anchorMm ??
         state.interaction.dragPreview?.candidateAnchorMm ??
         component.anchorMm
+      const dragLeaderId = state.interaction.dragPreview?.componentId ?? componentId
+      const dragLeader =
+        state.scene.components.find((item) => item.id === dragLeaderId) ?? component
+      const directAttachmentDrag =
+        !!component.attachment &&
+        state.interaction.dragPreview?.componentIds?.length === 1 &&
+        state.interaction.dragPreview.componentIds[0] === component.id
+      const canResolveSingleAttachment =
+        state.interaction.dragPreview?.componentIds?.length === 1
+
+      if (directAttachmentDrag) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm,
+          component,
+          lockedParentComponentId: component.attachment?.parentComponentId,
+          lockedSiteId: component.attachment?.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        if (!attachmentCandidate) {
+          return {
+            interaction: {
+              ...state.interaction,
+              activeDragComponentId: undefined,
+              dragPreview: undefined,
+            },
+          }
+        }
+
+        const nextScene = syncAttachedComponentTransforms({
+          ...state.scene,
+          components: state.scene.components.map((item) =>
+            item.id === component.id
+              ? {
+                  ...item,
+                  attachment: attachmentCandidate.attachment,
+                  anchorMm: attachmentCandidate.anchorMm,
+                  hostSurfaceId: attachmentCandidate.hostSurfaceId,
+                  rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+                }
+              : item,
+          ),
+        })
+        const nextHighlightBoundsMm = state.interaction.highlightSelection
+          ? getHighlightSelectionBounds(nextScene, state.interaction.highlightSelection)
+          : undefined
+
+        return withCommittedScene(state, {
+          scene: nextScene,
+          interaction: {
+            ...state.interaction,
+            activeDragComponentId: undefined,
+            activeHostSurfaceId: component.hostSurfaceId,
+            dragPreview: undefined,
+            highlightSelection:
+              state.interaction.highlightSelection && nextHighlightBoundsMm
+                ? {
+                    ...state.interaction.highlightSelection,
+                    boundsMm: nextHighlightBoundsMm,
+                  }
+                : state.interaction.highlightSelection,
+            notice: 'Mounted optic moved on stage.',
+          },
+        })
+      }
+
+      if (canResolveSingleAttachment) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm,
+          component: dragLeader,
+          scene: state.scene,
+        })
+
+        if (attachmentCandidate) {
+          const nextScene = syncAttachedComponentTransforms({
+            ...state.scene,
+            components: state.scene.components.map((item) =>
+              item.id === dragLeader.id
+                ? {
+                    ...item,
+                    attachment: attachmentCandidate.attachment,
+                    anchorMm: attachmentCandidate.anchorMm,
+                    hostSurfaceId: attachmentCandidate.hostSurfaceId,
+                    rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+                  }
+                : item,
+            ),
+          })
+          const nextHighlightBoundsMm = state.interaction.highlightSelection
+            ? getHighlightSelectionBounds(nextScene, state.interaction.highlightSelection)
+            : undefined
+
+          return withCommittedScene(state, {
+            scene: nextScene,
+            interaction: {
+              ...state.interaction,
+              activeDragComponentId: undefined,
+              activeHostSurfaceId: attachmentCandidate.hostSurfaceId,
+              dragPreview: undefined,
+              highlightSelection:
+                state.interaction.highlightSelection && nextHighlightBoundsMm
+                  ? {
+                      ...state.interaction.highlightSelection,
+                      boundsMm: nextHighlightBoundsMm,
+                    }
+                  : state.interaction.highlightSelection,
+              notice: 'Mounted optic attached to stage.',
+            },
+          })
+        }
+      }
+
       const retargetedComponent = retargetComponentHostSurfaceAtPoint(
         state.scene,
         {
-          ...component,
+          ...dragLeader,
           hostSurfaceId:
-            state.interaction.dragPreview?.hostSurfaceId ?? component.hostSurfaceId,
+            state.interaction.dragPreview?.hostSurfaceId ?? dragLeader.hostSurfaceId,
         },
         candidateAnchorMm,
       )
@@ -3080,11 +3551,11 @@ export const useEditorStore = create<EditorStore>((set) => ({
       const draggedComponentIds =
         state.interaction.dragPreview?.componentIds?.length
           ? state.interaction.dragPreview.componentIds
-          : [componentId]
+          : [dragLeaderId]
       const draggedComponentIdSet = new Set(draggedComponentIds)
       const dragDeltaMm = {
-        x: roundMm(placement.resolvedAnchorMm.x - component.anchorMm.x),
-        y: roundMm(placement.resolvedAnchorMm.y - component.anchorMm.y),
+        x: roundMm(placement.resolvedAnchorMm.x - dragLeader.anchorMm.x),
+        y: roundMm(placement.resolvedAnchorMm.y - dragLeader.anchorMm.y),
       }
       const nextScene = {
         ...state.scene,
@@ -3093,7 +3564,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
             return item
           }
 
-          if (item.id === componentId) {
+          if (item.id === dragLeaderId) {
             return {
               ...item,
               anchorMm: placement.resolvedAnchorMm,
@@ -3169,12 +3640,15 @@ export const useEditorStore = create<EditorStore>((set) => ({
       }
 
       const selectedComponentId = state.selection.componentId
+      const deletedComponentIdSet = new Set(
+        getComponentTreeIds(state.scene, selectedComponentId),
+      )
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
           components: state.scene.components.filter(
-            (component) => component.id !== selectedComponentId,
+            (component) => !deletedComponentIdSet.has(component.id),
           ),
         },
         selection: getDefaultSelection(state.scene),
@@ -3266,65 +3740,147 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
-      const surface = getSurfacePlacementModel(
-        state.scene,
-        selectedComponent.hostSurfaceId ?? getDefaultSurfaceId(state.scene),
+      const selectedTreeIds = getComponentTreeIds(state.scene, selectedComponent.id)
+      const selectedTreeIdSet = new Set(selectedTreeIds)
+      const selectedTree = state.scene.components.filter((component) =>
+        selectedTreeIdSet.has(component.id),
       )
-      const placement = findDuplicatePlacement({
-        breadboard: surface.breadboard,
-        component: {
-          ...selectedComponent,
-          anchorMm: {
-            x: selectedComponent.anchorMm.x - surface.originMm.x,
-            y: selectedComponent.anchorMm.y - surface.originMm.y,
+      const duplicateIdMap = new Map(
+        selectedTree.map((component) => [component.id, createComponentId(component.type)]),
+      )
+      const rootDuplicateId = duplicateIdMap.get(selectedComponent.id) ?? createComponentId(selectedComponent.type)
+
+      let rootAnchorMm = selectedComponent.anchorMm
+      let rootHostSurfaceId = selectedComponent.hostSurfaceId
+      let rootRotationQuarterTurns = selectedComponent.rotationQuarterTurns
+      let rootAttachment = selectedComponent.attachment
+      let notice: string | undefined
+
+      if (selectedComponent.attachment) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm: {
+            x: roundMm(selectedComponent.anchorMm.x + 8),
+            y: roundMm(selectedComponent.anchorMm.y + 8),
           },
-        },
-        components: state.scene.components
-          .filter(
-            (component) =>
-              (component.hostSurfaceId ?? undefined) ===
-              (selectedComponent.hostSurfaceId ?? undefined),
-          )
-          .map((component) => ({
-            ...component,
-            anchorMm: {
-              x: component.anchorMm.x - surface.originMm.x,
-              y: component.anchorMm.y - surface.originMm.y,
+          component: {
+            ...selectedComponent,
+            id: rootDuplicateId,
+          },
+          lockedParentComponentId: selectedComponent.attachment.parentComponentId,
+          lockedSiteId: selectedComponent.attachment.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        if (!attachmentCandidate) {
+          return {
+            interaction: {
+              ...state.interaction,
+              notice: 'No nearby duplicate placement was available.',
             },
-          })),
-      })
-
-      if (!placement) {
-        return {
-          interaction: {
-            ...state.interaction,
-            notice: 'No nearby duplicate placement was available.',
-          },
+          }
         }
-      }
 
-      const duplicate: ComponentInstance = {
-        ...selectedComponent,
-        id: createComponentId(selectedComponent.type),
-        label: createAutoNumberedLabel(
-          state.scene.components,
-          selectedComponent.type,
-        ),
-        anchorMm: {
+        rootAnchorMm = attachmentCandidate.anchorMm
+        rootHostSurfaceId = attachmentCandidate.hostSurfaceId
+        rootRotationQuarterTurns = attachmentCandidate.rotationQuarterTurns
+        rootAttachment = attachmentCandidate.attachment
+        notice = 'Mounted optic duplicated on stage.'
+      } else {
+        const surface = getSurfacePlacementModel(
+          state.scene,
+          selectedComponent.hostSurfaceId ?? getDefaultSurfaceId(state.scene),
+        )
+        const placement = findDuplicatePlacement({
+          breadboard: surface.breadboard,
+          component: {
+            ...selectedComponent,
+            anchorMm: {
+              x: selectedComponent.anchorMm.x - surface.originMm.x,
+              y: selectedComponent.anchorMm.y - surface.originMm.y,
+            },
+          },
+          components: state.scene.components
+            .filter(
+              (component) =>
+                (component.hostSurfaceId ?? undefined) ===
+                (selectedComponent.hostSurfaceId ?? undefined),
+            )
+            .map((component) => ({
+              ...component,
+              anchorMm: {
+                x: component.anchorMm.x - surface.originMm.x,
+                y: component.anchorMm.y - surface.originMm.y,
+              },
+            })),
+        })
+
+        if (!placement) {
+          return {
+            interaction: {
+              ...state.interaction,
+              notice: 'No nearby duplicate placement was available.',
+            },
+          }
+        }
+
+        rootAnchorMm = {
           x: placement.resolvedAnchorMm.x + surface.originMm.x,
           y: placement.resolvedAnchorMm.y + surface.originMm.y,
-        },
+        }
+        rootHostSurfaceId = selectedComponent.hostSurfaceId
+        rootRotationQuarterTurns = selectedComponent.rotationQuarterTurns
+        rootAttachment = undefined
+        notice = describePlacementReason(placement.reason)
       }
+
+      const rootDeltaMm = {
+        x: roundMm(rootAnchorMm.x - selectedComponent.anchorMm.x),
+        y: roundMm(rootAnchorMm.y - selectedComponent.anchorMm.y),
+      }
+      const nextComponentsForLabeling = [...state.scene.components]
+      const duplicates = selectedTree.map((component) => {
+        const duplicate: ComponentInstance = {
+          ...component,
+          id: duplicateIdMap.get(component.id) ?? createComponentId(component.type),
+          label: createAutoNumberedLabel(
+            nextComponentsForLabeling,
+            component.type,
+            component.variantId,
+          ),
+          anchorMm: {
+            x: roundMm(component.anchorMm.x + rootDeltaMm.x),
+            y: roundMm(component.anchorMm.y + rootDeltaMm.y),
+          },
+          hostSurfaceId: rootHostSurfaceId,
+          rotationQuarterTurns: component.id === selectedComponent.id
+            ? rootRotationQuarterTurns
+            : component.rotationQuarterTurns,
+          attachment:
+            component.id === selectedComponent.id
+              ? rootAttachment
+              : component.attachment
+                ? {
+                    ...component.attachment,
+                    parentComponentId:
+                      duplicateIdMap.get(component.attachment.parentComponentId) ??
+                      component.attachment.parentComponentId,
+                  }
+                : undefined,
+        }
+
+        nextComponentsForLabeling.push(duplicate)
+        return duplicate
+      })
 
       return withCommittedScene(state, {
         scene: {
           ...state.scene,
-          components: [...state.scene.components, duplicate],
+          components: [...state.scene.components, ...duplicates],
         },
-        selection: { type: 'component', componentId: duplicate.id },
+        selection: { type: 'component', componentId: rootDuplicateId },
         interaction: {
           ...state.interaction,
-          notice: describePlacementReason(placement.reason),
+          notice,
         },
       })
     })
@@ -3404,6 +3960,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...pendingPlacement.draft,
           label: update.label ?? pendingPlacement.draft.label,
           anchorMm: nextAnchorMm,
+          finishId: update.finishId ?? pendingPlacement.draft.finishId,
+          materialId: update.materialId ?? pendingPlacement.draft.materialId,
           rotationQuarterTurns: nextRotationQuarterTurns,
         }
         const placement = resolvePlacementForScene({
@@ -3438,6 +3996,64 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ? selectedComponent.rotationQuarterTurns
           : (normalizeQuarterTurns(update.rotationQuarterTurns) as QuarterTurn)
       const nextAnchorMm = update.anchorMm ?? selectedComponent.anchorMm
+      const provisionalComponent = {
+        ...selectedComponent,
+        label: update.label ?? selectedComponent.label,
+        anchorMm: nextAnchorMm,
+        finishId: update.finishId ?? selectedComponent.finishId,
+        materialId: update.materialId ?? selectedComponent.materialId,
+        rotationQuarterTurns: nextRotationQuarterTurns,
+      }
+
+      if (selectedComponent.attachment) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm: nextAnchorMm,
+          component: provisionalComponent,
+          lockedParentComponentId: selectedComponent.attachment.parentComponentId,
+          lockedSiteId: selectedComponent.attachment.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        if (!attachmentCandidate) {
+          return {
+            interaction: {
+              ...state.interaction,
+              notice: 'Mounted optic no longer fits on this stage seat.',
+            },
+          }
+        }
+
+        return withCommittedScene(
+          state,
+          {
+            scene: {
+              ...state.scene,
+              components: state.scene.components.map((component) =>
+                component.id === selectedComponent.id
+                  ? {
+                      ...component,
+                      label: update.label ?? component.label,
+                      attachment: attachmentCandidate.attachment,
+                      anchorMm: attachmentCandidate.anchorMm,
+                      finishId: update.finishId ?? component.finishId,
+                      hostSurfaceId: attachmentCandidate.hostSurfaceId,
+                      materialId: update.materialId ?? component.materialId,
+                      rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+                    }
+                  : component,
+              ),
+            },
+            interaction: {
+              ...state.interaction,
+              notice: 'Mounted optic updated on stage.',
+            },
+          },
+          update.rotationQuarterTurns === undefined
+            ? { mergeKey: `component:${selectedComponent.id}` }
+            : undefined,
+        )
+      }
+
       const placement = resolvePlacementForScene({
         candidateAnchorMm: nextAnchorMm,
         component: selectedComponent,
@@ -3462,6 +4078,8 @@ export const useEditorStore = create<EditorStore>((set) => ({
                     ...component,
                     label: update.label ?? component.label,
                     anchorMm: placement.resolvedAnchorMm,
+                    finishId: update.finishId ?? component.finishId,
+                    materialId: update.materialId ?? component.materialId,
                     rotationQuarterTurns: nextRotationQuarterTurns,
                   }
                 : component,
@@ -3557,6 +4175,33 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ...nextComponent,
           anchorMm: aligned.anchorMm,
           rotationQuarterTurns: aligned.rotationQuarterTurns,
+        }
+      }
+
+      if (selectedComponent.attachment) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm: nextComponent.anchorMm,
+          component: nextComponent,
+          lockedParentComponentId: selectedComponent.attachment.parentComponentId,
+          lockedSiteId: selectedComponent.attachment.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        if (!attachmentCandidate) {
+          return {
+            interaction: {
+              ...state.interaction,
+              notice: 'Selected variant no longer fits on this stage seat.',
+            },
+          }
+        }
+
+        nextComponent = {
+          ...nextComponent,
+          attachment: attachmentCandidate.attachment,
+          anchorMm: attachmentCandidate.anchorMm,
+          hostSurfaceId: attachmentCandidate.hostSurfaceId,
+          rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
         }
       }
 
@@ -4288,7 +4933,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       if (
         pendingPlacement &&
-        (pendingPlacement.draft.type === 'sample-stage' ||
+        (pendingPlacement.draft.type === 'delay-stage' ||
           pendingPlacement.draft.type === 'support-hardware')
       ) {
         return {
@@ -4314,7 +4959,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
 
       if (
         !selectedComponent ||
-        (selectedComponent.type !== 'sample-stage' &&
+        (selectedComponent.type !== 'delay-stage' &&
           selectedComponent.type !== 'support-hardware')
       ) {
         return state
@@ -5213,6 +5858,50 @@ export const useEditorStore = create<EditorStore>((set) => ({
           : (normalizeQuarterTurns(
               selectedComponent.rotationQuarterTurns + direction,
             ) as QuarterTurn)
+
+      if (selectedComponent.attachment) {
+        const attachmentCandidate = resolveStageAttachmentCandidate({
+          candidateAnchorMm: selectedComponent.anchorMm,
+          component: {
+            ...selectedComponent,
+            rotationQuarterTurns: nextRotationQuarterTurns,
+          },
+          lockedParentComponentId: selectedComponent.attachment.parentComponentId,
+          lockedSiteId: selectedComponent.attachment.parentMountSiteId,
+          scene: state.scene,
+        })
+
+        if (!attachmentCandidate) {
+          return {
+            interaction: {
+              ...state.interaction,
+              notice: 'Mounted optic no longer fits on this stage seat.',
+            },
+          }
+        }
+
+        return withCommittedScene(state, {
+          scene: {
+            ...state.scene,
+            components: state.scene.components.map((component) =>
+              component.id === selectedComponent.id
+                ? {
+                    ...component,
+                    attachment: attachmentCandidate.attachment,
+                    anchorMm: attachmentCandidate.anchorMm,
+                    hostSurfaceId: attachmentCandidate.hostSurfaceId,
+                    rotationQuarterTurns: attachmentCandidate.rotationQuarterTurns,
+                  }
+                : component,
+            ),
+          },
+          interaction: {
+            ...state.interaction,
+            notice: 'Mounted optic rotated on stage.',
+          },
+        })
+      }
+
       const placement = resolvePlacementForScene({
         candidateAnchorMm: selectedComponent.anchorMm,
         component: selectedComponent,

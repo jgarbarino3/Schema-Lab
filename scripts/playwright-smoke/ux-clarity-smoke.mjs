@@ -236,7 +236,7 @@ try {
 
   const exportMenu = await openToolbarMenu('toolbar-export', 'toolbar-menu-export')
   assert.match((await exportMenu.textContent()) ?? '', /Import Scene JSON/i)
-  assert.match((await exportMenu.textContent()) ?? '', /Import Interpreted SVG/i)
+  assert.match((await exportMenu.textContent()) ?? '', /Import Interpreted Drawing/i)
   assert.match((await exportMenu.textContent()) ?? '', /PNG/i)
   assert.match((await exportMenu.textContent()) ?? '', /PDF/i)
   assert.match((await exportMenu.textContent()) ?? '', /SVG/i)

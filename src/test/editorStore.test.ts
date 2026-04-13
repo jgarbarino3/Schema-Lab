@@ -6,7 +6,7 @@ import {
 } from '../domain/componentCatalog'
 import { worldToScreen } from '../domain/geometry'
 import { createEmptyScene } from '../domain/serialization'
-import { OPTICAL_TABLE_SURFACE_ID } from '../domain/types'
+import { OPTICAL_TABLE_SURFACE_ID, SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import {
   convertSceneToOpticalTable,
   createBreadboardInstance,
@@ -315,6 +315,164 @@ describe('editor store highlight drag', () => {
   })
 })
 
+describe('editor store mounted stage attachments', () => {
+  const stageVariantId = getComponentDefinition('sample-holder').defaultVariantId
+  const irisVariantId = getComponentDefinition('iris').defaultVariantId
+
+  function createBareStageScene() {
+    return {
+      ...createEmptyScene(),
+      components: [
+        {
+          id: 'stage-1',
+          type: 'sample-holder' as const,
+          label: 'Sample / Stage 1',
+          variantId: stageVariantId,
+          anchorMm: { x: 150, y: 150 },
+          rotationQuarterTurns: 0 as const,
+          config: createDefaultComponentConfig('sample-holder', stageVariantId),
+        },
+      ],
+    }
+  }
+
+  function createMountedStageScene() {
+    const baseScene = createBareStageScene()
+
+    return {
+      ...baseScene,
+      components: [
+        ...baseScene.components,
+        {
+          id: 'iris-1',
+          type: 'iris' as const,
+          label: 'Iris 1',
+          variantId: irisVariantId,
+          anchorMm: { x: 0, y: 0 },
+          hostSurfaceId: SINGLE_BREADBOARD_SURFACE_ID,
+          rotationQuarterTurns: 0 as const,
+          attachment: {
+            parentComponentId: 'stage-1',
+            parentMountSiteId: 'optic-seat',
+            localAnchorMm: { x: 15, y: 0 },
+            localRotationQuarterTurns: 0 as const,
+          },
+          config: createDefaultComponentConfig('iris', irisVariantId),
+        },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(createMountedStageScene(), { history: 'reset' })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('moves attached optics once when a highlighted stage is dragged', () => {
+    const store = useEditorStore.getState()
+
+    store.setActiveTool('highlight')
+    store.commitHighlightSelectionBounds({ x: 120, y: 120 }, { x: 180, y: 180 })
+    store.beginComponentDrag('stage-1')
+    store.updateComponentDrag('stage-1', { x: 200, y: 210 })
+    store.commitComponentDrag('stage-1', { x: 200, y: 210 })
+
+    const movedStage = useEditorStore.getState().scene.components.find((component) => component.id === 'stage-1')
+    const movedIris = useEditorStore.getState().scene.components.find((component) => component.id === 'iris-1')
+
+    expect(movedStage?.anchorMm).toEqual({ x: 200, y: 210 })
+    expect(movedIris?.anchorMm).toEqual({ x: 215, y: 210 })
+    expect(movedIris?.attachment?.localAnchorMm).toEqual({ x: 15, y: 0 })
+  })
+
+  it('keeps attached optics attached when dragged directly on the stage seat', () => {
+    const store = useEditorStore.getState()
+
+    store.beginComponentDrag('iris-1')
+    store.updateComponentDrag('iris-1', { x: 158, y: 154 })
+    store.commitComponentDrag('iris-1', { x: 158, y: 154 })
+
+    const movedStage = useEditorStore.getState().scene.components.find((component) => component.id === 'stage-1')
+    const movedIris = useEditorStore.getState().scene.components.find((component) => component.id === 'iris-1')
+
+    expect(movedIris?.anchorMm.x).toBeGreaterThan(movedStage?.anchorMm.x ?? 0)
+    expect(movedIris?.attachment?.parentComponentId).toBe('stage-1')
+    expect(movedIris?.attachment?.parentMountSiteId).toBe('optic-seat')
+    expect(movedIris?.attachment?.localAnchorMm.x).toBeCloseTo(
+      (movedIris?.anchorMm.x ?? 0) - (movedStage?.anchorMm.x ?? 0),
+      5,
+    )
+    expect(movedIris?.attachment?.localAnchorMm.y).toBeCloseTo(
+      (movedIris?.anchorMm.y ?? 0) - (movedStage?.anchorMm.y ?? 0),
+      5,
+    )
+  })
+
+  it('duplicates a mounted stage with its attached optics reparented to the new stage', () => {
+    const store = useEditorStore.getState()
+
+    store.selectComponent('stage-1')
+    store.duplicateSelectedComponent()
+
+    const stages = useEditorStore
+      .getState()
+      .scene.components.filter((component) => component.type === 'sample-holder')
+    const irises = useEditorStore
+      .getState()
+      .scene.components.filter((component) => component.type === 'iris')
+    const duplicatedStage = stages.find((component) => component.id !== 'stage-1')
+    const duplicatedIris = irises.find((component) => component.id !== 'iris-1')
+
+    expect(stages).toHaveLength(2)
+    expect(irises).toHaveLength(2)
+    expect(duplicatedIris?.attachment?.parentComponentId).toBe(duplicatedStage?.id)
+  })
+
+  it('arms a sample and an iris onto separate stage seats when the stage is selected', () => {
+    useEditorStore.getState().loadScene(createBareStageScene(), { history: 'reset' })
+
+    const store = useEditorStore.getState()
+
+    store.selectComponent('stage-1')
+    store.addComponent('sample')
+
+    let pendingDraft = useEditorStore.getState().interaction.pendingPlacement?.draft
+    expect(pendingDraft?.attachment?.parentComponentId).toBe('stage-1')
+    expect(pendingDraft?.attachment?.parentMountSiteId).toBe('sample-seat')
+    store.commitPendingPlacement()
+
+    store.selectComponent('stage-1')
+    store.addComponent('iris', irisVariantId)
+
+    pendingDraft = useEditorStore.getState().interaction.pendingPlacement?.draft
+    expect(pendingDraft?.attachment?.parentComponentId).toBe('stage-1')
+    expect(pendingDraft?.attachment?.parentMountSiteId).toBe('optic-seat')
+    store.commitPendingPlacement()
+
+    const attachedChildren = useEditorStore
+      .getState()
+      .scene.components.filter((component) => component.attachment?.parentComponentId === 'stage-1')
+
+    expect(attachedChildren).toHaveLength(2)
+    expect(attachedChildren.map((component) => component.attachment?.parentMountSiteId).sort()).toEqual([
+      'optic-seat',
+      'sample-seat',
+    ])
+  })
+
+  it('does not warn that a stage overlaps its own mounted children', () => {
+    const store = useEditorStore.getState()
+
+    store.beginComponentDrag('stage-1')
+    store.commitComponentDrag('stage-1', { x: 162.5, y: 162.5 })
+
+    expect(useEditorStore.getState().interaction.notice).toBeUndefined()
+  })
+})
+
 describe('editor store optical table placement', () => {
   const mirrorVariantId = getComponentDefinition('mirror').defaultVariantId
 
@@ -475,7 +633,6 @@ describe('editor store optical table placement', () => {
     )
 
     const store = useEditorStore.getState()
-
     store.beginBreadboardDrag('breadboard-2')
     store.updateBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
     store.commitBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
@@ -496,6 +653,67 @@ describe('editor store optical table placement', () => {
     ).toEqual({
       x: 2310,
       y: 560,
+    })
+  })
+
+  it('moves attached stage descendants once when their breadboard moves', () => {
+    const stageVariantId = getComponentDefinition('sample-holder').defaultVariantId
+    const irisVariantId = getComponentDefinition('iris').defaultVariantId
+    const scene = useEditorStore.getState().scene
+
+    useEditorStore.getState().loadScene(
+      {
+        ...scene,
+        components: [
+          {
+            id: 'stage-on-board',
+            type: 'sample-holder',
+            label: 'Sample / Stage 1',
+            variantId: stageVariantId,
+            anchorMm: { x: 2362.5, y: 612.5 },
+            hostSurfaceId: 'breadboard-2',
+            rotationQuarterTurns: 0,
+            config: createDefaultComponentConfig('sample-holder', stageVariantId),
+          },
+          {
+            id: 'iris-on-stage',
+            type: 'iris',
+            label: 'Iris 1',
+            variantId: irisVariantId,
+            anchorMm: { x: 0, y: 0 },
+            hostSurfaceId: 'breadboard-2',
+            rotationQuarterTurns: 0,
+            attachment: {
+              parentComponentId: 'stage-on-board',
+              parentMountSiteId: 'optic-seat',
+              localAnchorMm: { x: 15, y: 0 },
+              localRotationQuarterTurns: 0,
+            },
+            config: createDefaultComponentConfig('iris', irisVariantId),
+          },
+        ],
+      },
+      { history: 'reset' },
+    )
+
+    const initialStage = useEditorStore.getState().scene.components.find((component) => component.id === 'stage-on-board')
+    const initialIris = useEditorStore.getState().scene.components.find((component) => component.id === 'iris-on-stage')
+    const store = useEditorStore.getState()
+
+    store.beginBreadboardDrag('breadboard-2')
+    store.updateBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
+    store.commitBreadboardDrag('breadboard-2', { x: 2310, y: 560 })
+
+    const movedStage = useEditorStore.getState().scene.components.find((component) => component.id === 'stage-on-board')
+    const movedIris = useEditorStore.getState().scene.components.find((component) => component.id === 'iris-on-stage')
+
+    expect(movedStage?.anchorMm).toEqual({
+      x: (initialStage?.anchorMm.x ?? 0) + 30,
+      y: (initialStage?.anchorMm.y ?? 0) + 40,
+    })
+    expect(movedIris?.anchorMm).toEqual({
+      x: (initialIris?.anchorMm.x ?? 0) + 30,
+      y: (initialIris?.anchorMm.y ?? 0) + 40,
     })
   })
 

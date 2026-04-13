@@ -215,12 +215,12 @@ describe('gaussian/paraxial layer', () => {
 
   it('uses delay-line effective optical path for downstream Gaussian timing and z readouts', () => {
     const source = makeEnabledSource()
-    const stage = makeComponent('sample-stage', {
+    const stage = makeComponent('delay-stage', {
       id: 'stage-1',
       variantId: 'pi-m-112-1dg1',
       anchorMm: { x: 100, y: 137.5 },
       config: {
-        ...createDefaultComponentConfig('sample-stage', 'pi-m-112-1dg1'),
+        ...createDefaultComponentConfig('delay-stage', 'pi-m-112-1dg1'),
         delayLine: {
           positionMm: 12,
           travelMm: 25,

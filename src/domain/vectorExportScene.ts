@@ -677,6 +677,11 @@ function renderSimpleLocalGlyph(
         return 'support'
       case 'mirror-flip':
         return 'mirror'
+      case 'filter-longpass':
+      case 'filter-shortpass':
+      case 'filter-bandpass':
+      case 'filter-colored-glass':
+        return 'filter'
       case 'attenuator-horizontal':
       case 'attenuator-vertical':
         return 'attenuator'
@@ -692,9 +697,21 @@ function renderSimpleLocalGlyph(
       case 'telescope-transmission':
       case 'telescope-reflective':
         return 'telescope'
+      case 'opa-white-light':
+      case 'opa-combiner':
+      case 'opa-gain':
+        return 'opa'
+      case 'sample-holder-generic':
+      case 'sample-holder-slotted':
       case 'sample-generic':
+      case 'sample-xy-stage':
+      case 'sample-xyz-stage':
+      case 'sample-manual-xyz-stage':
       case 'sample-delay-stage':
       case 'sample-motorized-stage':
+      case 'sample-chip':
+      case 'sample-crystal':
+      case 'sample-substrate':
         return 'sample'
       case 'spectrometer-compact':
       case 'spectrometer-bench':
@@ -1132,7 +1149,9 @@ function renderRealisticLocalHardware(
           }),
         },
       ]
-    case 'sample-stage': {
+    case 'sample-holder':
+    case 'translation-stage':
+    case 'delay-stage': {
       const bodyNodes: VectorNode[] = [
         {
           kind: 'polyline',

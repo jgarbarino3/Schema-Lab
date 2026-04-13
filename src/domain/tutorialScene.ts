@@ -183,12 +183,12 @@ export function createTutorialScene(): SceneDocument {
   })
   const delayStage = createComponent({
     id: TUTORIAL_FOCUS_COMPONENT_ID,
-    type: 'sample-stage',
+    type: 'delay-stage',
     variantId: 'pi-m-112-1dg1',
     label: 'Delay Stage 1',
     anchorMm: { x: 222, y: 235 },
     config: {
-      ...createDefaultComponentConfig('sample-stage', 'pi-m-112-1dg1'),
+      ...createDefaultComponentConfig('delay-stage', 'pi-m-112-1dg1'),
       delayLine: {
         positionMm: 7.5,
         travelMm: 25,

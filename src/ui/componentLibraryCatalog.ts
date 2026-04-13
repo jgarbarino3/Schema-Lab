@@ -122,6 +122,29 @@ export function buildCompactLibraryComponentEntries(
 ): LibraryComponentEntry[] {
   const variantLabels = definition.variants.map((variant) => variant.label).join(' ')
 
+  if (definition.type === 'sample-holder') {
+    return [
+      createEntry(definition, {
+        familyLabel: definition.familyLabel,
+        key: `${definition.type}-slotted`,
+        recentLabel: definition.defaultLabel,
+        searchText: [
+          definition.familyLabel,
+          definition.defaultLabel,
+          definition.category,
+          describeMountMode(definition.mount.mode),
+          variantLabels,
+          'slotted silver',
+        ].join(' '),
+        specVariantId: 'compact-slotted-sample-holder',
+        testId: `library-item-${definition.type}`,
+        title: definition.familyLabel,
+        variantCount: definition.variants.length,
+        variantId: 'compact-slotted-sample-holder',
+      }),
+    ]
+  }
+
   if (definition.type !== 'mirror') {
     return [
       createEntry(definition, {

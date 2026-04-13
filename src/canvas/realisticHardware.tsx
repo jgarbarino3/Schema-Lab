@@ -27,29 +27,6 @@ interface RenderRealisticHardwareArgs {
   spec: ResolvedComponentSpec
 }
 
-function specGlyphFallback(type: ComponentInstance['type']) {
-  switch (type) {
-    case 'optic-mount':
-      return 'mount'
-    case 'support-hardware':
-      return 'support'
-    case 'laser-source':
-      return 'laser'
-    case 'fiber-coupler':
-      return 'fiber'
-    case 'spectrometer':
-      return 'spectrometer'
-    case 'detector':
-      return 'detector'
-    case 'beam-dump':
-      return 'beam-dump'
-    case 'sample-stage':
-      return 'sample'
-    default:
-      return 'mount'
-  }
-}
-
 function createRealisticPalette({
   mountFill,
   opticFill,
@@ -385,7 +362,8 @@ function renderLegacyRealisticHardware({
   opticFill,
   opticStroke,
   showMount,
-}: Omit<RenderRealisticHardwareArgs, 'spec'>) {
+  spec,
+}: RenderRealisticHardwareArgs) {
   const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
   const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
 
@@ -424,7 +402,9 @@ function renderLegacyRealisticHardware({
           />
         </>
       )
-    case 'sample-stage':
+    case 'sample-holder':
+    case 'translation-stage':
+    case 'delay-stage':
       if (instance.variantId === 'pi-ls-180') {
         const plateWidth = Math.min(210, bodyBoundsMm.width * 0.32)
         const plateHeight = Math.min(118, bodyBoundsMm.height * 0.78)
@@ -580,7 +560,7 @@ function renderLegacyRealisticHardware({
           <ComponentGlyph
             boundsMm={bodyBoundsMm}
             fill="rgba(255, 255, 255, 0.1)"
-            glyph={specGlyphFallback(instance.type)}
+            glyph={spec.renderHint.glyph}
             stroke={opticStroke}
           />
         </>

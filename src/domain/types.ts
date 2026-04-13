@@ -1,6 +1,8 @@
 export const SCENE_DOCUMENT_KIND = 'schema-lab.scene'
-export const SCENE_DOCUMENT_VERSION = 10 as const
-export const PREVIOUS_SCENE_DOCUMENT_VERSION = 9 as const
+export const SCENE_DOCUMENT_VERSION = 12 as const
+export const PREVIOUS_SCENE_DOCUMENT_VERSION = 11 as const
+export const LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION = 10 as const
+export const OLDER_LEGACY_PREVIOUS_SCENE_DOCUMENT_VERSION = 9 as const
 export const WORKSPACE_SCENE_DOCUMENT_VERSION = 6 as const
 export const STAGE2_SCENE_DOCUMENT_VERSION = 3 as const
 export const LEGACY_SCENE_DOCUMENT_VERSION = 2 as const
@@ -47,6 +49,7 @@ export type SnapMode = 'always' | 'onDrop' | 'none'
 export type CardinalDirection = 'north' | 'east' | 'south' | 'west'
 export type PortKind = 'beam-input' | 'beam-output' | 'beam-bidirectional'
 export type MountMode = 'hole-mounted' | 'clamp-capable' | 'external-source'
+export type MountSeatRole = 'sample-seat' | 'optic-seat'
 export type PlacementPhase = 'inspect' | 'drag' | 'drop'
 export type PlacementStatus = 'valid' | 'snapped' | 'warning'
 export type PlacementReason =
@@ -269,7 +272,10 @@ export type ComponentType =
   | 'bbo-crystal'
   | 'telescope'
   | 'opa-module'
-  | 'sample-stage'
+  | 'sample-holder'
+  | 'translation-stage'
+  | 'delay-stage'
+  | 'sample'
   | 'fiber-coupler'
   | 'spectrometer'
   | 'detector'
@@ -315,6 +321,10 @@ export type ComponentGlyph =
   | 'beamsplitter'
   | 'lens'
   | 'filter'
+  | 'filter-longpass'
+  | 'filter-shortpass'
+  | 'filter-bandpass'
+  | 'filter-colored-glass'
   | 'attenuator'
   | 'attenuator-horizontal'
   | 'attenuator-vertical'
@@ -333,10 +343,21 @@ export type ComponentGlyph =
   | 'telescope-transmission'
   | 'telescope-reflective'
   | 'opa'
+  | 'opa-white-light'
+  | 'opa-combiner'
+  | 'opa-gain'
   | 'sample'
+  | 'sample-holder-generic'
+  | 'sample-holder-slotted'
   | 'sample-generic'
+  | 'sample-xy-stage'
+  | 'sample-xyz-stage'
+  | 'sample-manual-xyz-stage'
   | 'sample-delay-stage'
   | 'sample-motorized-stage'
+  | 'sample-chip'
+  | 'sample-crystal'
+  | 'sample-substrate'
   | 'fiber'
   | 'spectrometer'
   | 'spectrometer-compact'
@@ -422,6 +443,8 @@ export type RealisticVisualFamily =
   | 'filter'
   | 'iris'
   | 'detector'
+  | 'sample'
+  | 'stage'
   | 'laser-source'
 
 export type RealisticVisualFinish =
@@ -457,6 +480,30 @@ export interface ComponentMount {
   mode: MountMode
   supportBoundsMm: BoundsMm
 }
+
+export interface ComponentMountSite {
+  id: string
+  label: string
+  role: MountSeatRole
+  seatBoundsMm: BoundsMm
+  defaultLocalAnchorMm: Vector2Mm
+  allowedChildMountModes: MountMode[]
+  allowedChildTypes?: ComponentType[]
+}
+
+export type StageFinishId =
+  | 'silver-machined'
+  | 'graphite'
+  | 'black-anodized'
+  | 'clear-anodized'
+
+export type SampleMaterialId =
+  | 'generic-chip'
+  | 'ti-sapphire'
+  | 'tin'
+  | 'glass'
+  | 'silicon'
+  | 'sapphire'
 
 export interface BeamPhysicsBase {
   kind: BeamInteractionKind
@@ -657,6 +704,7 @@ export interface ComponentVariant {
   realisticVisualPreset?: Partial<RealisticVisualPreset>
   physics?: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
+  mountSites?: ComponentMountSite[]
 }
 
 export interface ComponentDefinition {
@@ -678,6 +726,14 @@ export interface ComponentDefinition {
   physics: ComponentBeamPhysics
   variants: ComponentVariant[]
   recommendedHardware?: ComponentRecommendedHardware
+  mountSites?: ComponentMountSite[]
+}
+
+export interface ComponentAttachment {
+  parentComponentId: string
+  parentMountSiteId: string
+  localAnchorMm: Vector2Mm
+  localRotationQuarterTurns: QuarterTurn
 }
 
 export interface SourceConfig {
@@ -824,11 +880,14 @@ export interface ComponentInstance {
   anchorMm: Vector2Mm
   hostSurfaceId?: string
   rotationQuarterTurns: QuarterTurn
+  attachment?: ComponentAttachment
   simpleIconStyleOverride?: SimpleIconStyle
+  finishId?: StageFinishId
   geometryOverride?: {
     widthMm?: number
     heightMm?: number
   }
+  materialId?: SampleMaterialId
   config: ComponentConfig
 }
 
@@ -892,6 +951,7 @@ export interface ResolvedComponentSpec {
   realisticVisualPreset?: RealisticVisualPreset
   physics: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
+  mountSites: ComponentMountSite[]
 }
 
 export interface PendingPlacementState {

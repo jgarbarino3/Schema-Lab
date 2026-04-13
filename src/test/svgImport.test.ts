@@ -1,11 +1,35 @@
+import { DOMParser as XmldomParser } from '@xmldom/xmldom'
 import { describe, expect, it } from 'vitest'
-import { createEmptyScene } from '../domain/serialization'
+import { createFreshSingleBreadboardWorkspace } from '../domain/workspace'
 import {
   analyzeSvgImportDocument,
   applySvgImportToScene,
+  createInitialSvgImportWorkspaceConfig,
+  detectSvgImportWorkspace,
   type SvgImportDocument,
   type SvgImportElement,
+  type SvgImportElementSegment,
 } from '../domain/svgImport'
+import { SCENE_DOCUMENT_KIND, SCENE_DOCUMENT_VERSION, type SceneDocument } from '../domain/types'
+
+if (typeof DOMParser === 'undefined') {
+  ;(globalThis as typeof globalThis & { DOMParser: typeof XmldomParser }).DOMParser =
+    XmldomParser as unknown as typeof DOMParser
+}
+
+function buildSegments(points: SvgImportElement['points']): SvgImportElementSegment[] {
+  const segments: SvgImportElementSegment[] = []
+
+  for (let index = 1; index < points.length; index += 1) {
+    segments.push({
+      end: points[index],
+      polylineIndex: 0,
+      start: points[index - 1],
+    })
+  }
+
+  return segments
+}
 
 function makeElement(overrides: Partial<SvgImportElement>): SvgImportElement {
   const points = overrides.points ?? [
@@ -15,6 +39,14 @@ function makeElement(overrides: Partial<SvgImportElement>): SvgImportElement {
     { x: 0, y: 10 },
     { x: 0, y: 0 },
   ]
+  const polylines = overrides.polylines ?? [points]
+  const segments = overrides.segments ?? polylines.flatMap((polyline, polylineIndex) =>
+    polyline.slice(1).map((point, index) => ({
+      end: point,
+      polylineIndex,
+      start: polyline[index],
+    })),
+  )
 
   return {
     id: overrides.id ?? 'element-1',
@@ -23,8 +55,10 @@ function makeElement(overrides: Partial<SvgImportElement>): SvgImportElement {
     bounds: overrides.bounds ?? { x: 0, y: 0, width: 10, height: 10 },
     center: overrides.center ?? { x: 5, y: 5 },
     hints: overrides.hints ?? [],
+    polylines,
     points,
     rotationDeg: overrides.rotationDeg ?? 0,
+    segments,
     stroke: overrides.stroke,
     strokeWidth: overrides.strokeWidth,
   }
@@ -40,6 +74,26 @@ function makeDocument(elements: SvgImportElement[]): SvgImportDocument {
       isReliable: true,
       sourceUnit: 'mm',
     },
+    sourceKind: 'svg',
+  }
+}
+
+function makeScene(): SceneDocument {
+  return {
+    kind: SCENE_DOCUMENT_KIND,
+    version: SCENE_DOCUMENT_VERSION,
+    metadata: {
+      name: 'SVG Import Test Scene',
+    },
+    workspace: createFreshSingleBreadboardWorkspace(),
+    beamSettings: {
+      beamFidelityMode: 'geometric',
+      sharedBeamHeightMm: 75,
+      defaultBeamDiameterMm: 2.5,
+      defaultDivergenceMrad: 1.2,
+    },
+    components: [],
+    annotations: [],
   }
 }
 
@@ -66,23 +120,30 @@ describe('svg import analysis', () => {
 
     expect(analysis.recognized).toHaveLength(1)
     expect(analysis.recognized[0].suggestion.componentType).toBe('mirror')
-    expect(analysis.ambiguous.length).toBeGreaterThanOrEqual(1)
+    expect(analysis.reviewItems.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('builds import scene with manual ambiguity resolutions', () => {
-    const scene = createEmptyScene()
+  it('builds import scene with exact variant manual review resolutions', () => {
+    const scene = makeScene()
     const document = makeDocument([
       makeElement({
         id: 'beam-splitter-shape',
         hints: ['Beam splitter'],
       }),
       makeElement({
-        id: 'unknown-lens-shape',
-        kind: 'circle',
+        id: 'unknown-filter-shape',
+        kind: 'rect',
         hints: [],
         isClosed: true,
-        bounds: { x: 40, y: 20, width: 12, height: 12 },
-        center: { x: 46, y: 26 },
+        bounds: { x: 40, y: 20, width: 24, height: 8 },
+        center: { x: 52, y: 24 },
+        points: [
+          { x: 40, y: 20 },
+          { x: 64, y: 20 },
+          { x: 64, y: 28 },
+          { x: 40, y: 28 },
+          { x: 40, y: 20 },
+        ],
       }),
       makeElement({
         id: 'beam-line',
@@ -93,8 +154,16 @@ describe('svg import analysis', () => {
           { x: 12, y: 42 },
           { x: 90, y: 42 },
         ],
+        polylines: [[
+          { x: 12, y: 42 },
+          { x: 90, y: 42 },
+        ]],
         bounds: { x: 12, y: 42, width: 78, height: 0 },
         center: { x: 51, y: 42 },
+        segments: buildSegments([
+          { x: 12, y: 42 },
+          { x: 90, y: 42 },
+        ]),
       }),
     ])
 
@@ -103,6 +172,9 @@ describe('svg import analysis', () => {
       millimetersPerUnit: 1,
       profile: 'guided',
     })
+    const reviewItem = analysis.reviewItems.find((item) => item.elementId === 'unknown-filter-shape')
+
+    expect(reviewItem).toBeDefined()
 
     const result = applySvgImportToScene({
       analysis,
@@ -112,19 +184,26 @@ describe('svg import analysis', () => {
       scene,
       manualResolutions: [
         {
-          elementId: 'unknown-lens-shape',
-          componentType: 'lens',
+          componentType: 'filter',
+          disposition: 'component',
+          elementId: 'unknown-filter-shape',
+          reviewItemId: reviewItem!.id,
+          variantId: 'fesh0600',
         },
       ],
     })
 
     expect(result.importedComponents).toBeGreaterThanOrEqual(2)
-    expect(result.scene.components.length).toBeGreaterThanOrEqual(2)
+    expect(result.scene.components.some((component) => component.variantId === 'fesh0600')).toBe(true)
     expect(result.scene.annotations.length).toBeGreaterThanOrEqual(1)
   })
 
   it('warns when rotation is snapped to quarter-turns', () => {
-    const scene = createEmptyScene()
+    const scene = makeScene()
+    const tiltedPoints = [
+      { x: 10, y: 10 },
+      { x: 30, y: 20 },
+    ]
     const document = makeDocument([
       makeElement({
         id: 'tilted-mirror',
@@ -132,12 +211,11 @@ describe('svg import analysis', () => {
         isClosed: false,
         hints: ['mirror'],
         rotationDeg: 31,
-        points: [
-          { x: 10, y: 10 },
-          { x: 30, y: 20 },
-        ],
+        points: tiltedPoints,
+        polylines: [tiltedPoints],
         bounds: { x: 10, y: 10, width: 20, height: 10 },
         center: { x: 20, y: 15 },
+        segments: buildSegments(tiltedPoints),
       }),
     ])
 
@@ -157,20 +235,23 @@ describe('svg import analysis', () => {
     expect(result.warnings.some((warning) => warning.includes('snapped'))).toBe(true)
   })
 
-  it('treats long beam-like lines as annotation segments, not component ambiguities', () => {
+  it('treats long beam-like lines as annotation segments, not component review items', () => {
+    const beamPoints = [
+      { x: 10, y: 20 },
+      { x: 100, y: 20 },
+    ]
     const document = makeDocument([
       makeElement({
         id: 'beam-path-main',
         kind: 'line',
         isClosed: false,
         hints: ['beam path main'],
-        points: [
-          { x: 10, y: 20 },
-          { x: 100, y: 20 },
-        ],
+        points: beamPoints,
+        polylines: [beamPoints],
         bounds: { x: 10, y: 20, width: 90, height: 0 },
         center: { x: 55, y: 20 },
         strokeWidth: 0.8,
+        segments: buildSegments(beamPoints),
       }),
       makeElement({
         id: 'known-mirror',
@@ -181,8 +262,16 @@ describe('svg import analysis', () => {
           { x: 32, y: 30 },
           { x: 44, y: 42 },
         ],
+        polylines: [[
+          { x: 32, y: 30 },
+          { x: 44, y: 42 },
+        ]],
         bounds: { x: 32, y: 30, width: 12, height: 12 },
         center: { x: 38, y: 36 },
+        segments: buildSegments([
+          { x: 32, y: 30 },
+          { x: 44, y: 42 },
+        ]),
       }),
     ])
 
@@ -192,13 +281,13 @@ describe('svg import analysis', () => {
       profile: 'guided',
     })
 
-    expect(analysis.ambiguous.find((item) => item.elementId === 'beam-path-main')).toBeUndefined()
+    expect(analysis.reviewItems.find((item) => item.elementId === 'beam-path-main')).toBeUndefined()
     expect(analysis.annotationSegments.some((segment) => segment.elementId === 'beam-path-main')).toBe(
       true,
     )
   })
 
-  it('prioritizes polarizer/waveplate suggestions for crossed circular symbols', () => {
+  it('prioritizes polarizer and waveplate suggestions for crossed circular symbols', () => {
     const document = makeDocument([
       makeElement({
         id: 'circular-optic',
@@ -217,9 +306,17 @@ describe('svg import analysis', () => {
           { x: 42, y: 22 },
           { x: 58, y: 38 },
         ],
+        polylines: [[
+          { x: 42, y: 22 },
+          { x: 58, y: 38 },
+        ]],
         bounds: { x: 42, y: 22, width: 16, height: 16 },
         center: { x: 50, y: 30 },
         strokeWidth: 1.2,
+        segments: buildSegments([
+          { x: 42, y: 22 },
+          { x: 58, y: 38 },
+        ]),
       }),
     ])
 
@@ -228,12 +325,188 @@ describe('svg import analysis', () => {
       millimetersPerUnit: 1,
       profile: 'strict',
     })
-    const circularAmbiguity = analysis.ambiguous.find((item) => item.elementId === 'circular-optic')
+    const circularReview = analysis.reviewItems.find((item) => item.elementId === 'circular-optic')
 
-    expect(circularAmbiguity).toBeDefined()
-    expect(circularAmbiguity?.suggestions[0]?.componentType).toBe('polarizer')
-    expect(circularAmbiguity?.suggestions.some((item) => item.componentType === 'waveplate')).toBe(
+    expect(circularReview).toBeDefined()
+    expect(circularReview?.suggestions[0]?.componentType).toBe('polarizer')
+    expect(circularReview?.suggestions.some((item) => item.componentType === 'waveplate')).toBe(
       true,
     )
+  })
+
+  it('does not fabricate bridge segments between separate open polylines', () => {
+    const document = makeDocument([
+      makeElement({
+        id: 'split-beam-path',
+        kind: 'path',
+        isClosed: false,
+        strokeWidth: 0.8,
+        bounds: { x: 0, y: 10, width: 30, height: 0 },
+        center: { x: 15, y: 10 },
+        polylines: [
+          [
+            { x: 0, y: 10 },
+            { x: 10, y: 10 },
+          ],
+          [
+            { x: 20, y: 10 },
+            { x: 30, y: 10 },
+          ],
+        ],
+        points: [
+          { x: 0, y: 10 },
+          { x: 10, y: 10 },
+          { x: 20, y: 10 },
+          { x: 30, y: 10 },
+        ],
+        segments: [
+          {
+            start: { x: 0, y: 10 },
+            end: { x: 10, y: 10 },
+            polylineIndex: 0,
+          },
+          {
+            start: { x: 20, y: 10 },
+            end: { x: 30, y: 10 },
+            polylineIndex: 1,
+          },
+        ],
+      }),
+    ])
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 1,
+      profile: 'guided',
+    })
+
+    expect(analysis.annotationSegments).toHaveLength(2)
+    expect(analysis.annotationSegments.every((segment) => Math.abs(segment.end.x - segment.start.x) === 10)).toBe(
+      true,
+    )
+  })
+
+  it('creates a missing-junction review item for near-connected beam turns', () => {
+    const horizontal = [
+      { x: 12, y: 30 },
+      { x: 48, y: 30 },
+    ]
+    const vertical = [
+      { x: 50, y: 32 },
+      { x: 50, y: 64 },
+    ]
+    const document = makeDocument([
+      makeElement({
+        id: 'beam-a',
+        kind: 'line',
+        isClosed: false,
+        hints: ['beam path'],
+        points: horizontal,
+        polylines: [horizontal],
+        bounds: { x: 12, y: 30, width: 36, height: 0 },
+        center: { x: 30, y: 30 },
+        strokeWidth: 0.8,
+        segments: buildSegments(horizontal),
+      }),
+      makeElement({
+        id: 'beam-b',
+        kind: 'line',
+        isClosed: false,
+        hints: [],
+        points: vertical,
+        polylines: [vertical],
+        bounds: { x: 50, y: 32, width: 0, height: 32 },
+        center: { x: 50, y: 48 },
+        strokeWidth: 0.8,
+        segments: buildSegments(vertical),
+      }),
+    ])
+
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 1,
+      profile: 'guided',
+    })
+
+    expect(analysis.reviewItems.some((item) => item.kind === 'missing-junction')).toBe(true)
+    expect(analysis.annotationSegments).toHaveLength(2)
+  })
+
+  it('detects multi-breadboard optical-table imports and applies the configured workspace', () => {
+    const document = makeDocument([
+      makeElement({
+        id: 'table-outline',
+        kind: 'rect',
+        bounds: { x: 0, y: 0, width: 360, height: 180 },
+        center: { x: 180, y: 90 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 360, y: 0 },
+          { x: 360, y: 180 },
+          { x: 0, y: 180 },
+          { x: 0, y: 0 },
+        ],
+      }),
+      makeElement({
+        id: 'board-a',
+        kind: 'rect',
+        bounds: { x: 40, y: 40, width: 70, height: 70 },
+        center: { x: 75, y: 75 },
+        points: [
+          { x: 40, y: 40 },
+          { x: 110, y: 40 },
+          { x: 110, y: 110 },
+          { x: 40, y: 110 },
+          { x: 40, y: 40 },
+        ],
+      }),
+      makeElement({
+        id: 'board-b',
+        kind: 'rect',
+        bounds: { x: 220, y: 50, width: 70, height: 70 },
+        center: { x: 255, y: 85 },
+        points: [
+          { x: 220, y: 50 },
+          { x: 290, y: 50 },
+          { x: 290, y: 120 },
+          { x: 220, y: 120 },
+          { x: 220, y: 50 },
+        ],
+      }),
+      makeElement({
+        id: 'lens-on-board-a',
+        kind: 'circle',
+        hints: ['lens l1'],
+        bounds: { x: 62, y: 68, width: 12, height: 12 },
+        center: { x: 68, y: 74 },
+      }),
+    ])
+
+    const detection = detectSvgImportWorkspace(document)
+    const workspaceConfig = createInitialSvgImportWorkspaceConfig({
+      detection,
+      document,
+    })
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 10,
+      profile: 'strict',
+      workspaceDetection: detection,
+    })
+    const result = applySvgImportToScene({
+      analysis,
+      document,
+      millimetersPerUnit: 10,
+      mode: 'replace',
+      scene: makeScene(),
+      workspaceConfig,
+    })
+
+    expect(detection.workspaceKind).toBe('optical-table')
+    expect(result.scene.workspace.kind).toBe('optical-table')
+    if (result.scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+    expect(result.scene.workspace.breadboards.length).toBeGreaterThanOrEqual(2)
+    expect(result.scene.components[0]?.hostSurfaceId).toBe(result.scene.workspace.breadboards[0]?.id)
   })
 })

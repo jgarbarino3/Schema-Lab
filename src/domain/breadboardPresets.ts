@@ -39,6 +39,18 @@ export const BREADBOARD_PRESETS: BreadboardPreset[] = [
     },
   },
   {
+    id: 'metric-300x600',
+    label: 'Metric 300 × 600 mm',
+    breadboard: {
+      ...COMMON_BREADBOARD_FIELDS,
+      label: 'Metric Breadboard 300 × 600',
+      widthMm: 300,
+      heightMm: 600,
+      thicknessMm: 19,
+      presetId: 'metric-300x600',
+    },
+  },
+  {
     id: 'metric-350-square',
     label: 'Metric 350 × 350 mm',
     breadboard: {

@@ -34,16 +34,31 @@ import {
 } from './domain/sceneImport'
 import { parseSceneDocument, serializeSceneDocument } from './domain/serialization'
 import {
+  applyAutoCalibrationToWorkspaceConfig,
+  autoCalibrateRasterImport,
+  autoCalibrateSvgImport,
+  createInitialRasterImportWorkspaceConfig,
+  createRasterImportWorkspaceDetection,
+  rescaleAutoCalibrationResult,
+  type ImportAutoCalibrationResult,
+} from './domain/importAutoCalibration'
+import {
   analyzeSvgImportDocument,
   applySvgImportToScene,
+  createInitialSvgImportWorkspaceConfig,
+  detectSvgImportWorkspace,
   parseSvgImportDocument,
   resolveSvgImportScaleMmPerUnit,
+  type ImportPreviewDocument,
+  type RasterImportDocument,
   type SvgCalibrationRequest,
   type SvgImportAnalysis,
   type SvgImportDocument,
   type SvgImportManualResolution,
   type SvgImportMode,
   type SvgImportProfile,
+  type SvgImportWorkspaceConfig,
+  type SvgImportWorkspaceDetection,
 } from './domain/svgImport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
@@ -104,8 +119,11 @@ interface ExportRequestState {
 }
 
 interface SvgImportPendingOptionsState {
-  document: SvgImportDocument
+  autoCalibrationSuggestion?: ImportAutoCalibrationResult
+  detection: SvgImportWorkspaceDetection
+  document: ImportPreviewDocument
   fileName: string
+  workspaceConfig: SvgImportWorkspaceConfig
 }
 
 interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {
@@ -118,6 +136,7 @@ interface SvgImportPendingAmbiguityState {
   document: SvgImportDocument
   millimetersPerUnit: number
   mode: SvgImportMode
+  workspaceConfig: SvgImportWorkspaceConfig
 }
 
 type WorkspaceModalState =
@@ -160,6 +179,100 @@ function nextAnimationFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => resolve())
   })
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error('Image data URL could not be read.'))
+    }
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('Image data URL could not be read.'))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImageElement(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Raster drawing could not be decoded.'))
+    image.src = dataUrl
+  })
+}
+
+function createRasterImportDocument(args: {
+  imageDataUrl: string
+  imageHeightPx: number
+  imageWidthPx: number
+}): RasterImportDocument {
+  return {
+    bounds: {
+      x: 0,
+      y: 0,
+      width: args.imageWidthPx,
+      height: args.imageHeightPx,
+    },
+    imageDataUrl: args.imageDataUrl,
+    imageHeightPx: args.imageHeightPx,
+    imageWidthPx: args.imageWidthPx,
+    scale: {
+      baseMmPerUnit: 1,
+      isReliable: false,
+      reason:
+        'Raster drawings do not carry reliable physical units. Use auto-calibration or enter the exact board size manually.',
+      sourceUnit: 'px',
+    },
+    sourceKind: 'raster',
+  }
+}
+
+function createSurfaceOnlyImportShim(document: ImportPreviewDocument): SvgImportDocument {
+  return {
+    bounds: document.bounds,
+    elements: [],
+    scale: document.scale,
+    sourceKind: 'svg',
+    svgText: '',
+    viewBox: document.bounds,
+  }
+}
+
+function applyScaleToWorkspaceConfig(
+  workspaceConfig: SvgImportWorkspaceConfig,
+  millimetersPerUnit: number,
+) {
+  const nextConfig = JSON.parse(
+    JSON.stringify(workspaceConfig),
+  ) as SvgImportWorkspaceConfig
+
+  if (!Number.isFinite(millimetersPerUnit) || millimetersPerUnit <= 0) {
+    return nextConfig
+  }
+
+  if (nextConfig.table) {
+    nextConfig.table.physicalWidthMm = roundMm(
+      nextConfig.table.boundsUnits.width * millimetersPerUnit,
+    )
+    nextConfig.table.physicalHeightMm = roundMm(
+      nextConfig.table.boundsUnits.height * millimetersPerUnit,
+    )
+  }
+
+  nextConfig.breadboards = nextConfig.breadboards.map((surface) => ({
+    ...surface,
+    physicalWidthMm: roundMm(surface.boundsUnits.width * millimetersPerUnit),
+    physicalHeightMm: roundMm(surface.boundsUnits.height * millimetersPerUnit),
+  }))
+
+  return nextConfig
 }
 
 function readStoredFlag(key: string) {
@@ -865,6 +978,15 @@ function App() {
 
   const handleRequestStandaloneBoard = () => {
     if (scene.workspace.kind !== 'optical-table') {
+      return
+    }
+
+    if (breadboardInstances.length === 1) {
+      handleConvertToSingleBreadboard({
+        breadboardId: breadboardInstances[0].id,
+        createFresh: false,
+        preserveSnapshot: true,
+      })
       return
     }
 
@@ -1591,6 +1713,7 @@ function App() {
       manualResolutions?: SvgImportManualResolution[]
       millimetersPerUnit: number
       mode: SvgImportMode
+      workspaceConfig: SvgImportWorkspaceConfig
     }) => {
       const result = applySvgImportToScene({
         analysis: args.analysis,
@@ -1600,6 +1723,7 @@ function App() {
         millimetersPerUnit: args.millimetersPerUnit,
         mode: args.mode,
         scene,
+        workspaceConfig: args.workspaceConfig,
       })
 
       startTransition(() => {
@@ -1615,25 +1739,68 @@ function App() {
     [activeHostSurfaceId, loadScene, scene],
   )
 
+  const finalizeRasterImport = useCallback(
+    (args: {
+      detection: SvgImportWorkspaceDetection
+      document: RasterImportDocument
+      mode: SvgImportMode
+      workspaceConfig: SvgImportWorkspaceConfig
+    }) => {
+      const result = applySvgImportToScene({
+        analysis: {
+          ambiguous: [],
+          annotationSegments: [],
+          recognized: [],
+          reviewItems: [],
+          warnings: [],
+          workspaceDetection: args.detection,
+        },
+        document: createSurfaceOnlyImportShim(args.document),
+        hostSurfaceId: activeHostSurfaceId,
+        millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+          document: createSurfaceOnlyImportShim(args.document),
+          workspaceConfig: args.workspaceConfig,
+        }),
+        mode: args.mode,
+        scene,
+        workspaceConfig: args.workspaceConfig,
+      })
+
+      startTransition(() => {
+        loadScene(result.scene, { history: 'record' })
+      })
+
+      setSvgImportNotice(
+        'Configured workspace from raster drawing. Component interpretation is SVG-only in this pass.',
+      )
+      setSvgCalibrationState(undefined)
+      setSvgImportOptionsState(undefined)
+    },
+    [activeHostSurfaceId, loadScene, scene],
+  )
+
   const runSvgImportAnalysis = useCallback(
     (args: {
       document: SvgImportDocument
       millimetersPerUnit: number
       mode: SvgImportMode
       profile: SvgImportProfile
+      workspaceConfig: SvgImportWorkspaceConfig
     }) => {
       const analysis = analyzeSvgImportDocument({
         document: args.document,
         millimetersPerUnit: args.millimetersPerUnit,
         profile: args.profile,
+        workspaceDetection: detectSvgImportWorkspace(args.document),
       })
 
-      if (analysis.ambiguous.length > 0) {
+      if (analysis.reviewItems.length > 0) {
         setSvgAmbiguityState({
           analysis,
           document: args.document,
           millimetersPerUnit: args.millimetersPerUnit,
           mode: args.mode,
+          workspaceConfig: args.workspaceConfig,
         })
         return
       }
@@ -1643,6 +1810,7 @@ function App() {
         document: args.document,
         millimetersPerUnit: args.millimetersPerUnit,
         mode: args.mode,
+        workspaceConfig: args.workspaceConfig,
       })
     },
     [finalizeSvgImport],
@@ -1688,28 +1856,110 @@ function App() {
     }
   }
 
-  const handleImportSvgFile = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImportDrawingFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0]
 
     if (!nextFile) {
       return
     }
 
-    const rawText = await nextFile.text()
-
     try {
-      const document = parseSvgImportDocument(rawText)
+      const isSvgFile =
+        nextFile.type === 'image/svg+xml' ||
+        nextFile.name.toLowerCase().endsWith('.svg')
 
-      setSvgImportNotice(undefined)
-      setSvgImportOptionsState({
-        document,
-        fileName: nextFile.name,
-      })
+      if (isSvgFile) {
+        const rawText = await nextFile.text()
+        const document = parseSvgImportDocument(rawText)
+        const detection = detectSvgImportWorkspace(document)
+        const workspaceConfig = createInitialSvgImportWorkspaceConfig({
+          detection,
+          document,
+        })
+
+        setSvgImportNotice(undefined)
+        setSvgImportOptionsState({
+          autoCalibrationSuggestion: autoCalibrateSvgImport({
+            detection,
+            document,
+            workspaceConfig,
+          }),
+          detection,
+          document,
+          fileName: nextFile.name,
+          workspaceConfig,
+        })
+      } else {
+        const dataUrl = await readFileAsDataUrl(nextFile)
+        const image = await loadImageElement(dataUrl)
+        const maxDetectionEdgePx = 1200
+        const detectionScale = Math.min(
+          1,
+          maxDetectionEdgePx /
+            Math.max(image.naturalWidth, image.naturalHeight, 1),
+        )
+        const detectionWidth = Math.max(
+          1,
+          Math.round(image.naturalWidth * detectionScale),
+        )
+        const detectionHeight = Math.max(
+          1,
+          Math.round(image.naturalHeight * detectionScale),
+        )
+        const canvas = document.createElement('canvas')
+        canvas.width = detectionWidth
+        canvas.height = detectionHeight
+        const context = canvas.getContext('2d')
+
+        if (!context) {
+          throw new Error('Raster drawing could not be prepared for auto-calibration.')
+        }
+
+        context.drawImage(image, 0, 0, detectionWidth, detectionHeight)
+        const detectionDocument = createRasterImportDocument({
+          imageDataUrl: dataUrl,
+          imageHeightPx: detectionHeight,
+          imageWidthPx: detectionWidth,
+        })
+        const imageData = context.getImageData(0, 0, detectionWidth, detectionHeight)
+        const rasterDocument = createRasterImportDocument({
+          imageDataUrl: dataUrl,
+          imageHeightPx: image.naturalHeight,
+          imageWidthPx: image.naturalWidth,
+        })
+        const autoCalibrationSuggestion = autoCalibrateRasterImport({
+          document: detectionDocument,
+          imageData,
+        })
+        const scaledAutoCalibration = autoCalibrationSuggestion
+          ? rescaleAutoCalibrationResult(
+              autoCalibrationSuggestion,
+              detectionScale,
+            )
+          : undefined
+        const detection = createRasterImportWorkspaceDetection({
+          autoCalibration: scaledAutoCalibration,
+          document: rasterDocument,
+        })
+        const workspaceConfig = createInitialRasterImportWorkspaceConfig({
+          autoCalibration: scaledAutoCalibration,
+          document: rasterDocument,
+        })
+
+        setSvgImportNotice(undefined)
+        setSvgImportOptionsState({
+          autoCalibrationSuggestion: scaledAutoCalibration,
+          detection,
+          document: rasterDocument,
+          fileName: nextFile.name,
+          workspaceConfig,
+        })
+      }
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : 'SVG could not be parsed and interpreted.'
+          : 'Drawing could not be parsed and interpreted.'
 
       setSvgImportNotice(message)
     } finally {
@@ -1721,6 +1971,7 @@ function App() {
     mode: SvgImportMode
     profile: SvgImportProfile
     requireCalibration: boolean
+    workspaceConfig: SvgImportWorkspaceConfig
   }) => {
     if (!svgImportOptionsState) {
       return
@@ -1730,10 +1981,23 @@ function App() {
 
     if (payload.requireCalibration) {
       setSvgCalibrationState({
+        autoCalibrationSuggestion: svgImportOptionsState.autoCalibrationSuggestion,
+        detection: svgImportOptionsState.detection,
         document: svgImportOptionsState.document,
         fileName: svgImportOptionsState.fileName,
         mode: payload.mode,
         profile: payload.profile,
+        workspaceConfig: payload.workspaceConfig,
+      })
+      return
+    }
+
+    if (svgImportOptionsState.document.sourceKind === 'raster') {
+      finalizeRasterImport({
+        detection: svgImportOptionsState.detection,
+        document: svgImportOptionsState.document,
+        mode: payload.mode,
+        workspaceConfig: payload.workspaceConfig,
       })
       return
     }
@@ -1742,9 +2006,11 @@ function App() {
       document: svgImportOptionsState.document,
       millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
         document: svgImportOptionsState.document,
+        workspaceConfig: payload.workspaceConfig,
       }),
       mode: payload.mode,
       profile: payload.profile,
+      workspaceConfig: payload.workspaceConfig,
     })
   }
 
@@ -1758,20 +2024,72 @@ function App() {
 
     setSvgCalibrationState(undefined)
 
+    if (svgCalibrationState.document.sourceKind === 'raster') {
+      finalizeRasterImport({
+        detection: svgCalibrationState.detection,
+        document: svgCalibrationState.document,
+        mode: svgCalibrationState.mode,
+        workspaceConfig: applyScaleToWorkspaceConfig(
+          svgCalibrationState.workspaceConfig,
+          millimetersPerUnit,
+        ),
+      })
+      return
+    }
+
     runSvgImportAnalysis({
       document: svgCalibrationState.document,
       millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
         calibration,
         document: svgCalibrationState.document,
+        workspaceConfig: svgCalibrationState.workspaceConfig,
       }),
       mode: svgCalibrationState.mode,
       profile: svgCalibrationState.profile,
+      workspaceConfig: svgCalibrationState.workspaceConfig,
     })
 
     if (!Number.isFinite(millimetersPerUnit) || millimetersPerUnit <= 0) {
       setSvgImportNotice('Calibration failed. Falling back to inferred SVG scale.')
     }
   }
+
+  const handleUseSuggestedAutoCalibration = useCallback(
+    (result: ImportAutoCalibrationResult) => {
+      if (!svgCalibrationState) {
+        return
+      }
+
+      const nextWorkspaceConfig = applyAutoCalibrationToWorkspaceConfig({
+        result,
+        workspaceConfig: svgCalibrationState.workspaceConfig,
+      })
+
+      setSvgCalibrationState(undefined)
+
+      if (svgCalibrationState.document.sourceKind === 'raster') {
+        finalizeRasterImport({
+          detection: svgCalibrationState.detection,
+          document: svgCalibrationState.document,
+          mode: svgCalibrationState.mode,
+          workspaceConfig: nextWorkspaceConfig,
+        })
+        return
+      }
+
+      runSvgImportAnalysis({
+        document: svgCalibrationState.document,
+        millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+          document: svgCalibrationState.document,
+          workspaceConfig: nextWorkspaceConfig,
+        }),
+        mode: svgCalibrationState.mode,
+        profile: svgCalibrationState.profile,
+        workspaceConfig: nextWorkspaceConfig,
+      })
+    },
+    [finalizeRasterImport, runSvgImportAnalysis, svgCalibrationState],
+  )
 
   const handleConfirmSvgAmbiguity = (manualResolutions: SvgImportManualResolution[]) => {
     if (!svgAmbiguityState) {
@@ -1784,6 +2102,7 @@ function App() {
       manualResolutions,
       millimetersPerUnit: svgAmbiguityState.millimetersPerUnit,
       mode: svgAmbiguityState.mode,
+      workspaceConfig: svgAmbiguityState.workspaceConfig,
     })
   }
 
@@ -2223,15 +2542,20 @@ function App() {
 
       <input
         ref={svgFileInputRef}
-        accept=".svg,image/svg+xml"
+        accept=".svg,image/svg+xml,.png,image/png,.jpg,.jpeg,image/jpeg"
+        data-testid="drawing-import-file-input"
         className="visually-hidden"
-        onChange={handleImportSvgFile}
+        onChange={handleImportDrawingFile}
         type="file"
       />
 
       {svgImportOptionsState ? (
         <SvgImportOptionsModal
+          autoCalibrationSuggestion={svgImportOptionsState.autoCalibrationSuggestion}
+          detection={svgImportOptionsState.detection}
+          document={svgImportOptionsState.document}
           fileName={svgImportOptionsState.fileName}
+          initialWorkspaceConfig={svgImportOptionsState.workspaceConfig}
           isOpen={isSvgImportOptionsOpen}
           onCancel={() => setSvgImportOptionsState(undefined)}
           onConfirm={handleConfirmSvgImportOptions}
@@ -2242,28 +2566,33 @@ function App() {
 
       {svgCalibrationState ? (
         <SvgCalibrationModal
+          autoCalibrationSuggestion={svgCalibrationState.autoCalibrationSuggestion}
           baseMmPerUnit={svgCalibrationState.document.scale.baseMmPerUnit}
           document={svgCalibrationState.document}
           isOpen={isSvgCalibrationOpen}
           onBack={() => {
             setSvgImportOptionsState({
+              autoCalibrationSuggestion: svgCalibrationState.autoCalibrationSuggestion,
+              detection: svgCalibrationState.detection,
               document: svgCalibrationState.document,
               fileName: svgCalibrationState.fileName,
+              workspaceConfig: svgCalibrationState.workspaceConfig,
             })
             setSvgCalibrationState(undefined)
           }}
           onCancel={() => setSvgCalibrationState(undefined)}
           onConfirm={handleConfirmSvgCalibration}
+          onUseSuggestedAutoCalibration={handleUseSuggestedAutoCalibration}
         />
       ) : null}
 
       {svgAmbiguityState ? (
         <SvgAmbiguityModal
-          ambiguous={svgAmbiguityState.analysis.ambiguous}
           document={svgAmbiguityState.document}
           isOpen={isSvgAmbiguityOpen}
           onCancel={() => setSvgAmbiguityState(undefined)}
           onConfirm={handleConfirmSvgAmbiguity}
+          reviewItems={svgAmbiguityState.analysis.reviewItems}
         />
       ) : null}
 

@@ -4,6 +4,9 @@ import {
   getComponentDefinition,
 } from '../domain/componentCatalog'
 import {
+  SCENE_DOCUMENT_VERSION,
+} from '../domain/types'
+import {
   createEmptyScene,
   parseSceneDocument,
   serializeSceneDocument,
@@ -101,6 +104,85 @@ describe('scene serialization', () => {
     })
 
     expect(parseSceneDocument(serializeSceneDocument(scene))).toEqual(scene)
+  })
+
+  it('round-trips mounted component attachment metadata and synced world anchors', () => {
+    const scene = createEmptyScene()
+    const stageVariantId = getComponentDefinition('sample-holder').defaultVariantId
+    const irisVariantId = getComponentDefinition('iris').defaultVariantId
+
+    scene.components.push(
+      {
+        id: 'stage-1',
+        type: 'sample-holder',
+        label: 'Sample / Stage 1',
+        variantId: stageVariantId,
+        anchorMm: { x: 150, y: 150 },
+        rotationQuarterTurns: 0,
+        config: createDefaultComponentConfig('sample-holder', stageVariantId),
+      },
+      {
+        id: 'iris-1',
+        type: 'iris',
+        label: 'Iris 1',
+        variantId: irisVariantId,
+        anchorMm: { x: 0, y: 0 },
+        rotationQuarterTurns: 0,
+        attachment: {
+          parentComponentId: 'stage-1',
+          parentMountSiteId: 'optic-seat',
+          localAnchorMm: { x: 6, y: -4 },
+          localRotationQuarterTurns: 0,
+        },
+        config: createDefaultComponentConfig('iris', irisVariantId),
+      },
+    )
+
+    const migrated = parseSceneDocument(serializeSceneDocument(scene))
+    const mountedIris = migrated.components.find((component) => component.id === 'iris-1')
+
+    expect(mountedIris?.attachment).toMatchObject({
+      parentComponentId: 'stage-1',
+      parentMountSiteId: 'optic-seat',
+      localAnchorMm: { x: 6, y: -4 },
+    })
+    expect(mountedIris?.anchorMm).toEqual({ x: 156, y: 146 })
+  })
+
+  it('round-trips stage finishes and sample materials through scene JSON', () => {
+    const scene = createEmptyScene()
+
+    scene.components.push(
+      {
+        id: 'holder-1',
+        type: 'sample-holder',
+        label: 'Holder',
+        variantId: 'slotted-silver-sample-holder',
+        anchorMm: { x: 120, y: 120 },
+        rotationQuarterTurns: 0,
+        finishId: 'graphite',
+        config: createDefaultComponentConfig('sample-holder', 'slotted-silver-sample-holder'),
+      },
+      {
+        id: 'sample-1',
+        type: 'sample',
+        label: 'TiN Sample',
+        variantId: 'tin-substrate',
+        anchorMm: { x: 135, y: 120 },
+        rotationQuarterTurns: 0,
+        materialId: 'tin',
+        config: createDefaultComponentConfig('sample', 'tin-substrate'),
+      },
+    )
+
+    const parsed = parseSceneDocument(serializeSceneDocument(scene))
+
+    expect(parsed.components.find((component) => component.id === 'holder-1')?.finishId).toBe(
+      'graphite',
+    )
+    expect(parsed.components.find((component) => component.id === 'sample-1')?.materialId).toBe(
+      'tin',
+    )
   })
 
   it('round-trips text, line, and shape annotations through JSON', () => {
@@ -231,6 +313,32 @@ describe('scene serialization', () => {
     expect(parsed.components[0]?.simpleIconStyleOverride).toBe('enhanced')
   })
 
+  it('maps legacy sample-stage components onto the compact slotted sample holder by default', () => {
+    const scene = createEmptyScene()
+    const legacyJson = JSON.stringify({
+      ...scene,
+      version: 11,
+      components: [
+        {
+          id: 'stage-1',
+          type: 'sample-stage',
+          label: 'Legacy Stage',
+          anchorMm: { x: 125, y: 125 },
+          rotationQuarterTurns: 0,
+          config: {},
+        },
+      ],
+    })
+
+    const parsed = parseSceneDocument(legacyJson)
+
+    expect(parsed.components[0]).toMatchObject({
+      type: 'sample-holder',
+      variantId: 'compact-slotted-sample-holder',
+      label: 'Legacy Stage',
+    })
+  })
+
   it('migrates legacy line annotations without explicit kinds', () => {
     const scene = createEmptyScene()
     const legacyJson = JSON.stringify({
@@ -249,7 +357,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(10)
+    expect(migrated.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(migrated.annotations[0]).toMatchObject({
       id: 'legacy-line',
       kind: 'line',
@@ -280,7 +388,7 @@ describe('scene serialization', () => {
 
     const migrated = parseSceneDocument(legacyJson)
 
-    expect(migrated.version).toBe(10)
+    expect(migrated.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(migrated.beamSettings.beamFidelityMode).toBe('geometric')
     expect(migrated.components[0]).toMatchObject({
       type: 'support-hardware',
@@ -335,7 +443,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const bbo = migrated.components.find((component) => component.id === 'bbo-1')
 
-    expect(migrated.version).toBe(10)
+    expect(migrated.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(source?.config.source?.polarization).toMatchObject({
       basis: 'ray-local',
       presetId: 'linear-in-plane',
@@ -388,7 +496,7 @@ describe('scene serialization', () => {
     const source = migrated.components.find((component) => component.id === 'laser-1')
     const lens = migrated.components.find((component) => component.id === 'lens-1')
 
-    expect(migrated.version).toBe(10)
+    expect(migrated.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(source?.config.source?.gaussianInputMode).toBe('derived')
     expect(lens?.config.lens).toMatchObject({
       focalLengthMm: 100,

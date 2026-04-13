@@ -55,7 +55,7 @@ describe('placement resolution', () => {
   })
 
   it('captures on-drop hole-mounted placements inside the snap radius', () => {
-    const sample = makeComponent('sample-stage')
+    const sample = makeComponent('sample-holder')
 
     const result = resolveComponentPlacement({
       breadboard,
@@ -71,7 +71,7 @@ describe('placement resolution', () => {
   })
 
   it('keeps hole-mounted components warning/off-hole beyond the snap threshold', () => {
-    const sample = makeComponent('sample-stage')
+    const sample = makeComponent('sample-holder')
 
     const result = resolveComponentPlacement({
       breadboard,
@@ -120,7 +120,7 @@ describe('placement resolution', () => {
   })
 
   it('warns when a hole-mounted component cannot fit near the board edge', () => {
-    const sample = makeComponent('sample-stage')
+    const sample = makeComponent('sample-holder')
 
     const result = resolveComponentPlacement({
       breadboard,

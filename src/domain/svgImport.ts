@@ -2,26 +2,38 @@ import {
   COMPONENT_DEFINITIONS,
   createDefaultComponentConfig,
   getComponentDefinition,
+  getResolvedComponentSpec,
 } from './componentCatalog'
 import { normalizeQuarterTurns, rotatePointQuarterTurns, roundMm } from './geometry'
 import {
   getSurfacePlacementModel,
   reconcileComponentAnchorForScene,
 } from './placement'
-import { createEmptyScene } from './serialization'
+import { getDefaultBreadboard } from './breadboardPresets'
 import type {
   BoundsMm,
+  BreadboardModel,
   ComponentInstance,
   ComponentType,
+  OpticalTableWorkspace,
   QuarterTurn,
   SceneDocument,
   Vector2Mm,
 } from './types'
-import { getDefaultSurfaceId } from './workspace'
+import {
+  OPTICAL_TABLE_SURFACE_ID,
+  SINGLE_BREADBOARD_SURFACE_ID,
+} from './types'
+import {
+  createBreadboardInstance,
+  createDefaultOpticalTable,
+  getBreadboardAnchorForCenterMm,
+} from './workspace'
 
 export type SvgImportMode = 'merge' | 'replace'
 export type SvgImportProfile = 'strict' | 'guided'
 export type SvgCalibrationMode = 'simple' | 'advanced'
+export type ImportSourceKind = 'svg' | 'raster'
 
 interface Matrix2D {
   a: number
@@ -53,6 +65,12 @@ export type SvgImportElementKind =
   | 'ellipse'
   | 'path'
 
+export interface SvgImportElementSegment {
+  end: Vector2Mm
+  polylineIndex: number
+  start: Vector2Mm
+}
+
 export interface SvgImportElement {
   bounds: BoundsMm
   center: Vector2Mm
@@ -60,8 +78,10 @@ export interface SvgImportElement {
   id: string
   isClosed: boolean
   kind: SvgImportElementKind
+  polylines: Vector2Mm[][]
   points: Vector2Mm[]
   rotationDeg: number
+  segments: SvgImportElementSegment[]
   stroke?: string
   strokeWidth?: number
 }
@@ -70,9 +90,21 @@ export interface SvgImportDocument {
   bounds: BoundsMm
   elements: SvgImportElement[]
   scale: SvgImportScaleInfo
+  sourceKind: 'svg'
   svgText: string
   viewBox?: BoundsMm
 }
+
+export interface RasterImportDocument {
+  bounds: BoundsMm
+  imageDataUrl: string
+  imageHeightPx: number
+  imageWidthPx: number
+  scale: SvgImportScaleInfo
+  sourceKind: 'raster'
+}
+
+export type ImportPreviewDocument = SvgImportDocument | RasterImportDocument
 
 export interface SvgCalibrationSample {
   distanceMm: number
@@ -98,13 +130,61 @@ export interface SvgImportRecognizedElement {
   suggestion: SvgImportSuggestion
 }
 
-export interface SvgImportAmbiguousElement {
+export interface SvgImportSurfaceCandidate {
+  boundsUnits: BoundsMm
+  centerUnits: Vector2Mm
+  confidence: number
+  containedElementIds: string[]
+  holeGridEvidence: number
+  id: string
+  kind: 'breadboard' | 'table' | 'unknown-rectilinear'
+  nestingDepth: number
+  outlinePoints: Vector2Mm[]
+  rectilinearScore: number
+  rotationDeg: number
+  sourceElementIds: string[]
+}
+
+export interface SvgImportWorkspaceDetection {
+  breadboardCandidates: SvgImportSurfaceCandidate[]
+  orphanElementIds: string[]
+  tableCandidate?: SvgImportSurfaceCandidate
+  warnings: string[]
+  workspaceKind: 'optical-table' | 'single-breadboard' | 'unknown'
+}
+
+export interface SvgImportWorkspaceSurfaceConfig {
+  boundsUnits: BoundsMm
+  candidateId?: string
+  id: string
+  kind: 'breadboard' | 'table'
+  label: string
+  physicalHeightMm: number
+  physicalWidthMm: number
+}
+
+export interface SvgImportWorkspaceConfig {
+  breadboards: SvgImportWorkspaceSurfaceConfig[]
+  table?: SvgImportWorkspaceSurfaceConfig
+  workspaceKind: 'optical-table' | 'single-breadboard'
+}
+
+export interface SvgImportReviewItem {
+  allowKeepAsLinework: boolean
   bounds: BoundsMm
   center: Vector2Mm
-  elementId: string
+  elementId?: string
+  id: string
+  kind: 'ambiguous-symbol' | 'linework-fragment' | 'missing-junction'
   label: string
+  sourceElementIds: string[]
+  suggestedRotationDeg?: number
   suggestions: SvgImportSuggestion[]
 }
+
+export type SvgImportResolutionDisposition = 'component' | 'linework' | 'skip'
+export type SvgImportGeneralReviewItem = SvgImportReviewItem
+export type SvgImportAmbiguousElement = SvgImportReviewItem
 
 export interface SvgImportAnnotationSegment {
   color: string
@@ -118,12 +198,17 @@ export interface SvgImportAnalysis {
   ambiguous: SvgImportAmbiguousElement[]
   annotationSegments: SvgImportAnnotationSegment[]
   recognized: SvgImportRecognizedElement[]
+  reviewItems: SvgImportReviewItem[]
   warnings: string[]
+  workspaceDetection: SvgImportWorkspaceDetection
 }
 
 export interface SvgImportManualResolution {
   componentType?: ComponentType
-  elementId: string
+  disposition: SvgImportResolutionDisposition
+  elementId?: string
+  reviewItemId: string
+  variantId?: string
 }
 
 export interface SvgImportApplyResult {
@@ -153,13 +238,14 @@ interface SvgImportHeuristicContext {
   crossingLineCountById: Map<string, number>
   decorativeOpenElementIds: Set<string>
   enclosedOpenLineCountById: Map<string, number>
+  junctionReviewItems: SvgImportReviewItem[]
+  lineworkReviewElementIds: Set<string>
   metricsById: Map<string, SvgImportElementMetrics>
 }
 
 const SVG_DEFAULT_MM_PER_UNIT = 25.4 / 96
 const AUTO_HEURISTIC_CONFIDENCE_THRESHOLD = 0.86
 const AUTO_HEURISTIC_MARGIN_THRESHOLD = 0.15
-const IMPORT_PLACEMENT_PADDING_MM = 25
 const DEFAULT_ANNOTATION_COLOR = '#00ff00'
 const DEFAULT_ANNOTATION_STROKE_MM = 0.8
 const MAX_SUGGESTIONS_PER_AMBIGUITY = 5
@@ -169,6 +255,12 @@ const BEAM_LINE_MAX_STROKE_MM = 1.8
 const BEAM_LINE_MIN_ASPECT_RATIO = 6
 const DECORATIVE_LINE_BOUNDARY_PADDING_MM = 1.4
 const DECORATIVE_LINE_MAX_DIAGONAL_RATIO = 1.45
+const NEAR_CONNECTED_GAP_MM = 3.2
+const NEAR_CONNECTED_LINE_REVIEW_GAP_MM = 4.4
+const JUNCTION_TURN_MIN_DEG = 54
+const JUNCTION_TURN_MAX_DEG = 126
+const SURFACE_CANDIDATE_MIN_EDGE_UNITS = 24
+const SURFACE_CANDIDATE_MIN_AREA_RATIO = 0.035
 const BEAM_HINT_KEYWORDS = [' beam ', ' ray ', ' path ', 'trajectory']
 const OPEN_GEOMETRY_DETERMINISTIC_TYPES: ComponentType[] = ['mirror', 'curved-mirror']
 
@@ -192,7 +284,10 @@ const COMPONENT_KEYWORD_MAP: Array<{
   { type: 'bbo-crystal', keywords: ['bbo', 'crystal'] },
   { type: 'telescope', keywords: ['telescope', 'compressor', 'expander'] },
   { type: 'opa-module', keywords: ['opa', 'parametric amplifier'] },
-  { type: 'sample-stage', keywords: ['sample', 'stage', 'delay line'] },
+  { type: 'sample-holder', keywords: ['sample holder', 'sample stage', 'sample mount'] },
+  { type: 'translation-stage', keywords: ['translation stage', ' xy ', ' xyz ', 'stage'] },
+  { type: 'delay-stage', keywords: ['delay line', 'delay stage'] },
+  { type: 'sample', keywords: ['sample', 'substrate', 'crystal', 'tin'] },
   { type: 'fiber-coupler', keywords: ['fiber', 'fibre', 'coupler'] },
   { type: 'spectrometer', keywords: ['spectrometer'] },
   { type: 'detector', keywords: ['detector', 'photodiode', 'pd '] },
@@ -598,12 +693,37 @@ function isCommandToken(token: string) {
   return /^[a-zA-Z]$/.test(token)
 }
 
+function createSegmentsFromPolylines(polylines: Vector2Mm[][]): SvgImportElementSegment[] {
+  const segments: SvgImportElementSegment[] = []
+
+  polylines.forEach((polyline, polylineIndex) => {
+    for (let index = 1; index < polyline.length; index += 1) {
+      const start = polyline[index - 1]
+      const end = polyline[index]
+
+      if (computeSegmentLength(start, end) <= 1e-6) {
+        continue
+      }
+
+      segments.push({
+        polylineIndex,
+        start,
+        end,
+      })
+    }
+  })
+
+  return segments
+}
+
 function parsePathPoints(pathData: string | null | undefined): {
   isClosed: boolean
+  polylines: Vector2Mm[][]
   points: Vector2Mm[]
+  segments: SvgImportElementSegment[]
 } {
   if (!pathData) {
-    return { points: [], isClosed: false }
+    return { points: [], polylines: [], segments: [], isClosed: false }
   }
 
   const tokens =
@@ -613,7 +733,8 @@ function parsePathPoints(pathData: string | null | undefined): {
   let index = 0
   let command = ''
   let isClosed = false
-  const points: Vector2Mm[] = []
+  const polylines: Vector2Mm[][] = []
+  let currentPolyline: Vector2Mm[] | undefined
 
   const readNumber = () => {
     if (index >= tokens.length) {
@@ -654,7 +775,8 @@ function parsePathPoints(pathData: string | null | undefined): {
 
       cursor = isRelative ? { x: cursor.x + x, y: cursor.y + y } : { x, y }
       subpathStart = cursor
-      points.push({ ...cursor })
+      currentPolyline = [{ ...cursor }]
+      polylines.push(currentPolyline)
 
       while (index < tokens.length && !isCommandToken(tokens[index])) {
         const lineX = readNumber()
@@ -667,7 +789,7 @@ function parsePathPoints(pathData: string | null | undefined): {
         cursor = isRelative
           ? { x: cursor.x + lineX, y: cursor.y + lineY }
           : { x: lineX, y: lineY }
-        points.push({ ...cursor })
+        currentPolyline.push({ ...cursor })
       }
 
       continue
@@ -675,7 +797,7 @@ function parsePathPoints(pathData: string | null | undefined): {
 
     if (command.toLowerCase() === 'z') {
       cursor = { ...subpathStart }
-      points.push({ ...cursor })
+      currentPolyline?.push({ ...cursor })
       isClosed = true
       continue
     }
@@ -686,7 +808,12 @@ function parsePathPoints(pathData: string | null | undefined): {
       }
 
       cursor = isRelative ? { x: cursor.x + x, y: cursor.y + y } : { x, y }
-      points.push({ ...cursor })
+      if (!currentPolyline) {
+        currentPolyline = [{ ...cursor }]
+        polylines.push(currentPolyline)
+      } else {
+        currentPolyline.push({ ...cursor })
+      }
       return true
     }
 
@@ -710,7 +837,7 @@ function parsePathPoints(pathData: string | null | undefined): {
         cursor = isRelative
           ? { x: cursor.x + value, y: cursor.y }
           : { x: value, y: cursor.y }
-        points.push({ ...cursor })
+        currentPolyline?.push({ ...cursor })
       }
       continue
     }
@@ -726,7 +853,7 @@ function parsePathPoints(pathData: string | null | undefined): {
         cursor = isRelative
           ? { x: cursor.x, y: cursor.y + value }
           : { x: cursor.x, y: value }
-        points.push({ ...cursor })
+        currentPolyline?.push({ ...cursor })
       }
       continue
     }
@@ -786,8 +913,12 @@ function parsePathPoints(pathData: string | null | undefined): {
     }
   }
 
+  const points = polylines.flatMap((polyline) => polyline)
+
   return {
+    polylines,
     points,
+    segments: createSegmentsFromPolylines(polylines),
     isClosed,
   }
 }
@@ -871,41 +1002,61 @@ function normalizeRotationDeg(rotationDeg: number) {
   return normalized
 }
 
+function buildGeometryFromPolylines(
+  kind: SvgImportElementKind,
+  polylines: Vector2Mm[][],
+  isClosed: boolean,
+) {
+  return {
+    kind,
+    isClosed,
+    polylines,
+    points: polylines.flatMap((polyline) => polyline),
+    segments: createSegmentsFromPolylines(polylines),
+  }
+}
+
 function parseElementGeometry(
   element: Element,
   matrix: Matrix2D,
 ): {
   isClosed: boolean
   kind: SvgImportElementKind
+  polylines: Vector2Mm[][]
   points: Vector2Mm[]
+  segments: SvgImportElementSegment[]
 } | null {
   const tagName = element.tagName.toLowerCase()
 
   if (tagName === 'line') {
-    return {
-      kind: 'line',
-      isClosed: false,
-      points: [
-        {
-          x: parseNumber(element.getAttribute('x1')),
-          y: parseNumber(element.getAttribute('y1')),
-        },
-        {
-          x: parseNumber(element.getAttribute('x2')),
-          y: parseNumber(element.getAttribute('y2')),
-        },
-      ].map((point) => applyMatrixToPoint(point, matrix)),
-    }
+    return buildGeometryFromPolylines(
+      'line',
+      [
+        [
+          {
+            x: parseNumber(element.getAttribute('x1')),
+            y: parseNumber(element.getAttribute('y1')),
+          },
+          {
+            x: parseNumber(element.getAttribute('x2')),
+            y: parseNumber(element.getAttribute('y2')),
+          },
+        ].map((point) => applyMatrixToPoint(point, matrix)),
+      ],
+      false,
+    )
   }
 
   if (tagName === 'polyline') {
-    return {
-      kind: 'polyline',
-      isClosed: false,
-      points: parsePointsAttribute(element.getAttribute('points')).map((point) =>
-        applyMatrixToPoint(point, matrix),
-      ),
-    }
+    return buildGeometryFromPolylines(
+      'polyline',
+      [
+        parsePointsAttribute(element.getAttribute('points')).map((point) =>
+          applyMatrixToPoint(point, matrix),
+        ),
+      ],
+      false,
+    )
   }
 
   if (tagName === 'polygon') {
@@ -915,11 +1066,11 @@ function parseElementGeometry(
       polygonPoints.push({ ...polygonPoints[0] })
     }
 
-    return {
-      kind: 'polygon',
-      isClosed: true,
-      points: polygonPoints.map((point) => applyMatrixToPoint(point, matrix)),
-    }
+    return buildGeometryFromPolylines(
+      'polygon',
+      [polygonPoints.map((point) => applyMatrixToPoint(point, matrix))],
+      true,
+    )
   }
 
   if (tagName === 'rect') {
@@ -928,17 +1079,19 @@ function parseElementGeometry(
     const width = Math.max(0, parseNumber(element.getAttribute('width')))
     const height = Math.max(0, parseNumber(element.getAttribute('height')))
 
-    return {
-      kind: 'rect',
-      isClosed: true,
-      points: [
-        { x, y },
-        { x: x + width, y },
-        { x: x + width, y: y + height },
-        { x, y: y + height },
-        { x, y },
-      ].map((point) => applyMatrixToPoint(point, matrix)),
-    }
+    return buildGeometryFromPolylines(
+      'rect',
+      [
+        [
+          { x, y },
+          { x: x + width, y },
+          { x: x + width, y: y + height },
+          { x, y: y + height },
+          { x, y },
+        ].map((point) => applyMatrixToPoint(point, matrix)),
+      ],
+      true,
+    )
   }
 
   if (tagName === 'circle') {
@@ -946,13 +1099,15 @@ function parseElementGeometry(
     const centerY = parseNumber(element.getAttribute('cy'))
     const radius = Math.max(0, parseNumber(element.getAttribute('r')))
 
-    return {
-      kind: 'circle',
-      isClosed: true,
-      points: sampleEllipsePoints(centerX, centerY, radius, radius).map((point) =>
-        applyMatrixToPoint(point, matrix),
-      ),
-    }
+    return buildGeometryFromPolylines(
+      'circle',
+      [
+        sampleEllipsePoints(centerX, centerY, radius, radius).map((point) =>
+          applyMatrixToPoint(point, matrix),
+        ),
+      ],
+      true,
+    )
   }
 
   if (tagName === 'ellipse') {
@@ -961,13 +1116,15 @@ function parseElementGeometry(
     const radiusX = Math.max(0, parseNumber(element.getAttribute('rx')))
     const radiusY = Math.max(0, parseNumber(element.getAttribute('ry')))
 
-    return {
-      kind: 'ellipse',
-      isClosed: true,
-      points: sampleEllipsePoints(centerX, centerY, radiusX, radiusY).map((point) =>
-        applyMatrixToPoint(point, matrix),
-      ),
-    }
+    return buildGeometryFromPolylines(
+      'ellipse',
+      [
+        sampleEllipsePoints(centerX, centerY, radiusX, radiusY).map((point) =>
+          applyMatrixToPoint(point, matrix),
+        ),
+      ],
+      true,
+    )
   }
 
   if (tagName === 'path') {
@@ -976,7 +1133,15 @@ function parseElementGeometry(
     return {
       kind: 'path',
       isClosed: pathPoints.isClosed,
+      polylines: pathPoints.polylines.map((polyline) =>
+        polyline.map((point) => applyMatrixToPoint(point, matrix)),
+      ),
       points: pathPoints.points.map((point) => applyMatrixToPoint(point, matrix)),
+      segments: createSegmentsFromPolylines(
+        pathPoints.polylines.map((polyline) =>
+          polyline.map((point) => applyMatrixToPoint(point, matrix)),
+        ),
+      ),
     }
   }
 
@@ -1022,6 +1187,7 @@ function parseSvgElements(svgRoot: Element): SvgImportElement[] {
           id: currentNode.getAttribute('id') ?? `${geometry.kind}-${elements.length + 1}`,
           kind: geometry.kind,
           isClosed: geometry.isClosed,
+          polylines: geometry.polylines,
           points: geometry.points,
           bounds,
           center: {
@@ -1029,6 +1195,7 @@ function parseSvgElements(svgRoot: Element): SvgImportElement[] {
             y: bounds.y + bounds.height / 2,
           },
           rotationDeg: normalizeRotationDeg(estimateRotationDeg(geometry.points)),
+          segments: geometry.segments,
           hints: currentHints,
           stroke: extractStroke(currentNode),
           strokeWidth: extractStrokeWidth(currentNode),
@@ -1045,16 +1212,347 @@ function parseSvgElements(svgRoot: Element): SvgImportElement[] {
   return elements
 }
 
+function scoreRectilinearCandidate(element: SvgImportElement) {
+  if (!element.isClosed) {
+    return 0
+  }
+
+  if (element.kind === 'rect') {
+    return 1
+  }
+
+  const width = Math.max(1e-6, element.bounds.width)
+  const height = Math.max(1e-6, element.bounds.height)
+  const filledAreaRatio = boundsArea(element.bounds) / Math.max(width * height, 1e-6)
+  const perimeter = 2 * (width + height)
+  const perimeterRatio = computeElementPathLengthMm(element, 1) / Math.max(perimeter, 1e-6)
+
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      1 - Math.abs(1 - Math.min(1.2, filledAreaRatio)) * 0.35 - Math.abs(1 - perimeterRatio) * 0.45,
+    ),
+  )
+}
+
+function suggestPhysicalSizeMm(lengthUnits: number, baseMmPerUnit: number) {
+  const rawMm = Math.max(25, lengthUnits * baseMmPerUnit)
+
+  if (rawMm >= 200) {
+    return roundMm(Math.round(rawMm / 25) * 25)
+  }
+
+  return roundMm(Math.round(rawMm / 5) * 5)
+}
+
+function createSurfaceCandidateFromBounds(args: {
+  boundsUnits: BoundsMm
+  document: SvgImportDocument
+  id: string
+  kind: SvgImportSurfaceCandidate['kind']
+}): SvgImportSurfaceCandidate {
+  const { boundsUnits, document, id, kind } = args
+
+  return {
+    boundsUnits,
+    centerUnits: {
+      x: roundMm(boundsUnits.x + boundsUnits.width / 2),
+      y: roundMm(boundsUnits.y + boundsUnits.height / 2),
+    },
+    confidence: kind === 'unknown-rectilinear' ? 0.28 : 0.42,
+    containedElementIds: document.elements
+      .filter((element) => boundsContainBounds(boundsUnits, element.bounds, 0))
+      .map((element) => element.id),
+    holeGridEvidence: 0,
+    id,
+    kind,
+    nestingDepth: 0,
+    outlinePoints: [
+      { x: boundsUnits.x, y: boundsUnits.y },
+      { x: boundsUnits.x + boundsUnits.width, y: boundsUnits.y },
+      { x: boundsUnits.x + boundsUnits.width, y: boundsUnits.y + boundsUnits.height },
+      { x: boundsUnits.x, y: boundsUnits.y + boundsUnits.height },
+      { x: boundsUnits.x, y: boundsUnits.y },
+    ],
+    rectilinearScore: 1,
+    rotationDeg: 0,
+    sourceElementIds: [],
+  }
+}
+
+export function detectSvgImportWorkspace(document: SvgImportDocument): SvgImportWorkspaceDetection {
+  const documentArea = Math.max(boundsArea(document.bounds), 1e-6)
+  const closedCandidates = document.elements
+    .filter((element) => {
+      const areaRatio = boundsArea(element.bounds) / documentArea
+
+      return (
+        element.isClosed &&
+        element.bounds.width >= SURFACE_CANDIDATE_MIN_EDGE_UNITS &&
+        element.bounds.height >= SURFACE_CANDIDATE_MIN_EDGE_UNITS &&
+        areaRatio >= SURFACE_CANDIDATE_MIN_AREA_RATIO &&
+        scoreRectilinearCandidate(element) >= 0.58
+      )
+    })
+    .map((element) => {
+      const containedElementIds = document.elements
+        .filter((candidate) => candidate.id !== element.id && boundsContainBounds(element.bounds, candidate.bounds, 0))
+        .map((candidate) => candidate.id)
+      const holeGridEvidence = document.elements.filter((candidate) => {
+        const candidateArea = boundsArea(candidate.bounds)
+
+        return (
+          candidate.id !== element.id &&
+          boundsContainBounds(element.bounds, candidate.bounds, 0) &&
+          candidateArea > 0 &&
+          candidateArea <= boundsArea(element.bounds) * 0.0025
+        )
+      }).length
+
+      return {
+        boundsUnits: element.bounds,
+        centerUnits: element.center,
+        confidence: 0,
+        containedElementIds,
+        holeGridEvidence,
+        id: element.id,
+        kind: 'unknown-rectilinear' as const,
+        nestingDepth: 0,
+        outlinePoints: element.points,
+        rectilinearScore: scoreRectilinearCandidate(element),
+        rotationDeg: element.rotationDeg,
+        sourceElementIds: [element.id],
+      }
+    })
+    .sort((left, right) => boundsArea(right.boundsUnits) - boundsArea(left.boundsUnits))
+
+  if (closedCandidates.length === 0) {
+    return {
+      breadboardCandidates: [],
+      orphanElementIds: document.elements.map((element) => element.id),
+      warnings: ['No large rectilinear board/table outlines were detected. Using full SVG bounds as the import surface.'],
+      workspaceKind: 'unknown',
+    }
+  }
+
+  const candidates = closedCandidates.map((candidate) => {
+    const nestingDepth = closedCandidates.filter(
+      (other) =>
+        other.id !== candidate.id &&
+        boundsContainBounds(other.boundsUnits, candidate.boundsUnits, 0),
+    ).length
+    const containsOtherCandidateCount = closedCandidates.filter(
+      (other) =>
+        other.id !== candidate.id &&
+        boundsContainBounds(candidate.boundsUnits, other.boundsUnits, 0),
+    ).length
+    const baseConfidence = Math.min(
+      0.96,
+      candidate.rectilinearScore * 0.52 +
+        Math.min(0.26, containsOtherCandidateCount * 0.12) +
+        Math.min(0.18, candidate.holeGridEvidence * 0.01),
+    )
+
+    return {
+      ...candidate,
+      confidence: baseConfidence,
+      nestingDepth,
+      kind:
+        candidate.holeGridEvidence >= 6
+          ? ('breadboard' as const)
+          : containsOtherCandidateCount >= 2
+            ? ('table' as const)
+            : ('unknown-rectilinear' as const),
+    }
+  })
+
+  const tableCandidate = candidates.find((candidate) => {
+    const containsBoardLikeChildren = candidates.filter(
+      (other) =>
+        other.id !== candidate.id &&
+        boundsContainBounds(candidate.boundsUnits, other.boundsUnits, 0) &&
+        boundsArea(other.boundsUnits) < boundsArea(candidate.boundsUnits) * 0.82,
+    ).length
+
+    return candidate.kind === 'table' || containsBoardLikeChildren >= 2
+  })
+
+  const breadboardCandidates = (tableCandidate
+    ? candidates.filter(
+        (candidate) =>
+          candidate.id !== tableCandidate.id &&
+          boundsContainBounds(tableCandidate.boundsUnits, candidate.boundsUnits, 0) &&
+          boundsArea(candidate.boundsUnits) < boundsArea(tableCandidate.boundsUnits) * 0.82,
+      )
+    : candidates
+  )
+    .filter((candidate) => candidate.rectilinearScore >= 0.58)
+    .map((candidate, index) => ({
+      ...candidate,
+      confidence: Math.min(0.95, candidate.confidence + (candidate.holeGridEvidence >= 6 ? 0.18 : 0.06)),
+      kind: 'breadboard' as const,
+      id: candidate.id || `breadboard-candidate-${index + 1}`,
+    }))
+
+  const orphanElementIds = document.elements
+    .filter(
+      (element) =>
+        !breadboardCandidates.some((candidate) => candidate.sourceElementIds.includes(element.id)) &&
+        tableCandidate?.sourceElementIds.includes(element.id) !== true,
+    )
+    .map((element) => element.id)
+
+  const warnings: string[] = []
+  if (tableCandidate && breadboardCandidates.length === 0) {
+    warnings.push('Detected a likely table outline, but no breadboard outlines inside it.')
+  }
+  if (!tableCandidate && breadboardCandidates.length > 1) {
+    warnings.push('Detected multiple breadboard-like outlines without a clear enclosing table outline.')
+  }
+
+  return {
+    breadboardCandidates,
+    orphanElementIds,
+    tableCandidate,
+    warnings,
+    workspaceKind:
+      breadboardCandidates.length > 1 || tableCandidate
+        ? 'optical-table'
+        : breadboardCandidates.length === 1
+          ? 'single-breadboard'
+          : 'unknown',
+  }
+}
+
+function createWorkspaceSurfaceConfig(args: {
+  boundsUnits: BoundsMm
+  candidateId?: string
+  id: string
+  kind: 'breadboard' | 'table'
+  label: string
+  physicalHeightMm: number
+  physicalWidthMm: number
+}): SvgImportWorkspaceSurfaceConfig {
+  return {
+    boundsUnits: args.boundsUnits,
+    candidateId: args.candidateId,
+    id: args.id,
+    kind: args.kind,
+    label: args.label,
+    physicalHeightMm: roundMm(Math.max(25, args.physicalHeightMm)),
+    physicalWidthMm: roundMm(Math.max(25, args.physicalWidthMm)),
+  }
+}
+
+export function createInitialSvgImportWorkspaceConfig(args: {
+  detection: SvgImportWorkspaceDetection
+  document: SvgImportDocument
+}): SvgImportWorkspaceConfig {
+  const { detection, document } = args
+  const fallbackSurface = createSurfaceCandidateFromBounds({
+    boundsUnits: document.bounds,
+    document,
+    id: 'document-bounds',
+    kind: detection.workspaceKind === 'optical-table' ? 'table' : 'breadboard',
+  })
+
+  if (detection.workspaceKind === 'optical-table') {
+    const tableCandidate = detection.tableCandidate ?? fallbackSurface
+    const breadboardCandidates =
+      detection.breadboardCandidates.length > 0
+        ? detection.breadboardCandidates
+        : [
+            createSurfaceCandidateFromBounds({
+              boundsUnits: {
+                x: tableCandidate.boundsUnits.x + tableCandidate.boundsUnits.width * 0.32,
+                y: tableCandidate.boundsUnits.y + tableCandidate.boundsUnits.height * 0.3,
+                width: tableCandidate.boundsUnits.width * 0.36,
+                height: tableCandidate.boundsUnits.height * 0.4,
+              },
+              document,
+              id: 'synthetic-board-1',
+              kind: 'breadboard',
+            }),
+          ]
+
+    return {
+      workspaceKind: 'optical-table',
+      table: createWorkspaceSurfaceConfig({
+        boundsUnits: tableCandidate.boundsUnits,
+        candidateId: tableCandidate.id,
+        id: 'table-primary',
+        kind: 'table',
+        label: 'Optical Table',
+        physicalHeightMm: suggestPhysicalSizeMm(
+          tableCandidate.boundsUnits.height,
+          document.scale.baseMmPerUnit,
+        ),
+        physicalWidthMm: suggestPhysicalSizeMm(
+          tableCandidate.boundsUnits.width,
+          document.scale.baseMmPerUnit,
+        ),
+      }),
+      breadboards: breadboardCandidates.map((candidate, index) =>
+        createWorkspaceSurfaceConfig({
+          boundsUnits: candidate.boundsUnits,
+          candidateId: candidate.id,
+          id: `breadboard-${index + 1}`,
+          kind: 'breadboard',
+          label: `Breadboard ${index + 1}`,
+          physicalHeightMm: suggestPhysicalSizeMm(
+            candidate.boundsUnits.height,
+            document.scale.baseMmPerUnit,
+          ),
+          physicalWidthMm: suggestPhysicalSizeMm(
+            candidate.boundsUnits.width,
+            document.scale.baseMmPerUnit,
+          ),
+        }),
+      ),
+    }
+  }
+
+  const boardCandidate = detection.breadboardCandidates[0] ?? fallbackSurface
+
+  return {
+    workspaceKind: 'single-breadboard',
+    breadboards: [
+      createWorkspaceSurfaceConfig({
+        boundsUnits: boardCandidate.boundsUnits,
+        candidateId: boardCandidate.id,
+        id: 'breadboard-1',
+        kind: 'breadboard',
+        label: 'Breadboard',
+        physicalHeightMm: suggestPhysicalSizeMm(
+          boardCandidate.boundsUnits.height,
+          document.scale.baseMmPerUnit,
+        ),
+        physicalWidthMm: suggestPhysicalSizeMm(
+          boardCandidate.boundsUnits.width,
+          document.scale.baseMmPerUnit,
+        ),
+      }),
+    ],
+  }
+}
+
+function getPrimaryWorkspaceSurfaceConfig(config: SvgImportWorkspaceConfig) {
+  return config.workspaceKind === 'optical-table' ? config.table : config.breadboards[0]
+}
+
 function copyScene(scene: SceneDocument): SceneDocument {
   return JSON.parse(JSON.stringify(scene)) as SceneDocument
 }
 
-function createReplaceSceneTemplate(scene: SceneDocument) {
-  const nextScene = createEmptyScene()
-  nextScene.workspace = copyScene(scene).workspace
-  nextScene.beamSettings = { ...scene.beamSettings }
+function createReplaceSceneTemplate(
+  scene: SceneDocument,
+  workspaceOverride?: SceneDocument['workspace'],
+) {
+  const nextScene = copyScene(scene)
+  nextScene.workspace = workspaceOverride ?? nextScene.workspace
   nextScene.metadata = {
-    ...scene.metadata,
+    ...nextScene.metadata,
     name: `${scene.metadata.name} (SVG Import)`,
   }
   nextScene.components = []
@@ -1121,11 +1619,10 @@ function boundsContainBounds(outerBounds: BoundsMm, innerBounds: BoundsMm, paddi
 }
 
 function computeElementPathLengthMm(element: SvgImportElement, millimetersPerUnit: number) {
-  let pathLengthUnits = 0
-
-  for (let index = 1; index < element.points.length; index += 1) {
-    pathLengthUnits += computeSegmentLength(element.points[index - 1], element.points[index])
-  }
+  const pathLengthUnits = element.segments.reduce(
+    (sum, segment) => sum + computeSegmentLength(segment.start, segment.end),
+    0,
+  )
 
   return pathLengthUnits * millimetersPerUnit
 }
@@ -1168,6 +1665,121 @@ function incrementMapCount(map: Map<string, number>, key: string) {
   map.set(key, (map.get(key) ?? 0) + 1)
 }
 
+interface SvgImportTerminalPoint {
+  directionDeg: number
+  elementId: string
+  isStart: boolean
+  point: Vector2Mm
+  polylineIndex: number
+}
+
+function boundsArea(bounds: BoundsMm) {
+  return Math.max(0, bounds.width) * Math.max(0, bounds.height)
+}
+
+function boundsContainsPoint(bounds: BoundsMm, point: Vector2Mm, paddingUnits = 0) {
+  return (
+    point.x >= bounds.x - paddingUnits &&
+    point.x <= bounds.x + bounds.width + paddingUnits &&
+    point.y >= bounds.y - paddingUnits &&
+    point.y <= bounds.y + bounds.height + paddingUnits
+  )
+}
+
+function expandBounds(bounds: BoundsMm, paddingUnits: number): BoundsMm {
+  return {
+    x: bounds.x - paddingUnits,
+    y: bounds.y - paddingUnits,
+    width: bounds.width + paddingUnits * 2,
+    height: bounds.height + paddingUnits * 2,
+  }
+}
+
+function computeAngleDeg(start: Vector2Mm, end: Vector2Mm) {
+  return normalizeRotationDeg((Math.atan2(end.y - start.y, end.x - start.x) * 180) / Math.PI)
+}
+
+function getElementTerminalPoints(element: SvgImportElement): SvgImportTerminalPoint[] {
+  if (element.isClosed) {
+    return []
+  }
+
+  const terminals: SvgImportTerminalPoint[] = []
+
+  element.polylines.forEach((polyline, polylineIndex) => {
+    if (polyline.length < 2) {
+      return
+    }
+
+    terminals.push({
+      elementId: element.id,
+      isStart: true,
+      point: polyline[0],
+      polylineIndex,
+      directionDeg: computeAngleDeg(polyline[0], polyline[1]),
+    })
+    terminals.push({
+      elementId: element.id,
+      isStart: false,
+      point: polyline[polyline.length - 1],
+      polylineIndex,
+      directionDeg: computeAngleDeg(polyline[polyline.length - 2], polyline[polyline.length - 1]),
+    })
+  })
+
+  return terminals
+}
+
+function createReviewBoundsAroundPoints(points: Vector2Mm[], paddingUnits: number) {
+  const bounds = computeBounds(points)
+
+  return bounds ? expandBounds(bounds, paddingUnits) : undefined
+}
+
+function createMissingJunctionReviewItem(args: {
+  id: string
+  left: SvgImportTerminalPoint
+  right: SvgImportTerminalPoint
+  millimetersPerUnit: number
+}): SvgImportReviewItem | undefined {
+  const midpoint = {
+    x: roundMm((args.left.point.x + args.right.point.x) / 2),
+    y: roundMm((args.left.point.y + args.right.point.y) / 2),
+  }
+  const bounds = createReviewBoundsAroundPoints(
+    [args.left.point, args.right.point, midpoint],
+    Math.max(1.5, 4 / Math.max(args.millimetersPerUnit, 1e-6)),
+  )
+
+  if (!bounds) {
+    return undefined
+  }
+
+  return {
+    allowKeepAsLinework: true,
+    bounds,
+    center: midpoint,
+    id: args.id,
+    kind: 'missing-junction',
+    label: 'Potential missing beam-turn optic',
+    sourceElementIds: [args.left.elementId, args.right.elementId],
+    suggestions: [
+      {
+        componentType: 'mirror',
+        confidence: 0.72,
+        reason: 'Near-orthogonal beam lines often indicate a steering mirror at the turn.',
+        source: 'heuristic',
+      },
+      {
+        componentType: 'beamsplitter',
+        confidence: 0.54,
+        reason: 'A missing plate optic can also produce a beam turn at a near-right-angle junction.',
+        source: 'heuristic',
+      },
+    ],
+  }
+}
+
 function buildHeuristicContext(
   document: SvgImportDocument,
   millimetersPerUnit: number,
@@ -1187,6 +1799,8 @@ function buildHeuristicContext(
   const concentricCountById = new Map<string, number>()
   const crossingLineCountById = new Map<string, number>()
   const enclosedOpenLineCountById = new Map<string, number>()
+  const junctionReviewItems: SvgImportReviewItem[] = []
+  const lineworkReviewElementIds = new Set<string>()
 
   for (const element of openElements) {
     const metrics = metricsById.get(element.id)
@@ -1209,6 +1823,104 @@ function buildHeuristicContext(
 
     if (hasBeamHint || isLongThinCardinalStroke || isPolylineBeamCandidate) {
       beamLineElementIds.add(element.id)
+    }
+  }
+
+  const terminals = openElements.flatMap((element) => getElementTerminalPoints(element))
+  const junctionKeys = new Set<string>()
+
+  for (let leftIndex = 0; leftIndex < terminals.length; leftIndex += 1) {
+    const leftTerminal = terminals[leftIndex]
+    const leftMetrics = metricsById.get(leftTerminal.elementId)
+
+    if (!leftMetrics) {
+      continue
+    }
+
+    for (let rightIndex = leftIndex + 1; rightIndex < terminals.length; rightIndex += 1) {
+      const rightTerminal = terminals[rightIndex]
+
+      if (leftTerminal.elementId === rightTerminal.elementId) {
+        continue
+      }
+
+      const rightMetrics = metricsById.get(rightTerminal.elementId)
+
+      if (!rightMetrics) {
+        continue
+      }
+
+      const gapMm =
+        computeSegmentLength(leftTerminal.point, rightTerminal.point) * millimetersPerUnit
+
+      if (gapMm > NEAR_CONNECTED_LINE_REVIEW_GAP_MM) {
+        continue
+      }
+
+      const bothThin =
+        leftMetrics.strokeWidthMm <= BEAM_LINE_MAX_STROKE_MM * 1.4 &&
+        rightMetrics.strokeWidthMm <= BEAM_LINE_MAX_STROKE_MM * 1.4 &&
+        leftMetrics.pathLengthMm >= 4 &&
+        rightMetrics.pathLengthMm >= 4
+
+      if (!bothThin) {
+        continue
+      }
+
+      const leftIsBeam = beamLineElementIds.has(leftTerminal.elementId)
+      const rightIsBeam = beamLineElementIds.has(rightTerminal.elementId)
+
+      if (gapMm <= NEAR_CONNECTED_GAP_MM && (leftIsBeam || rightIsBeam)) {
+        beamLineElementIds.add(leftTerminal.elementId)
+        beamLineElementIds.add(rightTerminal.elementId)
+      } else if (leftIsBeam || rightIsBeam) {
+        if (!leftIsBeam) {
+          lineworkReviewElementIds.add(leftTerminal.elementId)
+        }
+        if (!rightIsBeam) {
+          lineworkReviewElementIds.add(rightTerminal.elementId)
+        }
+      }
+
+      const turnDeltaDeg = angleDistanceHalfTurn(
+        leftTerminal.directionDeg,
+        rightTerminal.directionDeg,
+      )
+      const midpoint = {
+        x: (leftTerminal.point.x + rightTerminal.point.x) / 2,
+        y: (leftTerminal.point.y + rightTerminal.point.y) / 2,
+      }
+      const overlapsClosedGeometry = closedElements.some((closedElement) =>
+        boundsContainsPoint(
+          closedElement.bounds,
+          midpoint,
+          Math.max(1.2, 4 / Math.max(millimetersPerUnit, 1e-6)),
+        ),
+      )
+
+      if (
+        gapMm <= NEAR_CONNECTED_LINE_REVIEW_GAP_MM &&
+        turnDeltaDeg >= JUNCTION_TURN_MIN_DEG &&
+        turnDeltaDeg <= JUNCTION_TURN_MAX_DEG &&
+        (leftIsBeam || rightIsBeam) &&
+        !overlapsClosedGeometry
+      ) {
+        const junctionKey = [leftTerminal.elementId, rightTerminal.elementId].sort().join('::')
+
+        if (!junctionKeys.has(junctionKey)) {
+          const reviewItem = createMissingJunctionReviewItem({
+            id: `junction-${junctionKeys.size + 1}`,
+            left: leftTerminal,
+            millimetersPerUnit,
+            right: rightTerminal,
+          })
+
+          if (reviewItem) {
+            junctionReviewItems.push(reviewItem)
+            junctionKeys.add(junctionKey)
+          }
+        }
+      }
     }
   }
 
@@ -1329,6 +2041,8 @@ function buildHeuristicContext(
     concentricCountById,
     crossingLineCountById,
     enclosedOpenLineCountById,
+    junctionReviewItems,
+    lineworkReviewElementIds,
   }
 }
 
@@ -1500,12 +2214,12 @@ function createHeuristicSuggestions(
     const stageConfidence =
       enclosedOpenLineCount > 0 || aspectRatio >= 2.2 ? 0.74 : 0.58
     pushSuggestion(scores, {
-      componentType: 'sample-stage',
+      componentType: 'translation-stage',
       confidence: stageConfidence,
       reason:
         stageConfidence >= 0.7
-          ? 'Large rectangular body with internal guides resembles a sample stage.'
-          : 'Larger rectangular hardware can map to sample/stage symbols.',
+          ? 'Large rectangular body with internal guides resembles a translation or delay stage.'
+          : 'Larger rectangular hardware can map to translation-stage symbols.',
       source: 'heuristic',
     })
 
@@ -1562,30 +2276,17 @@ function buildAnnotationSegmentsForElement(
     return []
   }
 
-  if (element.isClosed || element.points.length < 2) {
+  if (element.isClosed || element.segments.length === 0) {
     return []
   }
 
-  const segments: SvgImportAnnotationSegment[] = []
-
-  for (let index = 1; index < element.points.length; index += 1) {
-    const start = element.points[index - 1]
-    const end = element.points[index]
-
-    if (computeSegmentLength(start, end) <= 1e-4) {
-      continue
-    }
-
-    segments.push({
+  return element.segments.map((segment) => ({
       elementId: element.id,
-      start,
-      end,
+      start: segment.start,
+      end: segment.end,
       color: element.stroke ?? DEFAULT_ANNOTATION_COLOR,
       strokeWidth: element.strokeWidth ?? DEFAULT_ANNOTATION_STROKE_MM,
-    })
-  }
-
-  return segments
+    }))
 }
 
 function angleDeltaDegrees(angleA: number, angleB: number) {
@@ -1644,6 +2345,182 @@ function createAnnotationId(existingIds: Set<string>) {
 
   existingIds.add(nextId)
   return nextId
+}
+
+function createBreadboardModelFromImportSurface(surface: SvgImportWorkspaceSurfaceConfig): BreadboardModel {
+  const base = getDefaultBreadboard()
+
+  return {
+    ...base,
+    label: surface.label,
+    widthMm: roundMm(surface.physicalWidthMm),
+    heightMm: roundMm(surface.physicalHeightMm),
+  }
+}
+
+function createWorkspaceFromImportConfig(config: SvgImportWorkspaceConfig): OpticalTableWorkspace | SceneDocument['workspace'] {
+  if (config.workspaceKind === 'single-breadboard') {
+    const primaryBoard = config.breadboards[0]
+
+    return {
+      kind: 'single-breadboard',
+      breadboard: createBreadboardModelFromImportSurface(primaryBoard),
+    }
+  }
+
+  const tableBase = createDefaultOpticalTable()
+  const tableSurface = config.table
+  const tableModel = {
+    ...tableBase,
+    label: tableSurface?.label ?? tableBase.label,
+    widthMm: roundMm(tableSurface?.physicalWidthMm ?? tableBase.widthMm),
+    heightMm: roundMm(tableSurface?.physicalHeightMm ?? tableBase.heightMm),
+  }
+  const scaleMmPerUnit = resolveSvgImportScaleMmPerUnit({
+    document: {
+      bounds: tableSurface?.boundsUnits ?? { x: 0, y: 0, width: tableModel.widthMm, height: tableModel.heightMm },
+      elements: [],
+      scale: { baseMmPerUnit: 1, isReliable: true, sourceUnit: 'mm' },
+      sourceKind: 'svg',
+      svgText: '',
+    },
+    workspaceConfig: config,
+  })
+
+  return {
+    kind: 'optical-table',
+    table: tableModel,
+    breadboards: config.breadboards.map((surface, index) => {
+      const breadboardModel = createBreadboardModelFromImportSurface(surface)
+      const centerMm = {
+        x: roundMm(
+          ((surface.boundsUnits.x - (tableSurface?.boundsUnits.x ?? 0)) + surface.boundsUnits.width / 2) *
+            scaleMmPerUnit,
+        ),
+        y: roundMm(
+          ((surface.boundsUnits.y - (tableSurface?.boundsUnits.y ?? 0)) + surface.boundsUnits.height / 2) *
+            scaleMmPerUnit,
+        ),
+      }
+
+      return createBreadboardInstance({
+        anchorMm: getBreadboardAnchorForCenterMm(breadboardModel, centerMm),
+        id: surface.id || `breadboard-${index + 1}`,
+        label: surface.label,
+        model: breadboardModel,
+      })
+    }),
+  }
+}
+
+interface SvgImportPlacementTarget {
+  boundsUnits: BoundsMm
+  hostSurfaceId: string
+  localOriginMm: Vector2Mm
+  rotationQuarterTurns: QuarterTurn
+  surfaceOriginMm: Vector2Mm
+}
+
+function getImportPlacementTargets(args: {
+  baseScene: SceneDocument
+  document: SvgImportDocument
+  hostSurfaceId?: string
+  millimetersPerUnit: number
+  mode: SvgImportMode
+  workspaceConfig?: SvgImportWorkspaceConfig
+}) {
+  const { baseScene, document, hostSurfaceId, millimetersPerUnit, mode, workspaceConfig } = args
+  const targetsById = new Map<string, SvgImportPlacementTarget>()
+  const primarySurface = workspaceConfig ? getPrimaryWorkspaceSurfaceConfig(workspaceConfig) : undefined
+
+  if (mode === 'replace' && workspaceConfig) {
+    if (workspaceConfig.workspaceKind === 'optical-table') {
+      const tableSurface = workspaceConfig.table
+
+      if (tableSurface) {
+        const surface = getSurfacePlacementModel(baseScene, OPTICAL_TABLE_SURFACE_ID)
+        targetsById.set(OPTICAL_TABLE_SURFACE_ID, {
+          boundsUnits: tableSurface.boundsUnits,
+          hostSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+          localOriginMm: { x: 0, y: 0 },
+          rotationQuarterTurns: surface.rotationQuarterTurns,
+          surfaceOriginMm: surface.originMm,
+        })
+      }
+
+      workspaceConfig.breadboards.forEach((surfaceConfig) => {
+        const surface = getSurfacePlacementModel(baseScene, surfaceConfig.id)
+        targetsById.set(surfaceConfig.id, {
+          boundsUnits: surfaceConfig.boundsUnits,
+          hostSurfaceId: surfaceConfig.id,
+          localOriginMm: { x: 0, y: 0 },
+          rotationQuarterTurns: surface.rotationQuarterTurns,
+          surfaceOriginMm: surface.originMm,
+        })
+      })
+
+      return {
+        primaryTarget: targetsById.get(workspaceConfig.breadboards[0]?.id ?? OPTICAL_TABLE_SURFACE_ID),
+        targetsById,
+      }
+    }
+
+    const surface = getSurfacePlacementModel(baseScene, SINGLE_BREADBOARD_SURFACE_ID)
+    const boardSurface = workspaceConfig.breadboards[0]
+    const singleTarget: SvgImportPlacementTarget = {
+      boundsUnits: boardSurface?.boundsUnits ?? document.bounds,
+      hostSurfaceId: SINGLE_BREADBOARD_SURFACE_ID,
+      localOriginMm: { x: 0, y: 0 },
+      rotationQuarterTurns: surface.rotationQuarterTurns,
+      surfaceOriginMm: surface.originMm,
+    }
+
+    return {
+      primaryTarget: singleTarget,
+      targetsById: new Map([[SINGLE_BREADBOARD_SURFACE_ID, singleTarget]]),
+    }
+  }
+
+  const surface = getSurfacePlacementModel(baseScene, hostSurfaceId)
+  const importWidthMm = (primarySurface?.physicalWidthMm ?? document.bounds.width * millimetersPerUnit)
+  const importHeightMm = (primarySurface?.physicalHeightMm ?? document.bounds.height * millimetersPerUnit)
+  const target: SvgImportPlacementTarget = {
+    boundsUnits: primarySurface?.boundsUnits ?? document.bounds,
+    hostSurfaceId: surface.hostSurfaceId,
+    localOriginMm: {
+      x: roundMm((surface.breadboard.widthMm - importWidthMm) / 2),
+      y: roundMm((surface.breadboard.heightMm - importHeightMm) / 2),
+    },
+    rotationQuarterTurns: surface.rotationQuarterTurns,
+    surfaceOriginMm: surface.originMm,
+  }
+
+  return {
+    primaryTarget: target,
+    targetsById: new Map([[surface.hostSurfaceId, target]]),
+  }
+}
+
+function getPlacementTargetForElement(args: {
+  element: SvgImportElement
+  primaryTarget?: SvgImportPlacementTarget
+  targetsById: Map<string, SvgImportPlacementTarget>
+}) {
+  const { element, primaryTarget, targetsById } = args
+  const breadboardTargets = [...targetsById.values()].filter(
+    (target) => target.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID,
+  )
+  const containingBreadboards = breadboardTargets.filter((target) =>
+    boundsContainsPoint(target.boundsUnits, element.center, 0),
+  )
+
+  if (containingBreadboards.length > 0) {
+    return containingBreadboards.sort(
+      (left, right) => boundsArea(left.boundsUnits) - boundsArea(right.boundsUnits),
+    )[0]
+  }
+
+  return targetsById.get(OPTICAL_TABLE_SURFACE_ID) ?? primaryTarget
 }
 
 function mapSvgPointToWorldMm(args: {
@@ -1706,14 +2583,35 @@ export function parseSvgImportDocument(svgText: string): SvgImportDocument {
     elements,
     bounds,
     scale: deriveScaleInfo(svgRoot, viewBox),
+    sourceKind: 'svg',
   }
 }
 
 export function resolveSvgImportScaleMmPerUnit(args: {
   calibration?: SvgCalibrationRequest
   document: SvgImportDocument
+  workspaceConfig?: SvgImportWorkspaceConfig
 }) {
-  const { calibration, document } = args
+  const { calibration, document, workspaceConfig } = args
+  const primarySurface = workspaceConfig ? getPrimaryWorkspaceSurfaceConfig(workspaceConfig) : undefined
+
+  if (primarySurface) {
+    const widthScale =
+      primarySurface.boundsUnits.width > 1e-6
+        ? primarySurface.physicalWidthMm / primarySurface.boundsUnits.width
+        : undefined
+    const heightScale =
+      primarySurface.boundsUnits.height > 1e-6
+        ? primarySurface.physicalHeightMm / primarySurface.boundsUnits.height
+        : undefined
+    const validScales = [widthScale, heightScale].filter(
+      (value): value is number => value !== undefined && Number.isFinite(value) && value > 0,
+    )
+
+    if (validScales.length > 0) {
+      return validScales.reduce((sum, value) => sum + value, 0) / validScales.length
+    }
+  }
 
   if (!calibration || calibration.samples.length === 0) {
     return document.scale.baseMmPerUnit
@@ -1742,10 +2640,11 @@ export function analyzeSvgImportDocument(args: {
   document: SvgImportDocument
   millimetersPerUnit: number
   profile: SvgImportProfile
+  workspaceDetection?: SvgImportWorkspaceDetection
 }): SvgImportAnalysis {
   const { document, millimetersPerUnit, profile } = args
   const recognized: SvgImportRecognizedElement[] = []
-  const ambiguous: SvgImportAmbiguousElement[] = []
+  const reviewItems: SvgImportReviewItem[] = []
   const warnings: string[] = []
   const mappedElementIds = new Set<string>()
   const heuristicContext = buildHeuristicContext(document, millimetersPerUnit)
@@ -1806,14 +2705,27 @@ export function analyzeSvgImportDocument(args: {
       continue
     }
 
-    ambiguous.push({
-      elementId: element.id,
+    reviewItems.push({
+      allowKeepAsLinework:
+        heuristicContext.lineworkReviewElementIds.has(element.id) && isOpenGeometryElement(element),
       bounds: element.bounds,
       center: element.center,
-      label: element.hints[0] ?? element.id,
+      elementId: element.id,
+      id: `element-${element.id}`,
+      kind:
+        heuristicContext.lineworkReviewElementIds.has(element.id) && isOpenGeometryElement(element)
+          ? 'linework-fragment'
+          : 'ambiguous-symbol',
+      label:
+        heuristicContext.lineworkReviewElementIds.has(element.id) && isOpenGeometryElement(element)
+          ? `Review thin line fragment: ${element.hints[0] ?? element.id}`
+          : element.hints[0] ?? element.id,
+      sourceElementIds: [element.id],
       suggestions: heuristicSuggestions,
     })
   }
+
+  reviewItems.push(...heuristicContext.junctionReviewItems)
 
   const annotationSegments: SvgImportAnnotationSegment[] = []
 
@@ -1838,9 +2750,11 @@ export function analyzeSvgImportDocument(args: {
 
   return {
     recognized,
-    ambiguous,
+    ambiguous: reviewItems,
     annotationSegments,
+    reviewItems,
     warnings,
+    workspaceDetection: args.workspaceDetection ?? detectSvgImportWorkspace(document),
   }
 }
 
@@ -1852,6 +2766,7 @@ export function applySvgImportToScene(args: {
   millimetersPerUnit: number
   mode: SvgImportMode
   scene: SceneDocument
+  workspaceConfig?: SvgImportWorkspaceConfig
 }): SvgImportApplyResult {
   const {
     analysis,
@@ -1861,83 +2776,131 @@ export function applySvgImportToScene(args: {
     millimetersPerUnit,
     mode,
     scene,
+    workspaceConfig,
   } = args
-  const baseScene = mode === 'replace' ? createReplaceSceneTemplate(scene) : copyScene(scene)
-  const resolvedSurfaceId = hostSurfaceId ?? getDefaultSurfaceId(baseScene)
-  const surface = getSurfacePlacementModel(baseScene, resolvedSurfaceId)
-  const importWidthMm = document.bounds.width * millimetersPerUnit
-  const importHeightMm = document.bounds.height * millimetersPerUnit
-
-  if (mode === 'replace' && baseScene.workspace.kind === 'single-breadboard') {
-    baseScene.workspace.breadboard.widthMm = Math.max(
-      baseScene.workspace.breadboard.widthMm,
-      roundMm(importWidthMm + IMPORT_PLACEMENT_PADDING_MM * 2),
-    )
-    baseScene.workspace.breadboard.heightMm = Math.max(
-      baseScene.workspace.breadboard.heightMm,
-      roundMm(importHeightMm + IMPORT_PLACEMENT_PADDING_MM * 2),
-    )
-  }
-
-  const updatedSurface = getSurfacePlacementModel(baseScene, surface.hostSurfaceId)
-  const targetOriginLocalMm = {
-    x: roundMm((updatedSurface.breadboard.widthMm - importWidthMm) / 2),
-    y: roundMm((updatedSurface.breadboard.heightMm - importHeightMm) / 2),
-  }
-  const mappedRecognized = new Map<string, SvgImportSuggestion>()
+  const workspaceOverride =
+    mode === 'replace' && workspaceConfig ? createWorkspaceFromImportConfig(workspaceConfig) : undefined
+  const baseScene =
+    mode === 'replace'
+      ? createReplaceSceneTemplate(scene, workspaceOverride)
+      : copyScene(scene)
+  const { primaryTarget, targetsById } = getImportPlacementTargets({
+    baseScene,
+    document,
+    hostSurfaceId,
+    millimetersPerUnit,
+    mode,
+    workspaceConfig,
+  })
+  const mappedRecognized = new Map<
+    string,
+    { suggestion: SvgImportSuggestion; variantId?: string }
+  >()
+  const suppressedAnnotationElementIds = new Set<string>()
+  const reviewItemById = new Map(analysis.reviewItems.map((item) => [item.id, item]))
+  const injectedComponents: Array<{
+    reviewItem: SvgImportReviewItem
+    componentType: ComponentType
+    variantId?: string
+  }> = []
 
   for (const recognized of analysis.recognized) {
-    mappedRecognized.set(recognized.elementId, recognized.suggestion)
+    mappedRecognized.set(recognized.elementId, {
+      suggestion: recognized.suggestion,
+    })
   }
 
   for (const resolution of manualResolutions) {
+    const reviewItem = reviewItemById.get(resolution.reviewItemId)
+
+    if (!reviewItem) {
+      continue
+    }
+
+    if (resolution.disposition === 'skip') {
+      reviewItem.sourceElementIds.forEach((elementId) => {
+        suppressedAnnotationElementIds.add(elementId)
+      })
+      continue
+    }
+
+    if (resolution.disposition === 'linework') {
+      continue
+    }
+
     if (!resolution.componentType) {
       continue
     }
 
-    mappedRecognized.set(resolution.elementId, {
+    if (reviewItem.elementId) {
+      mappedRecognized.set(reviewItem.elementId, {
+        suggestion: {
+          componentType: resolution.componentType,
+          confidence: 1,
+          reason: 'Manually resolved during import review.',
+          source: 'deterministic',
+        },
+        variantId: resolution.variantId,
+      })
+      continue
+    }
+
+    injectedComponents.push({
+      reviewItem,
       componentType: resolution.componentType,
-      confidence: 1,
-      reason: 'Manually resolved during import review.',
-      source: 'deterministic',
+      variantId: resolution.variantId,
     })
   }
 
-  const unresolvedAmbiguousElements = analysis.ambiguous.filter(
-    (item) => !mappedRecognized.has(item.elementId),
+  const unresolvedAmbiguousElements = analysis.reviewItems.filter(
+    (item) =>
+      !manualResolutions.some((resolution) => resolution.reviewItemId === item.id) &&
+      (!item.elementId || !mappedRecognized.has(item.elementId)),
   ).length
   const elementById = new Map(document.elements.map((element) => [element.id, element]))
+  const targetByElementId = new Map(
+    document.elements.map((element) => [
+      element.id,
+      getPlacementTargetForElement({
+        element,
+        primaryTarget,
+        targetsById,
+      }),
+    ]),
+  )
   const warnings = [...analysis.warnings]
   const existingComponentIds = new Set(baseScene.components.map((component) => component.id))
   const existingAnnotationIds = new Set(baseScene.annotations.map((annotation) => annotation.id))
 
-  for (const [elementId, suggestion] of mappedRecognized.entries()) {
+  for (const [elementId, resolution] of mappedRecognized.entries()) {
     const element = elementById.get(elementId)
+    const target = targetByElementId.get(elementId) ?? primaryTarget
 
-    if (!element) {
+    if (!element || !target) {
       continue
     }
 
     const worldAnchor = mapSvgPointToWorldMm({
-      importBounds: document.bounds,
+      importBounds: target.boundsUnits,
       millimetersPerUnit,
       point: element.center,
-      targetOriginLocalMm,
-      targetRotationQuarterTurns: updatedSurface.rotationQuarterTurns,
-      targetSurfaceOriginMm: updatedSurface.originMm,
+      targetOriginLocalMm: target.localOriginMm,
+      targetRotationQuarterTurns: target.rotationQuarterTurns,
+      targetSurfaceOriginMm: target.surfaceOriginMm,
     })
     const useElementRotation =
       isOpenGeometryElement(element) &&
-      (suggestion.componentType === 'mirror' || suggestion.componentType === 'curved-mirror')
+      (resolution.suggestion.componentType === 'mirror' ||
+        resolution.suggestion.componentType === 'curved-mirror')
     const localQuarterTurn = useElementRotation ? toQuarterTurn(element.rotationDeg) : 0
     const worldQuarterTurn = normalizeQuarterTurns(
-      (localQuarterTurn + updatedSurface.rotationQuarterTurns) as QuarterTurn,
+      (localQuarterTurn + target.rotationQuarterTurns) as QuarterTurn,
     )
 
     if (useElementRotation) {
       const snappedRotationDeg = worldQuarterTurn * 90
       const rawWorldRotationDeg =
-        element.rotationDeg + updatedSurface.rotationQuarterTurns * 90
+        element.rotationDeg + target.rotationQuarterTurns * 90
       const rotationDeltaDeg = angleDeltaDegrees(rawWorldRotationDeg, snappedRotationDeg)
 
       if (rotationDeltaDeg > 0.75) {
@@ -1947,19 +2910,65 @@ export function applySvgImportToScene(args: {
       }
     }
 
-    const definition = getComponentDefinition(suggestion.componentType)
+    const definition = getComponentDefinition(resolution.suggestion.componentType)
+    const variantId =
+      resolution.variantId ??
+      getResolvedComponentSpec(
+        resolution.suggestion.componentType,
+        definition.defaultVariantId,
+      ).variantId
     const componentDraft: ComponentInstance = {
-      id: createComponentId(suggestion.componentType, existingComponentIds),
-      type: suggestion.componentType,
-      label: createAutoLabel(suggestion.componentType, baseScene.components),
-      variantId: definition.defaultVariantId,
+      id: createComponentId(resolution.suggestion.componentType, existingComponentIds),
+      type: resolution.suggestion.componentType,
+      label: createAutoLabel(resolution.suggestion.componentType, baseScene.components),
+      variantId,
       anchorMm: worldAnchor,
-      hostSurfaceId: updatedSurface.hostSurfaceId,
+      hostSurfaceId: target.hostSurfaceId,
       rotationQuarterTurns: worldQuarterTurn,
       config: createDefaultComponentConfig(
-        suggestion.componentType,
-        definition.defaultVariantId,
+        resolution.suggestion.componentType,
+        variantId,
       ),
+    }
+
+    componentDraft.anchorMm = reconcileComponentAnchorForScene(componentDraft, baseScene)
+    baseScene.components.push(componentDraft)
+  }
+
+  for (const injected of injectedComponents) {
+    const sourceTarget =
+      injected.reviewItem.sourceElementIds[0]
+        ? targetByElementId.get(injected.reviewItem.sourceElementIds[0])
+        : undefined
+    const target = sourceTarget ?? primaryTarget
+
+    if (!target) {
+      continue
+    }
+
+    const definition = getComponentDefinition(injected.componentType)
+    const variantId =
+      injected.variantId ??
+      getResolvedComponentSpec(injected.componentType, definition.defaultVariantId).variantId
+    const componentDraft: ComponentInstance = {
+      id: createComponentId(injected.componentType, existingComponentIds),
+      type: injected.componentType,
+      label: createAutoLabel(injected.componentType, baseScene.components),
+      variantId,
+      anchorMm: mapSvgPointToWorldMm({
+        importBounds: target.boundsUnits,
+        millimetersPerUnit,
+        point: injected.reviewItem.center,
+        targetOriginLocalMm: target.localOriginMm,
+        targetRotationQuarterTurns: target.rotationQuarterTurns,
+        targetSurfaceOriginMm: target.surfaceOriginMm,
+      }),
+      hostSurfaceId: target.hostSurfaceId,
+      rotationQuarterTurns: normalizeQuarterTurns(
+        (toQuarterTurn(injected.reviewItem.suggestedRotationDeg ?? 0) +
+          target.rotationQuarterTurns) as QuarterTurn,
+      ),
+      config: createDefaultComponentConfig(injected.componentType, variantId),
     }
 
     componentDraft.anchorMm = reconcileComponentAnchorForScene(componentDraft, baseScene)
@@ -1969,25 +2978,34 @@ export function applySvgImportToScene(args: {
   const mappedElementIdSet = new Set(mappedRecognized.keys())
 
   for (const segment of analysis.annotationSegments) {
-    if (mappedElementIdSet.has(segment.elementId)) {
+    if (
+      mappedElementIdSet.has(segment.elementId) ||
+      suppressedAnnotationElementIds.has(segment.elementId)
+    ) {
+      continue
+    }
+
+    const target = targetByElementId.get(segment.elementId) ?? primaryTarget
+
+    if (!target) {
       continue
     }
 
     const startMm = mapSvgPointToWorldMm({
-      importBounds: document.bounds,
+      importBounds: target.boundsUnits,
       millimetersPerUnit,
       point: segment.start,
-      targetOriginLocalMm,
-      targetRotationQuarterTurns: updatedSurface.rotationQuarterTurns,
-      targetSurfaceOriginMm: updatedSurface.originMm,
+      targetOriginLocalMm: target.localOriginMm,
+      targetRotationQuarterTurns: target.rotationQuarterTurns,
+      targetSurfaceOriginMm: target.surfaceOriginMm,
     })
     const endMm = mapSvgPointToWorldMm({
-      importBounds: document.bounds,
+      importBounds: target.boundsUnits,
       millimetersPerUnit,
       point: segment.end,
-      targetOriginLocalMm,
-      targetRotationQuarterTurns: updatedSurface.rotationQuarterTurns,
-      targetSurfaceOriginMm: updatedSurface.originMm,
+      targetOriginLocalMm: target.localOriginMm,
+      targetRotationQuarterTurns: target.rotationQuarterTurns,
+      targetSurfaceOriginMm: target.surfaceOriginMm,
     })
     const strokeWidthMm = Math.max(
       0.35,

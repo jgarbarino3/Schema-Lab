@@ -7,7 +7,12 @@ import {
 import { rotateBoundsQuarterTurns, roundMm } from './geometry'
 import { getWorldPortsForComponent } from './ports'
 import {
+  componentLocalToWorld,
+  componentWorldToLocal,
   getBreadboardWorldBoundsMm,
+  getComponentById,
+  getComponentRootId,
+  getComponentTreeIds,
   getDefaultSurfaceId,
   getHostSurfaceIdForComponent,
   getOpticalTableWorldBoundsMm,
@@ -276,6 +281,92 @@ function getWorldBounds(
   )
 }
 
+function getAttachedComponentPlacement(args: {
+  candidateAnchorMm: Vector2Mm
+  component: ComponentInstance
+  rotationQuarterTurns?: QuarterTurn
+  scene: SceneDocument
+  spec?: ResolvedComponentSpec
+}): PlacementResult | undefined {
+  const { candidateAnchorMm, component, scene } = args
+
+  if (!component.attachment) {
+    return undefined
+  }
+
+  const parent = getComponentById(scene, component.attachment.parentComponentId)
+
+  if (!parent) {
+    return undefined
+  }
+
+  const parentSpec = getResolvedComponentSpecForInstance(parent)
+  const mountSite = parentSpec.mountSites.find(
+    (site) => site.id === component.attachment?.parentMountSiteId,
+  )
+
+  if (!mountSite) {
+    return undefined
+  }
+
+  const spec = args.spec ?? getResolvedComponentSpecForInstance(component)
+  const localRotationQuarterTurns = (
+    ((args.rotationQuarterTurns ?? component.rotationQuarterTurns) -
+      parent.rotationQuarterTurns +
+      4) %
+    4
+  ) as QuarterTurn
+  const localAnchorMm = componentWorldToLocal(scene, parent.id, candidateAnchorMm)
+  const localFootprintBoundsMm = getWorldBounds(
+    spec.footprintBoundsMm,
+    localAnchorMm,
+    localRotationQuarterTurns,
+  )
+  const localSupportBoundsMm = getWorldBounds(
+    getEffectiveSupportBoundsMm(component, spec),
+    localAnchorMm,
+    localRotationQuarterTurns,
+  )
+  const isMountSupported = isBoundsWithinBounds(
+    localSupportBoundsMm,
+    mountSite.seatBoundsMm,
+  )
+  const isFootprintInsideBoard = isBoundsWithinBounds(
+    localFootprintBoundsMm,
+    mountSite.seatBoundsMm,
+  )
+  const worldResolvedAnchorMm = componentLocalToWorld(scene, parent.id, localAnchorMm)
+
+  return {
+    candidateAnchorMm,
+    resolvedAnchorMm: worldResolvedAnchorMm,
+    nearestHoleMm: worldResolvedAnchorMm,
+    snappedHoleMm: undefined,
+    snapPreviewHoleMm: undefined,
+    distanceToNearestHoleMm: 0,
+    status: isMountSupported ? 'valid' : 'warning',
+    reason: isMountSupported
+      ? 'none'
+      : isFootprintInsideBoard
+        ? 'support-outside-board'
+        : 'footprint-overhang',
+    isOnHole: true,
+    isMountSupported,
+    isFootprintInsideBoard,
+    isOccupied: false,
+    footprintBoundsMm: getWorldBounds(
+      localFootprintBoundsMm,
+      parent.anchorMm,
+      parent.rotationQuarterTurns,
+    ),
+    supportBoundsMm: getWorldBounds(
+      localSupportBoundsMm,
+      parent.anchorMm,
+      parent.rotationQuarterTurns,
+    ),
+  }
+}
+
 function getSourceLane(component: ComponentInstance): SourceLane {
   return component.config.source?.lane ?? 'left'
 }
@@ -460,6 +551,12 @@ export function resolveScenePlacement(args: {
   spec?: ResolvedComponentSpec
 }) {
   const { scene, component } = args
+  const attachedPlacement = getAttachedComponentPlacement(args)
+
+  if (attachedPlacement) {
+    return attachedPlacement
+  }
+
   const hostSurfaceId = getHostSurfaceIdForComponent(scene, component)
   const surface = getSurfacePlacementModel(scene, hostSurfaceId)
   const localRotationQuarterTurns = (
@@ -600,6 +697,7 @@ export function annotatePlacementOccupancy(args: {
 
 export function annotateScenePlacementOccupancy(args: {
   scene: SceneDocument
+  component?: ComponentInstance
   components: ComponentInstance[]
   ignoreComponentId?: string
   result: PlacementResult
@@ -607,8 +705,34 @@ export function annotateScenePlacementOccupancy(args: {
 }) {
   const { scene, components, ignoreComponentId, result } = args
   const resolvedHostSurfaceId = args.hostSurfaceId ?? getDefaultSurfaceId(scene)
+  const ignoredAttachmentTreeIds =
+    args.component && !args.component.attachment
+      ? new Set(
+          getComponentTreeIds(
+            scene,
+            getComponentRootId(scene, args.component.id) ?? args.component.id,
+          ),
+        )
+      : undefined
   const isOccupied = components.some((component) => {
     if (component.id === ignoreComponentId) {
+      return false
+    }
+
+    if (args.component?.attachment) {
+      return (
+        component.attachment?.parentComponentId ===
+          args.component.attachment.parentComponentId &&
+        component.attachment.parentMountSiteId ===
+          args.component.attachment.parentMountSiteId &&
+        doBoundsIntersect(
+          result.supportBoundsMm,
+          inspectSceneComponentPlacement(scene, component).supportBoundsMm,
+        )
+      )
+    }
+
+    if (ignoredAttachmentTreeIds?.has(component.id)) {
       return false
     }
 
@@ -794,6 +918,7 @@ export function findDuplicateScenePlacement(args: {
     )
     const placement = annotateScenePlacementOccupancy({
       scene,
+      component,
       components,
       ignoreComponentId: component.id,
       result: resolveScenePlacement({

@@ -693,7 +693,7 @@ export function Toolbar({
                     }}
                     type="button"
                   >
-                    Import Interpreted SVG
+                    Import Interpreted Drawing
                   </button>
                 </section>
 

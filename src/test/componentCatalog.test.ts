@@ -1,18 +1,109 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COMPONENT_DEFINITIONS,
   createDefaultComponentConfig,
   getResolvedComponentSpec,
+  getResolvedComponentSpecForInstance,
 } from '../domain/componentCatalog'
 
 describe('component catalog variants', () => {
   it('includes the PI M-112.1DG1 delay-stage variant with practical geometry', () => {
-    const stage = getResolvedComponentSpec('sample-stage', 'pi-m-112-1dg1')
+    const stage = getResolvedComponentSpec('delay-stage', 'pi-m-112-1dg1')
 
     expect(stage.vendor).toBe('PI')
     expect(stage.sku).toBe('M-112.1DG1')
     expect(stage.footprintBoundsMm.width).toBeCloseTo(85, 3)
     expect(stage.renderHint.glyph).toBe('sample-delay-stage')
     expect(stage.recommendedHardware?.mount).toBeDefined()
+  })
+
+  it('maps the CSV-backed hardware SKUs into placeable variants with practical footprints', () => {
+    const base = getResolvedComponentSpec('support-hardware', 'ba2-m')
+    const lens = getResolvedComponentSpec('lens', 'la4102-ab')
+    const detector = getResolvedComponentSpec('detector', 'bc207vis-m')
+    const spectrometer = getResolvedComponentSpec('spectrometer', 'cct10')
+
+    expect(base.sku).toBe('BA2/M')
+    expect(base.footprintBoundsMm.width).toBeCloseTo(50, 3)
+    expect(base.footprintBoundsMm.height).toBeCloseTo(75, 3)
+    expect(lens.footprintBoundsMm.width).toBeCloseTo(50.8, 3)
+    expect(detector.sku).toBe('BC207VIS/M')
+    expect(spectrometer.sku).toBe('CCT10')
+  })
+
+  it('covers the intended placeable core set from the Thorlabs CSVs and leaves accessory-only SKUs out', () => {
+    const skus = new Set(
+      COMPONENT_DEFINITIONS.flatMap((definition) =>
+        definition.variants.map((variant) => variant.sku).filter(Boolean),
+      ),
+    )
+
+    expect([...skus]).toEqual(
+      expect.arrayContaining([
+        'BA2/M',
+        'BC207VIS/M',
+        'BSW10',
+        'CCT10',
+        'CF038C/M',
+        'CF125C/M',
+        'CL5',
+        'DH1/M',
+        'FGB37',
+        'FGB39',
+        'FH2',
+        'FM90/M',
+        'FP01',
+        'IDA12/M',
+        'KM100',
+        'LA4102-AB',
+        'LA4148-A/AB',
+        'LA4158-AB',
+        'LA4236-A',
+        'LA4725-A/AB',
+        'LA4874-A/AB',
+        'LMR1/M',
+        'NDL-10C-2',
+        'PF10-03-P01',
+        'PH20E/M',
+        'PH40E/M',
+        'PH50E/M',
+        'PT1/M',
+        'PT101/M',
+        'PT3/M',
+        'S120VC',
+        'ST1XY-S/M',
+        'TR20/M',
+        'TR30/M',
+        'TR40/M',
+        'TR50/M',
+        'TR75/M',
+        'XE25L225/M',
+        'AB90H',
+      ]),
+    )
+    expect(skus.has('PM100D')).toBe(false)
+    expect(skus.has('PM5020')).toBe(false)
+    expect(skus.has('XE25T3/M')).toBe(false)
+    expect(skus.has('R2/M')).toBe(false)
+  })
+
+  it('makes the compact slotted holder the default and preserves the generic holder geometry', () => {
+    expect(
+      COMPONENT_DEFINITIONS.find((definition) => definition.type === 'sample-holder')
+        ?.defaultVariantId,
+    ).toBe('compact-slotted-sample-holder')
+    const holder = getResolvedComponentSpec('sample-holder', 'compact-slotted-sample-holder')
+    const genericHolder = getResolvedComponentSpec('sample-holder', 'sample-holder-generic')
+    const opticSeat = holder.mountSites.find((seat) => seat.id === 'optic-seat')
+
+    expect(holder.footprintBoundsMm.width).toBeCloseTo(75, 3)
+    expect(genericHolder.footprintBoundsMm.width).toBeCloseTo(62.5, 3)
+    expect(opticSeat).toBeDefined()
+    expect(opticSeat?.seatBoundsMm.width).toBeGreaterThanOrEqual(30)
+    expect(opticSeat?.seatBoundsMm.height).toBeGreaterThanOrEqual(30)
+    expect(opticSeat?.allowedChildMountModes).toEqual(
+      expect.arrayContaining(['clamp-capable', 'hole-mounted']),
+    )
   })
 
   it('adds explicit polarizer, waveplate, telescope, and OPA module families', () => {
@@ -102,6 +193,18 @@ describe('component catalog variants', () => {
     expect(
       getResolvedComponentSpec('support-hardware', 'pump-seed-combiner').renderHint.glyph,
     ).toBe('support-pump-seed-combiner')
+    expect(
+      getResolvedComponentSpec('filter', 'felh0400').renderHint.glyph,
+    ).toBe('filter-longpass')
+    expect(
+      getResolvedComponentSpec('filter', 'fesh0600').renderHint.glyph,
+    ).toBe('filter-shortpass')
+    expect(
+      getResolvedComponentSpec('filter', 'fguv5-uv').renderHint.glyph,
+    ).toBe('filter-colored-glass')
+    expect(
+      getResolvedComponentSpec('filter', 'fbh266-10').renderHint.glyph,
+    ).toBe('filter-bandpass')
     expect(getResolvedComponentSpec('mirror', 'flip-mirror').renderHint.glyph).toBe(
       'mirror-flip',
     )
@@ -117,11 +220,52 @@ describe('component catalog variants', () => {
     expect(
       getResolvedComponentSpec('telescope', 'reflective-compressor-2x').renderHint.glyph,
     ).toBe('telescope-reflective')
-    expect(getResolvedComponentSpec('sample-stage', 'pi-ls-180').renderHint.glyph).toBe(
+    expect(
+      getResolvedComponentSpec('opa-module', 'white-light-generator').renderHint.glyph,
+    ).toBe('opa-white-light')
+    expect(
+      getResolvedComponentSpec('opa-module', 'pump-seed-combiner').renderHint.glyph,
+    ).toBe('opa-combiner')
+    expect(
+      getResolvedComponentSpec('opa-module', 'opa-gain-stage').renderHint.glyph,
+    ).toBe('opa-gain')
+    expect(getResolvedComponentSpec('delay-stage', 'pi-ls-180').renderHint.glyph).toBe(
       'sample-motorized-stage',
     )
     expect(
       getResolvedComponentSpec('spectrometer', 'spectrapro-sp-2150').renderHint.glyph,
     ).toBe('spectrometer-bench')
+  })
+
+  it('applies per-instance stage and sample appearance overrides to resolved specs', () => {
+    const stageSpec = getResolvedComponentSpecForInstance({
+      id: 'stage-1',
+      type: 'sample-holder',
+      label: 'Holder',
+      variantId: 'slotted-silver-sample-holder',
+      anchorMm: { x: 0, y: 0 },
+      rotationQuarterTurns: 0,
+      finishId: 'graphite',
+      config: createDefaultComponentConfig('sample-holder', 'slotted-silver-sample-holder'),
+    })
+    const sampleSpec = getResolvedComponentSpecForInstance({
+      id: 'sample-1',
+      type: 'sample',
+      label: 'TiN',
+      variantId: 'tin-substrate',
+      anchorMm: { x: 0, y: 0 },
+      rotationQuarterTurns: 0,
+      materialId: 'tin',
+      config: createDefaultComponentConfig('sample', 'tin-substrate'),
+    })
+
+    expect(stageSpec.renderHint.fill).not.toBe(
+      getResolvedComponentSpec('sample-holder', 'slotted-silver-sample-holder').renderHint.fill,
+    )
+    expect(stageSpec.realisticVisualPreset?.finish).toBe('graphite')
+    expect(sampleSpec.realisticVisualPreset?.accentFill).toBeDefined()
+    expect(sampleSpec.renderHint.fill).not.toBe(
+      getResolvedComponentSpec('sample', 'tin-substrate').renderHint.fill,
+    )
   })
 })
