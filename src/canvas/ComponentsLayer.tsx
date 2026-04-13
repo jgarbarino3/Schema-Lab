@@ -25,6 +25,7 @@ import { ComponentNodeView, type SimpleGlyphAppearance } from './ComponentNode'
 interface DragPreviewState {
   componentId: string
   candidateAnchorMm: { x: number; y: number }
+  componentIds?: string[]
   hostSurfaceId?: string
 }
 
@@ -131,6 +132,11 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   const previewedComponent = dragPreview
     ? components.find((component) => component.id === dragPreview.componentId)
     : undefined
+  const draggedComponentIds =
+    dragPreview?.componentIds?.length ? dragPreview.componentIds : undefined
+  const draggedComponentIdSet = draggedComponentIds
+    ? new Set(draggedComponentIds)
+    : undefined
   const breadboardDragDeltaMm =
     scene.workspace.kind === 'optical-table' && breadboardDragPreview
       ? (() => {
@@ -212,18 +218,42 @@ export const ComponentsLayer = memo(function ComponentsLayer({
       {components.map((component) => (
         <ComponentNodeView
           isHighlighted={highlightedComponentIds?.includes(component.id)}
-          instance={
-            breadboardDragDeltaMm &&
-            component.hostSurfaceId === breadboardDragPreview?.breadboardId
-              ? {
-                  ...component,
-                  anchorMm: {
-                    x: component.anchorMm.x + breadboardDragDeltaMm.x,
-                    y: component.anchorMm.y + breadboardDragDeltaMm.y,
-                  },
-                }
-              : component
-          }
+          instance={(() => {
+            const breadboardShiftedComponent =
+              breadboardDragDeltaMm &&
+              component.hostSurfaceId === breadboardDragPreview?.breadboardId
+                ? {
+                    ...component,
+                    anchorMm: {
+                      x: component.anchorMm.x + breadboardDragDeltaMm.x,
+                      y: component.anchorMm.y + breadboardDragDeltaMm.y,
+                    },
+                  }
+                : component
+
+            if (
+              !dragPreview ||
+              !previewedComponent ||
+              !draggedComponentIdSet?.has(component.id)
+            ) {
+              return breadboardShiftedComponent
+            }
+
+            if (component.id === dragPreview.componentId) {
+              return {
+                ...breadboardShiftedComponent,
+                anchorMm: dragPreview.candidateAnchorMm,
+              }
+            }
+
+            return {
+              ...breadboardShiftedComponent,
+              anchorMm: {
+                x: dragPreview.candidateAnchorMm.x + (component.anchorMm.x - previewedComponent.anchorMm.x),
+                y: dragPreview.candidateAnchorMm.y + (component.anchorMm.y - previewedComponent.anchorMm.y),
+              },
+            }
+          })()}
           isDragEnabled={!isPanMode && !isLineTool}
           isHovered={component.id === hoveredComponentId}
           isSelected={component.id === selectedComponentId}

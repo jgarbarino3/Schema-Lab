@@ -210,6 +210,78 @@ describe('editor store single breadboard viewport', () => {
   })
 })
 
+describe('editor store highlight drag', () => {
+  const mirrorVariantId = getComponentDefinition('mirror').defaultVariantId
+
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(
+      {
+        ...createEmptyScene(),
+        components: [
+          {
+            id: 'mirror-1',
+            type: 'mirror',
+            label: 'Mirror 1',
+            variantId: mirrorVariantId,
+            anchorMm: { x: 112.5, y: 112.5 },
+            rotationQuarterTurns: 0,
+            config: createDefaultComponentConfig('mirror', mirrorVariantId),
+          },
+          {
+            id: 'mirror-2',
+            type: 'mirror',
+            label: 'Mirror 2',
+            variantId: mirrorVariantId,
+            anchorMm: { x: 162.5, y: 112.5 },
+            rotationQuarterTurns: 0,
+            config: createDefaultComponentConfig('mirror', mirrorVariantId),
+          },
+        ],
+      },
+      { history: 'reset' },
+    )
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('moves all highlighted components together when dragging one of them', () => {
+    const store = useEditorStore.getState()
+
+    store.setActiveTool('highlight')
+    store.commitHighlightSelectionBounds({ x: 80, y: 80 }, { x: 200, y: 150 })
+
+    expect(useEditorStore.getState().interaction.highlightSelection?.componentIds).toEqual([
+      'mirror-1',
+      'mirror-2',
+    ])
+
+    store.beginComponentDrag('mirror-1')
+    store.updateComponentDrag('mirror-1', { x: 212.5, y: 212.5 })
+    store.commitComponentDrag('mirror-1', { x: 212.5, y: 212.5 })
+
+    expect(useEditorStore.getState().scene.components).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mirror-1',
+          anchorMm: { x: 212.5, y: 212.5 },
+        }),
+        expect.objectContaining({
+          id: 'mirror-2',
+          anchorMm: { x: 262.5, y: 212.5 },
+        }),
+      ]),
+    )
+    expect(useEditorStore.getState().interaction.highlightSelection?.boundsMm).toMatchObject({
+      x: 196.5,
+      y: 196.5,
+      width: 82,
+      height: 32,
+    })
+  })
+})
+
 describe('editor store optical table placement', () => {
   const mirrorVariantId = getComponentDefinition('mirror').defaultVariantId
 

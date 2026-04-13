@@ -161,6 +161,7 @@ interface ComponentConfigUpdate {
 interface DragPreviewState {
   componentId: string
   candidateAnchorMm: Vector2Mm
+  componentIds?: string[]
   hostSurfaceId?: string
 }
 
@@ -1233,6 +1234,28 @@ function getHighlightSelectionBounds(
       return annotation ? getAnnotationBoundsMm(annotation) : undefined
     }),
   ].filter((boundsMm): boundsMm is BoundsMm => Boolean(boundsMm)))
+}
+
+function resolveDraggedComponentIds(
+  scene: SceneDocument,
+  interaction: InteractionState,
+  component: ComponentInstance,
+) {
+  const highlightedComponentIds = interaction.highlightSelection?.componentIds ?? []
+
+  if (!highlightedComponentIds.includes(component.id)) {
+    return [component.id]
+  }
+
+  const resolvedIds =
+    scene.workspace.kind === 'optical-table'
+      ? highlightedComponentIds.filter((componentId) => {
+          const candidate = scene.components.find((item) => item.id === componentId)
+          return candidate?.hostSurfaceId === component.hostSurfaceId
+        })
+      : highlightedComponentIds
+
+  return resolvedIds.length > 0 ? resolvedIds : [component.id]
 }
 
 function applyMountVisibilityDefault(
@@ -2926,6 +2949,12 @@ export const useEditorStore = create<EditorStore>((set) => ({
         return state
       }
 
+      const draggedComponentIds = resolveDraggedComponentIds(
+        state.scene,
+        state.interaction,
+        component,
+      )
+
       return {
         selection: { type: 'component', componentId },
         interaction: {
@@ -2941,6 +2970,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           dragPreview: {
             componentId,
             candidateAnchorMm: component.anchorMm,
+            componentIds: draggedComponentIds,
             hostSurfaceId: component.hostSurfaceId,
           },
           notice: undefined,
@@ -2991,6 +3021,7 @@ export const useEditorStore = create<EditorStore>((set) => ({
           dragPreview: {
             componentId,
             candidateAnchorMm: guidedAnchorMm,
+            componentIds: state.interaction.dragPreview?.componentIds,
             hostSurfaceId: previewComponent.hostSurfaceId,
           },
         },
@@ -3046,19 +3077,45 @@ export const useEditorStore = create<EditorStore>((set) => ({
         snapMode: state.snapMode,
       })
 
+      const draggedComponentIds =
+        state.interaction.dragPreview?.componentIds?.length
+          ? state.interaction.dragPreview.componentIds
+          : [componentId]
+      const draggedComponentIdSet = new Set(draggedComponentIds)
+      const dragDeltaMm = {
+        x: roundMm(placement.resolvedAnchorMm.x - component.anchorMm.x),
+        y: roundMm(placement.resolvedAnchorMm.y - component.anchorMm.y),
+      }
+      const nextScene = {
+        ...state.scene,
+        components: state.scene.components.map((item) => {
+          if (!draggedComponentIdSet.has(item.id)) {
+            return item
+          }
+
+          if (item.id === componentId) {
+            return {
+              ...item,
+              anchorMm: placement.resolvedAnchorMm,
+              hostSurfaceId: previewComponent.hostSurfaceId,
+            }
+          }
+
+          return {
+            ...item,
+            anchorMm: {
+              x: roundMm(item.anchorMm.x + dragDeltaMm.x),
+              y: roundMm(item.anchorMm.y + dragDeltaMm.y),
+            },
+          }
+        }),
+      }
+      const nextHighlightBoundsMm = state.interaction.highlightSelection
+        ? getHighlightSelectionBounds(nextScene, state.interaction.highlightSelection)
+        : undefined
+
       return withCommittedScene(state, {
-        scene: {
-          ...state.scene,
-          components: state.scene.components.map((item) =>
-            item.id === componentId
-              ? {
-                  ...item,
-                  anchorMm: placement.resolvedAnchorMm,
-                  hostSurfaceId: previewComponent.hostSurfaceId,
-                }
-              : item,
-          ),
-        },
+        scene: nextScene,
         interaction: {
           ...state.interaction,
           activeHostSurfaceId: previewComponent.hostSurfaceId,
@@ -3069,6 +3126,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
               : state.interaction.focusedBreadboardId,
           activeDragComponentId: undefined,
           dragPreview: undefined,
+          highlightSelection:
+            state.interaction.highlightSelection && nextHighlightBoundsMm
+              ? {
+                  ...state.interaction.highlightSelection,
+                  boundsMm: nextHighlightBoundsMm,
+                }
+              : state.interaction.highlightSelection,
           notice: describePlacementReason(placement.reason),
         },
       })

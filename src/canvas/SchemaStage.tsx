@@ -256,6 +256,7 @@ export function SchemaStage({
   const [dragPreview, setDragPreview] = useState<{
     componentId: string
     candidateAnchorMm: Vector2Mm
+    componentIds?: string[]
     hostSurfaceId?: string
   }>()
   const [breadboardDragPreview, setBreadboardDragPreview] = useState<{
@@ -1191,27 +1192,27 @@ export function SchemaStage({
   const handleBeginComponentDrag = useCallback(
     (componentId: string) => {
       beginComponentDrag(componentId)
-      const component = scene.components.find((item) => item.id === componentId)
+      const nextDragPreview = useEditorStore.getState().interaction.dragPreview
 
-      if (!component) {
+      if (!nextDragPreview || nextDragPreview.componentId !== componentId) {
         return
       }
 
-      setDragPreview({
-        componentId,
-        candidateAnchorMm: component.anchorMm,
-        hostSurfaceId: component.hostSurfaceId,
-      })
+      setDragPreview(nextDragPreview)
     },
-    [beginComponentDrag, scene.components],
+    [beginComponentDrag],
   )
 
   const handleUpdateComponentDrag = useCallback(
     (componentId: string, anchorMm: Vector2Mm) => {
-      setDragPreview({
+      setDragPreview((currentPreview) => ({
         componentId,
         candidateAnchorMm: anchorMm,
-      })
+        componentIds:
+          currentPreview?.componentId === componentId
+            ? currentPreview.componentIds
+            : undefined,
+      }))
     },
     [],
   )
