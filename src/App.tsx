@@ -61,6 +61,7 @@ import {
   type SvgImportWorkspaceConfig,
   type SvgImportWorkspaceDetection,
 } from './domain/svgImport'
+import { type ImportConfirmAction } from './ui/importPreviewSession'
 import {
   detectRasterImportCandidates,
   rescaleRasterImportCandidates,
@@ -1724,12 +1725,23 @@ function App() {
       analysis: SvgImportAnalysis
       appendBreadboardCenterMm?: { x: number; y: number }
       document: SvgImportDocument
+      actionIntent: ImportConfirmAction
       mode: SvgImportMode
       previewItems: ImportPreviewItem[]
       workspaceConfig: SvgImportWorkspaceConfig
     }) => {
       const result = applySvgImportToScene({
-        analysis: args.analysis,
+        analysis:
+          args.actionIntent === 'board-only'
+            ? {
+                ambiguous: [],
+                annotationSegments: [],
+                recognized: [],
+                reviewItems: [],
+                warnings: [],
+                workspaceDetection: args.analysis.workspaceDetection,
+              }
+            : args.analysis,
         appendBreadboardCenterMm: args.appendBreadboardCenterMm,
         document: args.document,
         hostSurfaceId: activeHostSurfaceId,
@@ -1737,6 +1749,7 @@ function App() {
           document: args.document,
           workspaceConfig: args.workspaceConfig,
         }),
+        actionIntent: args.actionIntent,
         mode: args.mode,
         previewItems: args.previewItems,
         scene,
@@ -1760,6 +1773,7 @@ function App() {
       appendBreadboardCenterMm?: { x: number; y: number }
       detection: SvgImportWorkspaceDetection
       document: RasterImportDocument
+      actionIntent: ImportConfirmAction
       mode: SvgImportMode
       previewItems: ImportPreviewItem[]
       workspaceConfig: SvgImportWorkspaceConfig
@@ -1781,6 +1795,7 @@ function App() {
           document: documentShim,
           workspaceConfig: args.workspaceConfig,
         }),
+        actionIntent: args.actionIntent,
         mode: args.mode,
         previewItems: args.previewItems,
         scene,
@@ -2002,6 +2017,7 @@ function App() {
 
   const handleConfirmSvgImportOptions = (payload: {
     appendBreadboardCenterMm?: { x: number; y: number }
+    actionIntent: ImportConfirmAction
     mode: SvgImportMode
     previewItems: ImportPreviewItem[]
     workspaceConfig: SvgImportWorkspaceConfig
@@ -2017,6 +2033,7 @@ function App() {
         appendBreadboardCenterMm: payload.appendBreadboardCenterMm,
         detection: svgImportOptionsState.detection,
         document: svgImportOptionsState.document,
+        actionIntent: payload.actionIntent,
         mode: payload.mode,
         previewItems: payload.previewItems,
         workspaceConfig: payload.workspaceConfig,
@@ -2034,6 +2051,7 @@ function App() {
         }).analysis,
       appendBreadboardCenterMm: payload.appendBreadboardCenterMm,
       document: svgImportOptionsState.document,
+      actionIntent: payload.actionIntent,
       mode: payload.mode,
       previewItems: payload.previewItems,
       workspaceConfig: payload.workspaceConfig,
@@ -2553,6 +2571,7 @@ function App() {
 
       {svgImportOptionsState ? (
         <SvgImportOptionsModal
+          analysis={svgImportOptionsState.analysis}
           autoCalibrationSuggestion={svgImportOptionsState.autoCalibrationSuggestion}
           canAppendBreadboardToTable={
             scene.workspace.kind === 'optical-table' &&
@@ -2561,6 +2580,7 @@ function App() {
           currentTablePlacement={currentImportTablePlacement}
           document={svgImportOptionsState.document}
           fileName={svgImportOptionsState.fileName}
+          hostSurfaceId={activeHostSurfaceId}
           initialAppendBreadboardCenterMm={svgImportOptionsState.appendBreadboardCenterMm}
           initialMode={svgImportOptionsState.mode}
           initialPreviewItems={svgImportOptionsState.previewItems}
@@ -2571,6 +2591,7 @@ function App() {
           onOpenCalibration={handleOpenSvgCalibration}
           scaleIsReliable={svgImportOptionsState.document.scale.isReliable}
           scaleReason={svgImportOptionsState.document.scale.reason}
+          showLabels={showComponentLabels}
         />
       ) : null}
 

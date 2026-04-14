@@ -52,7 +52,7 @@ describe('raster import recognition', () => {
 
     expect(candidates.length).toBeGreaterThanOrEqual(2)
     expect(previewItems.every((item) => item.kind === 'raster-candidate')).toBe(true)
-    expect(previewItems.every((item) => item.disposition === 'skip')).toBe(true)
+    expect(previewItems.some((item) => item.disposition === 'component')).toBe(true)
     expect(previewItems.some((item) => item.suggestions.length > 0)).toBe(true)
   })
 })

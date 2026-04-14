@@ -15,14 +15,26 @@ import type { BoundsMm, Vector2Mm } from '../domain/types'
 import type {
   ImportPreviewDocument,
   ImportPreviewItem,
+  SvgImportAnalysis,
   SvgImportMode,
   SvgImportWorkspaceConfig,
   SvgImportWorkspaceSurfaceConfig,
 } from '../domain/svgImport'
+import { resolveSvgImportScaleMmPerUnit } from '../domain/svgImport'
+import { useEditorStore } from '../state/editorStore'
+import { SvgImportBoardPreview } from './SvgImportBoardPreview'
 import { SvgImportPreview } from './SvgImportPreview'
 import { SvgImportVariantChooser } from './SvgImportVariantChooser'
 
 interface ConfirmPayload {
+  appendBreadboardCenterMm?: Vector2Mm
+  actionIntent: 'board-only' | 'quick-import' | 'modified-import'
+  mode: SvgImportMode
+  previewItems: ImportPreviewItem[]
+  workspaceConfig: SvgImportWorkspaceConfig
+}
+
+interface CalibrationPayload {
   appendBreadboardCenterMm?: Vector2Mm
   mode: SvgImportMode
   previewItems: ImportPreviewItem[]
@@ -39,11 +51,13 @@ interface TablePlacementPreviewData {
 }
 
 interface SvgImportOptionsModalProps {
+  analysis?: SvgImportAnalysis
   autoCalibrationSuggestion?: ImportAutoCalibrationResult
   canAppendBreadboardToTable: boolean
   currentTablePlacement?: TablePlacementPreviewData
   document: ImportPreviewDocument
   fileName: string
+  hostSurfaceId?: string
   initialAppendBreadboardCenterMm?: Vector2Mm
   initialMode?: SvgImportMode
   initialPreviewItems: ImportPreviewItem[]
@@ -51,9 +65,10 @@ interface SvgImportOptionsModalProps {
   isOpen: boolean
   onCancel: () => void
   onConfirm: (payload: ConfirmPayload) => void
-  onOpenCalibration: (payload: ConfirmPayload) => void
+  onOpenCalibration: (payload: CalibrationPayload) => void
   scaleIsReliable: boolean
   scaleReason?: string
+  showLabels?: boolean
 }
 
 interface WorkspaceInputState {
@@ -189,6 +204,26 @@ function shiftBounds(bounds: BoundsMm, nextCenter: Vector2Mm) {
 function normalizeQuarterTurn(value: number) {
   const normalized = value % 4
   return (normalized < 0 ? normalized + 4 : normalized) as 0 | 1 | 2 | 3
+}
+
+function serializePreviewItemsForDirtyCheck(items: ImportPreviewItem[]) {
+  return JSON.stringify(
+    [...items]
+      .map((item) => ({
+        bounds: item.bounds,
+        center: item.center,
+        componentType: item.componentType ?? null,
+        disposition: item.disposition,
+        id: item.id,
+        rotationQuarterTurns: item.rotationQuarterTurns,
+        variantId: item.variantId ?? null,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  )
+}
+
+function serializeWorkspaceConfigForDirtyCheck(config: SvgImportWorkspaceConfig) {
+  return JSON.stringify(config)
 }
 
 function createDefaultMode(args: {
@@ -374,11 +409,13 @@ function TablePlacementPreview(props: {
 
 export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
   const {
+    analysis,
     autoCalibrationSuggestion,
     canAppendBreadboardToTable,
     currentTablePlacement,
     document,
     fileName,
+    hostSurfaceId,
     initialAppendBreadboardCenterMm,
     initialMode,
     initialPreviewItems,
@@ -389,6 +426,7 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
     onOpenCalibration,
     scaleIsReliable,
     scaleReason,
+    showLabels = true,
   } = props
   const defaultMode = useMemo(
     () => createDefaultMode({ canAppendBreadboardToTable, document, initialMode }),
@@ -405,20 +443,27 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
   const [selectedPreviewItemId, setSelectedPreviewItemId] = useState<string | undefined>(
     initialPreviewItems.find((item) => item.disposition !== 'skip')?.id ?? initialPreviewItems[0]?.id,
   )
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
-  const [appendBreadboardCenterMm, setAppendBreadboardCenterMm] = useState<Vector2Mm | undefined>(
-    initialAppendBreadboardCenterMm ??
+  const baselineAppendBreadboardCenterMm = useMemo(
+    () =>
+      initialAppendBreadboardCenterMm ??
       createDefaultAppendCenter({
         boardHeight: initialWorkspaceConfig.breadboards[0]?.physicalHeightMm ?? 300,
         boardWidth: initialWorkspaceConfig.breadboards[0]?.physicalWidthMm ?? 600,
         currentTablePlacement,
       }),
+    [currentTablePlacement, initialAppendBreadboardCenterMm, initialWorkspaceConfig],
+  )
+  const [previewMode, setPreviewMode] = useState<'source' | 'live-board'>('source')
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
+  const [appendBreadboardCenterMm, setAppendBreadboardCenterMm] = useState<Vector2Mm | undefined>(
+    baselineAppendBreadboardCenterMm,
   )
   const appendModeAvailable =
     canAppendBreadboardToTable &&
     workspaceConfig.workspaceKind === 'single-breadboard' &&
     workspaceConfig.breadboards.length === 1
-
+  const renderMode = useEditorStore((state) => state.renderMode)
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   useEffect(() => {
     setMode(defaultMode)
     setWorkspaceConfig(cloneWorkspaceConfig(initialWorkspaceConfig))
@@ -427,20 +472,15 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
     setSelectedPreviewItemId(
       initialPreviewItems.find((item) => item.disposition !== 'skip')?.id ?? initialPreviewItems[0]?.id,
     )
-    setAppendBreadboardCenterMm(
-      initialAppendBreadboardCenterMm ??
-        createDefaultAppendCenter({
-          boardHeight: initialWorkspaceConfig.breadboards[0]?.physicalHeightMm ?? 300,
-          boardWidth: initialWorkspaceConfig.breadboards[0]?.physicalWidthMm ?? 600,
-          currentTablePlacement,
-        }),
-    )
+    setPreviewMode('source')
+    setAppendBreadboardCenterMm(baselineAppendBreadboardCenterMm)
   }, [
     currentTablePlacement,
     defaultMode,
     initialAppendBreadboardCenterMm,
     initialPreviewItems,
     initialWorkspaceConfig,
+    baselineAppendBreadboardCenterMm,
   ])
 
   useEffect(() => {
@@ -529,16 +569,25 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
   }, [inputState, workspaceConfig.breadboards, workspaceConfig.table])
 
   const configIsValid = requiredItems.length === 0 && regionInputsAreValid
+  const hasManualChanges =
+    serializePreviewItemsForDirtyCheck(previewItems) !==
+      serializePreviewItemsForDirtyCheck(initialPreviewItems) ||
+    serializeWorkspaceConfigForDirtyCheck(workspaceConfig) !==
+      serializeWorkspaceConfigForDirtyCheck(initialWorkspaceConfig) ||
+    JSON.stringify(appendBreadboardCenterMm ?? null) !==
+      JSON.stringify(baselineAppendBreadboardCenterMm ?? null)
   const selectedPreviewItem = previewItems.find((item) => item.id === selectedPreviewItemId)
-  const importablePreviewItems = previewItems.filter((item) => item.disposition === 'component')
   const weakPreviewItemCount = previewItems.filter((item) => !item.isStrongMatch).length
   const strongPreviewItemCount = previewItems.filter((item) => item.isStrongMatch).length
   const boardWidthMm = workspaceConfig.breadboards[0]?.physicalWidthMm ?? 600
   const boardHeightMm = workspaceConfig.breadboards[0]?.physicalHeightMm ?? 300
+  const millimetersPerUnit = resolveSvgImportScaleMmPerUnit({
+    document,
+    workspaceConfig,
+  })
   const canFinish =
     configIsValid &&
     (mode !== 'append-breadboard' || appendBreadboardCenterMm !== undefined)
-
   if (!isOpen) {
     return null
   }
@@ -745,10 +794,6 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
 
   const sourceTitle =
     document.sourceKind === 'svg' ? 'Import Drawing' : 'Import Raster Drawing'
-  const finishLabel =
-    document.sourceKind === 'raster' && importablePreviewItems.length === 0
-      ? 'Finish Surface Only'
-      : 'Finish Import'
 
   return (
     <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Drawing import">
@@ -777,22 +822,86 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
             <div className="svg-import-preview-pane__header">
               <div>
                 <div className="svg-import-panel__eyebrow">Preview</div>
-                <h3>Auto-calibrated import preview</h3>
+                <h3>
+                  {previewMode === 'source'
+                    ? 'Auto-calibrated source preview'
+                    : 'Live board-result preview'}
+                </h3>
               </div>
-              <p className="modal-shell__hint">
-                Click a highlighted item to review it, or finish immediately if the preview looks right.
-              </p>
+              <div className="svg-import-preview-pane__header-meta">
+                <div className="svg-import-preview-toggle" role="tablist" aria-label="Import preview mode">
+                  <button
+                    aria-selected={previewMode === 'source'}
+                    className={previewMode === 'source' ? 'is-active' : ''}
+                    data-testid="drawing-import-preview-source"
+                    onClick={() => setPreviewMode('source')}
+                    role="tab"
+                    type="button"
+                  >
+                    Source preview
+                  </button>
+                  <button
+                    aria-selected={previewMode === 'live-board'}
+                    className={previewMode === 'live-board' ? 'is-active' : ''}
+                    data-testid="drawing-import-preview-board"
+                    onClick={() => setPreviewMode('live-board')}
+                    role="tab"
+                    type="button"
+                  >
+                    Board preview
+                  </button>
+                </div>
+                <p className="modal-shell__hint">
+                  {previewMode === 'source'
+                    ? 'Inspect the source drawing first, then switch to the rendered board result when you want to drag the actual imported components.'
+                    : 'Review the actual imported board layout and drag components where they should land.'}
+                </p>
+              </div>
             </div>
 
-            <SvgImportPreview
-              className="svg-import-preview svg-import-preview--interactive"
-              document={document}
-              onSelectPreviewItem={setSelectedPreviewItemId}
-              onUpdatePreviewItem={updatePreviewItemPosition}
-              previewItems={previewItems}
-              selectedPreviewItemId={selectedPreviewItemId}
-              surfaceOverlays={surfaceOverlays}
-            />
+            {previewMode === 'source' ? (
+              <SvgImportPreview
+                className="svg-import-preview svg-import-preview--interactive"
+                document={document}
+                onSelectPreviewItem={setSelectedPreviewItemId}
+                onUpdatePreviewItem={updatePreviewItemPosition}
+                previewItems={previewItems}
+                selectedPreviewItemId={selectedPreviewItemId}
+                surfaceOverlays={surfaceOverlays}
+              />
+            ) : (
+              <SvgImportBoardPreview
+                analysis={
+                  analysis ?? {
+                    ambiguous: [],
+                    annotationSegments: [],
+                    recognized: [],
+                    reviewItems: [],
+                    warnings: [],
+                    workspaceDetection: {
+                      breadboardCandidates: [],
+                      orphanElementIds: [],
+                      warnings: [],
+                      workspaceKind: workspaceConfig.workspaceKind,
+                    },
+                  }
+                }
+                appendBreadboardCenterMm={appendBreadboardCenterMm}
+                className="svg-import-preview svg-import-preview--board"
+                document={document}
+                hostSurfaceId={hostSurfaceId}
+                millimetersPerUnit={millimetersPerUnit}
+                mode={mode}
+                onSelectPreviewItem={setSelectedPreviewItemId}
+                onUpdatePreviewItem={updatePreviewItemPosition}
+                previewItems={previewItems}
+                renderMode={renderMode}
+                selectedPreviewItemId={selectedPreviewItemId}
+                simpleIconStyle={simpleIconStyle}
+                showLabels={showLabels}
+                workspaceConfig={workspaceConfig}
+              />
+            )}
           </section>
 
           <form
@@ -1099,6 +1208,13 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                     </button>
                   </div>
 
+                  {previewMode === 'live-board' &&
+                  selectedPreviewItem.disposition !== 'component' ? (
+                    <p className="modal-shell__hint">
+                      This item is not currently being placed on the board preview. Reassign it or switch its disposition if you want it imported.
+                    </p>
+                  ) : null}
+
                   <SvgImportVariantChooser
                     onSelect={(selection) =>
                       updatePreviewItem(selectedPreviewItem.id, (item) => ({
@@ -1241,24 +1357,57 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
           </form>
         </div>
 
-        <footer className="modal-shell__actions">
+        <footer className="modal-shell__actions svg-import-options__actions">
           <button onClick={onCancel} type="button">
             Cancel
           </button>
           <button
             disabled={!canFinish}
-            onClick={() =>
-              onConfirm({
-                appendBreadboardCenterMm,
-                mode,
-                previewItems,
-                workspaceConfig,
-              })
+              onClick={() =>
+                onConfirm({
+                  appendBreadboardCenterMm,
+                  actionIntent: 'board-only',
+                  mode,
+                  previewItems,
+                  workspaceConfig,
+                })
             }
             type="button"
           >
-            {finishLabel}
+            Import board dimensions only
           </button>
+          <button
+            disabled={!canFinish}
+              onClick={() =>
+                onConfirm({
+                  appendBreadboardCenterMm: baselineAppendBreadboardCenterMm,
+                  actionIntent: 'quick-import',
+                  mode,
+                  previewItems: initialPreviewItems,
+                  workspaceConfig: cloneWorkspaceConfig(initialWorkspaceConfig),
+                })
+            }
+            type="button"
+          >
+            Quick import suggestions
+          </button>
+          {hasManualChanges ? (
+            <button
+              disabled={!canFinish}
+              onClick={() =>
+                onConfirm({
+                  appendBreadboardCenterMm,
+                  actionIntent: 'modified-import',
+                  mode,
+                  previewItems,
+                  workspaceConfig,
+                })
+              }
+              type="button"
+            >
+              Import modified setup
+            </button>
+          ) : null}
         </footer>
       </div>
     </div>

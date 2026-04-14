@@ -18,6 +18,45 @@ async function expectHidden(locator) {
   })
 }
 
+async function clickSmallImportPreviewItem(page, importDialog) {
+  const candidateTestId = await page.evaluate(() => {
+    const modal = document.querySelector('[data-testid="drawing-import-modal"]')
+    if (!modal) {
+      return null
+    }
+
+    const candidates = Array.from(
+      modal.querySelectorAll('[data-testid^="import-preview-item-"]'),
+    )
+      .map((element) => {
+        const rect = element.getBoundingClientRect()
+        return {
+          height: rect.height,
+          testid: element.getAttribute('data-testid'),
+          width: rect.width,
+        }
+      })
+      .filter((candidate) => {
+        return (
+          candidate.testid &&
+          candidate.width > 20 &&
+          candidate.height > 20 &&
+          candidate.width < 260 &&
+          candidate.height < 260
+        )
+      })
+      .sort((left, right) => left.width * left.height - right.width * right.height)
+
+    return candidates[0]?.testid ?? null
+  })
+
+  if (!candidateTestId) {
+    throw new Error('Could not find a small import preview item to click.')
+  }
+
+  await importDialog.getByTestId(candidateTestId).dispatchEvent('click')
+}
+
 const browser = await chromium.launch({ headless: true })
 
 try {
@@ -119,12 +158,17 @@ try {
   await drawingInput.setInputFiles(svgGridPath)
   await importDialog.waitFor()
   assert.match((await importDialog.textContent()) ?? '', /Import Drawing/i)
+  const sourcePreviewTab = importDialog.getByTestId('drawing-import-preview-source')
+  const boardPreviewTab = importDialog.getByTestId('drawing-import-preview-board')
+  await sourcePreviewTab.click()
+  assert.equal(await sourcePreviewTab.getAttribute('aria-selected'), 'true')
+  assert.equal(await boardPreviewTab.getAttribute('aria-selected'), 'false')
   const singleBreadboardOption = importDialog.getByLabel('Single breadboard')
   if (await singleBreadboardOption.isVisible().catch(() => false)) {
     await singleBreadboardOption.check()
   }
 
-  const finishButton = importDialog.getByRole('button', { name: /Finish /i })
+  const boardOnlyButton = importDialog.getByRole('button', { name: 'Import board dimensions only' })
   const boardHeightInput = importDialog.getByLabel('Breadboard height (mm)')
   const boardWidthInput = importDialog.getByLabel('Breadboard width (mm)')
   assert.equal(await importDialog.getByText('Guided mode').count(), 0)
@@ -135,12 +179,12 @@ try {
   await boardHeightInput.press('Backspace')
   assert.equal(await boardHeightInput.inputValue(), '')
   await page.waitForTimeout(120)
-  assert.equal(await finishButton.isDisabled(), true)
+  assert.equal(await boardOnlyButton.isDisabled(), true)
 
   await boardHeightInput.type('300')
   assert.equal(await boardHeightInput.inputValue(), '300')
   await page.waitForTimeout(120)
-  assert.equal(await finishButton.isDisabled(), false)
+  assert.equal(await boardOnlyButton.isDisabled(), false)
 
   const autoCard = importDialog.getByTestId('drawing-import-auto-calibration-card')
   await autoCard.waitFor()
@@ -150,10 +194,26 @@ try {
   await page.waitForTimeout(180)
   assert.equal(await boardWidthInput.inputValue(), '600')
   assert.equal(await boardHeightInput.inputValue(), '300')
+  assert.equal(await boardOnlyButton.isVisible(), true)
+  assert.equal(await importDialog.getByRole('button', { name: 'Quick import suggestions' }).isVisible(), true)
 
-  await importDialog.getByRole('button', { name: 'Cancel' }).click()
+  await sourcePreviewTab.click()
+  await clickSmallImportPreviewItem(page, importDialog)
+  await importDialog.locator('.svg-import-suggestion-list button').first().click()
+  await importDialog.getByRole('button', { name: 'Rotate right' }).click()
+  await page.waitForTimeout(150)
+  await importDialog.getByRole('button', { name: 'Import modified setup' }).waitFor()
+
+  await boardPreviewTab.click()
+  await importDialog.getByTestId('drawing-import-board-preview').waitFor()
+  assert.equal(await boardPreviewTab.getAttribute('aria-selected'), 'true')
+  assert.match((await importDialog.textContent()) ?? '', /Board result/i)
+
+  await sourcePreviewTab.click()
+  await clickSmallImportPreviewItem(page, importDialog)
+  await importDialog.getByRole('button', { name: 'Import modified setup' }).click()
   await expectHidden(importDialog)
-
+  await page.waitForFunction(() => window.__SCHEMA_LAB_STORE__.getState().scene.components.length > 0)
   await drawingInput.setInputFiles(rasterFixturePath)
   await importDialog.waitFor()
   assert.match((await importDialog.textContent()) ?? '', /Import Raster Drawing/i)
@@ -167,9 +227,17 @@ try {
   await page.waitForTimeout(180)
   assert.equal(await boardWidthInput.inputValue(), '600')
   assert.equal(await boardHeightInput.inputValue(), '300')
-  await importDialog.getByTestId('import-preview-item-raster-candidate-1').click()
+  await clickSmallImportPreviewItem(page, importDialog)
   await importDialog.locator('.svg-import-suggestion-list button').first().click()
-  await importDialog.getByRole('button', { name: 'Finish Import' }).click()
+  await importDialog.getByRole('button', { name: 'Rotate right' }).click()
+  await page.waitForTimeout(120)
+  assert.equal(
+    await importDialog.getByRole('button', { name: 'Import modified setup' }).isVisible(),
+    true,
+  )
+  await boardPreviewTab.click()
+  await importDialog.getByTestId('drawing-import-board-preview').waitFor()
+  await importDialog.getByRole('button', { name: 'Import modified setup' }).click()
   await expectHidden(importDialog)
   await page.waitForFunction(() => window.__SCHEMA_LAB_STORE__.getState().scene.components.length > 0)
 

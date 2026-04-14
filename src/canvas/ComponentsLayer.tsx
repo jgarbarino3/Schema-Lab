@@ -161,6 +161,13 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   }, [componentById, components])
   const draggedComponentIds =
     dragPreview?.componentIds?.length ? dragPreview.componentIds : undefined
+  const interactiveComponentIdSet = useMemo(
+    () =>
+      highlightedComponentIds?.length
+        ? new Set(highlightedComponentIds)
+        : undefined,
+    [highlightedComponentIds],
+  )
   const draggedComponentIdSet = draggedComponentIds
     ? new Set(draggedComponentIds)
     : undefined
@@ -310,22 +317,45 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               },
             }
           })()}
-          isDragEnabled={!isPanMode && !isLineTool}
+          isDragEnabled={
+            !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
+              ? !isPanMode && !isLineTool
+              : false
+          }
           isHovered={component.id === hoveredComponentId}
           isSelected={component.id === selectedComponentId}
           showLabels={showLabels}
           showPostHolders={showPostHolders}
           key={component.id}
-          onDragEnd={(componentId, screenPointPx) => {
-            onCommitComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
-          }}
-          onDragMove={(componentId, screenPointPx) => {
-            onUpdateComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
-          }}
-          onDragStart={onBeginComponentDrag}
-          onHoverChange={isPanMode ? undefined : onHoverComponent}
+          onDragEnd={
+            !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
+              ? (componentId, screenPointPx) => {
+                  onCommitComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
+                }
+              : undefined
+          }
+          onDragMove={
+            !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
+              ? (componentId, screenPointPx) => {
+                  onUpdateComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
+                }
+              : undefined
+          }
+          onDragStart={
+            !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
+              ? onBeginComponentDrag
+              : undefined
+          }
+          onHoverChange={
+            isPanMode ||
+            (interactiveComponentIdSet !== undefined &&
+              !interactiveComponentIdSet.has(component.id))
+              ? undefined
+              : onHoverComponent
+          }
           onOpenContextMenu={
-            onOpenComponentContextMenu
+            onOpenComponentContextMenu &&
+            (!interactiveComponentIdSet || interactiveComponentIdSet.has(component.id))
               ? (componentId, event) => {
                   if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
                     return
@@ -338,13 +368,23 @@ export const ComponentsLayer = memo(function ComponentsLayer({
                 }
               : undefined
           }
-          onResize={isPanMode || isLineTool ? undefined : onResizeComponent}
+          onResize={
+            isPanMode ||
+            isLineTool ||
+            (interactiveComponentIdSet !== undefined &&
+              !interactiveComponentIdSet.has(component.id))
+              ? undefined
+              : onResizeComponent
+          }
           onSelect={
             isPanMode
               ? undefined
               : isLineTool
                 ? (_componentId, event) => onLineToolClick?.(event)
-                : onSelectComponent
+                : interactiveComponentIdSet !== undefined &&
+                    !interactiveComponentIdSet.has(component.id)
+                  ? undefined
+                  : onSelectComponent
           }
           placementStatus={
             dragPreview?.componentId === component.id

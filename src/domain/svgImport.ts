@@ -34,6 +34,11 @@ export type SvgImportMode = 'append-breadboard' | 'merge' | 'replace'
 export type SvgImportProfile = 'strict' | 'guided'
 export type SvgCalibrationMode = 'simple' | 'advanced'
 export type ImportSourceKind = 'svg' | 'raster'
+export type ImportPreviewMode = 'source' | 'live-board'
+export type ImportPreviewConfirmIntent =
+  | 'board-only'
+  | 'quick-import'
+  | 'modified-import'
 
 interface Matrix2D {
   a: number
@@ -242,11 +247,49 @@ export interface SvgImportManualResolution {
 }
 
 export interface SvgImportApplyResult {
+  actionIntent: SvgImportActionIntent
+  draftComponentIdsByPreviewItemId: Map<string, string>
   importedAnnotations: number
   importedComponents: number
   scene: SceneDocument
   unresolvedAmbiguousElements: number
   warnings: string[]
+}
+
+export type SvgImportPreviewMode = 'source' | 'live-board'
+export type SvgImportActionIntent = 'board-only' | 'quick-import' | 'modified-import'
+
+export interface SvgImportDraftSession {
+  actionIntent: SvgImportActionIntent
+  analysis: SvgImportAnalysis
+  appendBreadboardCenterMm?: Vector2Mm
+  baselineAppendBreadboardCenterMm?: Vector2Mm
+  baselineHostSurfaceId?: string
+  baselineMode: SvgImportMode
+  baselinePreviewItems: ImportPreviewItem[]
+  baselineWorkspaceConfig?: SvgImportWorkspaceConfig
+  document: ImportPreviewDocument
+  draftComponentIdsByPreviewItemId: Map<string, string>
+  hostSurfaceId?: string
+  millimetersPerUnit: number
+  mode: SvgImportMode
+  previewMode: SvgImportPreviewMode
+  workingAppendBreadboardCenterMm?: Vector2Mm
+  workingHostSurfaceId?: string
+  workingMode: SvgImportMode
+  workingPreviewItems: ImportPreviewItem[]
+  workingWorkspaceConfig?: SvgImportWorkspaceConfig
+  workspaceConfig?: SvgImportWorkspaceConfig
+}
+
+export interface ImportPreviewDraftScene {
+  actionIntent: SvgImportActionIntent
+  componentIdByPreviewItemId: Record<string, string>
+  importedComponentIds: string[]
+  previewItemIdByComponentId: Record<string, string>
+  previewMode: SvgImportPreviewMode
+  scene: SceneDocument
+  targetsByHostSurfaceId: Record<string, ImportPreviewPlacementTarget>
 }
 
 interface SvgImportElementMetrics {
@@ -1575,6 +1618,108 @@ function copyScene(scene: SceneDocument): SceneDocument {
   return JSON.parse(JSON.stringify(scene)) as SceneDocument
 }
 
+function cloneVector2Mm(point?: Vector2Mm) {
+  if (!point) {
+    return undefined
+  }
+
+  return {
+    x: point.x,
+    y: point.y,
+  }
+}
+
+function cloneWorkspaceSurfaceConfig(
+  surface: SvgImportWorkspaceSurfaceConfig,
+): SvgImportWorkspaceSurfaceConfig {
+  return {
+    ...surface,
+    boundsUnits: {
+      ...surface.boundsUnits,
+    },
+  }
+}
+
+function cloneWorkspaceConfig(
+  config?: SvgImportWorkspaceConfig,
+): SvgImportWorkspaceConfig | undefined {
+  if (!config) {
+    return undefined
+  }
+
+  return {
+    breadboards: config.breadboards.map((surface) => cloneWorkspaceSurfaceConfig(surface)),
+    table: config.table ? cloneWorkspaceSurfaceConfig(config.table) : undefined,
+    workspaceKind: config.workspaceKind,
+  }
+}
+
+function clonePreviewItem(item: ImportPreviewItem): ImportPreviewItem {
+  return {
+    ...item,
+    bounds: {
+      ...item.bounds,
+    },
+    center: {
+      ...item.center,
+    },
+    editability: {
+      ...item.editability,
+    },
+    sourceElementIds: [...item.sourceElementIds],
+    suggestions: item.suggestions.map((suggestion) => ({ ...suggestion })),
+  }
+}
+
+function clonePreviewItems(items: ImportPreviewItem[]) {
+  return items.map((item) => clonePreviewItem(item))
+}
+
+function snapshotPreviewItem(item: ImportPreviewItem) {
+  return {
+    allowKeepAsLinework: item.allowKeepAsLinework,
+    bounds: item.bounds,
+    center: item.center,
+    componentType: item.componentType,
+    disposition: item.disposition,
+    elementId: item.elementId,
+    id: item.id,
+    kind: item.kind,
+    rotationQuarterTurns: item.rotationQuarterTurns,
+    sourceElementIds: item.sourceElementIds,
+    sourceKind: item.sourceKind,
+    variantId: item.variantId,
+  }
+}
+
+function snapshotWorkspaceSurfaceConfig(surface: SvgImportWorkspaceSurfaceConfig) {
+  return {
+    boundsUnits: surface.boundsUnits,
+    candidateId: surface.candidateId,
+    id: surface.id,
+    kind: surface.kind,
+    label: surface.label,
+    physicalHeightMm: surface.physicalHeightMm,
+    physicalWidthMm: surface.physicalWidthMm,
+  }
+}
+
+function snapshotWorkspaceConfig(config?: SvgImportWorkspaceConfig) {
+  if (!config) {
+    return undefined
+  }
+
+  return {
+    breadboards: config.breadboards.map((surface) => snapshotWorkspaceSurfaceConfig(surface)),
+    table: config.table ? snapshotWorkspaceSurfaceConfig(config.table) : undefined,
+    workspaceKind: config.workspaceKind,
+  }
+}
+
+function areImportSnapshotsEqual(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 function createReplaceSceneTemplate(
   scene: SceneDocument,
   workspaceOverride?: SceneDocument['workspace'],
@@ -2392,6 +2537,52 @@ function createComponentId(type: ComponentType, existingIds: Set<string>): strin
   return nextId
 }
 
+function reserveComponentId(id: string, existingIds: Set<string>) {
+  existingIds.add(id)
+  return id
+}
+
+function createImportPreviewDraftComponentId(previewItemId: string) {
+  return `import-preview-${previewItemId}`
+}
+
+function getDraftComponentIdForPreviewItem(
+  previewItemId: string,
+  draftComponentIdsByPreviewItemId?: Map<string, string> | Record<string, string>,
+) {
+  if (!draftComponentIdsByPreviewItemId) {
+    return undefined
+  }
+
+  return draftComponentIdsByPreviewItemId instanceof Map
+    ? draftComponentIdsByPreviewItemId.get(previewItemId)
+    : draftComponentIdsByPreviewItemId[previewItemId]
+}
+
+function ensureDraftComponentIdForPreviewItem(
+  previewItemId: string,
+  draftComponentIdsByPreviewItemId: Map<string, string> | Record<string, string> | undefined,
+  existingIds: Set<string>,
+) {
+  const existingId = getDraftComponentIdForPreviewItem(
+    previewItemId,
+    draftComponentIdsByPreviewItemId,
+  )
+
+  if (existingId) {
+    return reserveComponentId(existingId, existingIds)
+  }
+
+  const nextId = createImportPreviewDraftComponentId(previewItemId)
+  if (draftComponentIdsByPreviewItemId instanceof Map) {
+    draftComponentIdsByPreviewItemId.set(previewItemId, nextId)
+  } else if (draftComponentIdsByPreviewItemId) {
+    draftComponentIdsByPreviewItemId[previewItemId] = nextId
+  }
+
+  return reserveComponentId(nextId, existingIds)
+}
+
 function createAutoLabel(type: ComponentType, existingComponents: ComponentInstance[]): string {
   const familyLabel = getComponentDefinition(type).familyLabel
   const escapedFamilyLabel = familyLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -2491,7 +2682,7 @@ function createWorkspaceFromImportConfig(config: SvgImportWorkspaceConfig): Opti
   }
 }
 
-interface SvgImportPlacementTarget {
+export interface ImportPreviewPlacementTarget {
   boundsUnits: BoundsMm
   hostSurfaceId: string
   localOriginMm: Vector2Mm
@@ -2508,7 +2699,7 @@ function getImportPlacementTargets(args: {
   workspaceConfig?: SvgImportWorkspaceConfig
 }) {
   const { baseScene, document, hostSurfaceId, millimetersPerUnit, mode, workspaceConfig } = args
-  const targetsById = new Map<string, SvgImportPlacementTarget>()
+  const targetsById = new Map<string, ImportPreviewPlacementTarget>()
   const primarySurface = workspaceConfig ? getPrimaryWorkspaceSurfaceConfig(workspaceConfig) : undefined
 
   if (
@@ -2521,7 +2712,7 @@ function getImportPlacementTargets(args: {
 
     if (appendedBreadboard && importedSurface) {
       const surface = getSurfacePlacementModel(baseScene, appendedBreadboard.id)
-      const target: SvgImportPlacementTarget = {
+      const target: ImportPreviewPlacementTarget = {
         boundsUnits: importedSurface.boundsUnits,
         hostSurfaceId: appendedBreadboard.id,
         localOriginMm: { x: 0, y: 0 },
@@ -2570,7 +2761,7 @@ function getImportPlacementTargets(args: {
 
     const surface = getSurfacePlacementModel(baseScene, SINGLE_BREADBOARD_SURFACE_ID)
     const boardSurface = workspaceConfig.breadboards[0]
-    const singleTarget: SvgImportPlacementTarget = {
+    const singleTarget: ImportPreviewPlacementTarget = {
       boundsUnits: boardSurface?.boundsUnits ?? document.bounds,
       hostSurfaceId: SINGLE_BREADBOARD_SURFACE_ID,
       localOriginMm: { x: 0, y: 0 },
@@ -2587,7 +2778,7 @@ function getImportPlacementTargets(args: {
   const surface = getSurfacePlacementModel(baseScene, hostSurfaceId)
   const importWidthMm = (primarySurface?.physicalWidthMm ?? document.bounds.width * millimetersPerUnit)
   const importHeightMm = (primarySurface?.physicalHeightMm ?? document.bounds.height * millimetersPerUnit)
-  const target: SvgImportPlacementTarget = {
+  const target: ImportPreviewPlacementTarget = {
     boundsUnits: primarySurface?.boundsUnits ?? document.bounds,
     hostSurfaceId: surface.hostSurfaceId,
     localOriginMm: {
@@ -2606,8 +2797,8 @@ function getImportPlacementTargets(args: {
 
 function getPlacementTargetForElement(args: {
   element: SvgImportElement
-  primaryTarget?: SvgImportPlacementTarget
-  targetsById: Map<string, SvgImportPlacementTarget>
+  primaryTarget?: ImportPreviewPlacementTarget
+  targetsById: Map<string, ImportPreviewPlacementTarget>
 }) {
   const { element, primaryTarget, targetsById } = args
   const breadboardTargets = [...targetsById.values()].filter(
@@ -2628,8 +2819,8 @@ function getPlacementTargetForElement(args: {
 
 function getPlacementTargetForPoint(args: {
   point: Vector2Mm
-  primaryTarget?: SvgImportPlacementTarget
-  targetsById: Map<string, SvgImportPlacementTarget>
+  primaryTarget?: ImportPreviewPlacementTarget
+  targetsById: Map<string, ImportPreviewPlacementTarget>
 }) {
   const { point, primaryTarget, targetsById } = args
   const breadboardTargets = [...targetsById.values()].filter(
@@ -2669,6 +2860,32 @@ function mapSvgPointToWorldMm(args: {
   return {
     x: roundMm(args.targetSurfaceOriginMm.x + rotatedPoint.x),
     y: roundMm(args.targetSurfaceOriginMm.y + rotatedPoint.y),
+  }
+}
+
+export function mapWorldPointToImportPoint(args: {
+  millimetersPerUnit: number
+  pointMm: Vector2Mm
+  target: ImportPreviewPlacementTarget
+}) {
+  const localRotatedPoint = {
+    x: args.pointMm.x - args.target.surfaceOriginMm.x,
+    y: args.pointMm.y - args.target.surfaceOriginMm.y,
+  }
+  const localPoint = rotatePointQuarterTurns(
+    localRotatedPoint,
+    normalizeQuarterTurns((4 - args.target.rotationQuarterTurns) as QuarterTurn),
+  )
+
+  return {
+    x: roundMm(
+      args.target.boundsUnits.x +
+        (localPoint.x - args.target.localOriginMm.x) / args.millimetersPerUnit,
+    ),
+    y: roundMm(
+      args.target.boundsUnits.y +
+        (localPoint.y - args.target.localOriginMm.y) / args.millimetersPerUnit,
+    ),
   }
 }
 
@@ -2714,7 +2931,7 @@ export function parseSvgImportDocument(svgText: string): SvgImportDocument {
 
 export function resolveSvgImportScaleMmPerUnit(args: {
   calibration?: SvgCalibrationRequest
-  document: SvgImportDocument
+  document: ImportPreviewDocument
   workspaceConfig?: SvgImportWorkspaceConfig
 }) {
   const { calibration, document, workspaceConfig } = args
@@ -2966,7 +3183,7 @@ export function createImportPreviewItemsFromRasterCandidates(args: {
     bounds: candidate.bounds,
     center: candidate.center,
     componentType: candidate.suggestions[0]?.componentType,
-    disposition: 'skip',
+    disposition: candidate.suggestions[0] ? 'component' : 'skip',
     editability: {
       canMove: true,
       canReassign: true,
@@ -2983,8 +3200,100 @@ export function createImportPreviewItemsFromRasterCandidates(args: {
   }))
 }
 
-export function applySvgImportToScene(args: {
+export function createSvgImportDraftSession(args: {
   analysis: SvgImportAnalysis
+  appendBreadboardCenterMm?: Vector2Mm
+  actionIntent?: SvgImportActionIntent
+  document: ImportPreviewDocument
+  hostSurfaceId?: string
+  millimetersPerUnit: number
+  mode: SvgImportMode
+  previewItems?: ImportPreviewItem[]
+  previewMode?: SvgImportPreviewMode
+  workspaceConfig?: SvgImportWorkspaceConfig
+}): SvgImportDraftSession {
+  const baselinePreviewItems =
+    args.previewItems ??
+    (args.document.sourceKind === 'svg'
+      ? createImportPreviewItemsFromSvgAnalysis({
+          analysis: args.analysis,
+          document: args.document,
+        })
+      : [])
+  const workingPreviewItems = clonePreviewItems(baselinePreviewItems)
+  const baselineWorkspaceConfig = cloneWorkspaceConfig(args.workspaceConfig)
+  const workingWorkspaceConfig = cloneWorkspaceConfig(args.workspaceConfig)
+  const baselineAppendBreadboardCenterMm = cloneVector2Mm(args.appendBreadboardCenterMm)
+  const workingAppendBreadboardCenterMm = cloneVector2Mm(args.appendBreadboardCenterMm)
+
+  return {
+    actionIntent: args.actionIntent ?? 'quick-import',
+    analysis: args.analysis,
+    appendBreadboardCenterMm: workingAppendBreadboardCenterMm,
+    baselineAppendBreadboardCenterMm,
+    baselineHostSurfaceId: args.hostSurfaceId,
+    baselineMode: args.mode,
+    baselinePreviewItems: clonePreviewItems(baselinePreviewItems),
+    baselineWorkspaceConfig,
+    document: args.document,
+    draftComponentIdsByPreviewItemId: new Map(),
+    hostSurfaceId: args.hostSurfaceId,
+    millimetersPerUnit: args.millimetersPerUnit,
+    mode: args.mode,
+    previewMode: args.previewMode ?? 'source',
+    workingAppendBreadboardCenterMm,
+    workingHostSurfaceId: args.hostSurfaceId,
+    workingMode: args.mode,
+    workingPreviewItems,
+    workingWorkspaceConfig,
+    workspaceConfig: workingWorkspaceConfig,
+  }
+}
+
+export function isSvgImportDraftSessionDirty(session: SvgImportDraftSession) {
+  return (
+    !areImportSnapshotsEqual(
+      session.baselinePreviewItems.map((item) => snapshotPreviewItem(item)),
+      session.workingPreviewItems.map((item) => snapshotPreviewItem(item)),
+    ) ||
+    !areImportSnapshotsEqual(
+      snapshotWorkspaceConfig(session.baselineWorkspaceConfig),
+      snapshotWorkspaceConfig(session.workingWorkspaceConfig),
+    ) ||
+    !areImportSnapshotsEqual(
+      session.baselineAppendBreadboardCenterMm,
+      session.workingAppendBreadboardCenterMm,
+    ) ||
+    session.baselineHostSurfaceId !== session.workingHostSurfaceId ||
+    session.baselineMode !== session.workingMode
+  )
+}
+
+function createSurfaceOnlyImportShim(document: ImportPreviewDocument): SvgImportDocument {
+  return {
+    bounds: document.bounds,
+    elements: [],
+    scale: document.scale,
+    sourceKind: 'svg',
+    svgText: '',
+    viewBox: document.bounds,
+  }
+}
+
+function createEmptyImportAnalysis(workspaceDetection: SvgImportWorkspaceDetection): SvgImportAnalysis {
+  return {
+    ambiguous: [],
+    annotationSegments: [],
+    recognized: [],
+    reviewItems: [],
+    warnings: [],
+    workspaceDetection,
+  }
+}
+
+function buildSvgImportSceneCore(args: {
+  analysis: SvgImportAnalysis
+  actionIntent?: SvgImportActionIntent
   document: SvgImportDocument
   appendBreadboardCenterMm?: Vector2Mm
   hostSurfaceId?: string
@@ -2993,10 +3302,12 @@ export function applySvgImportToScene(args: {
   mode: SvgImportMode
   previewItems?: ImportPreviewItem[]
   scene: SceneDocument
+  draftComponentIdsByPreviewItemId?: Map<string, string> | Record<string, string>
   workspaceConfig?: SvgImportWorkspaceConfig
 }): SvgImportApplyResult {
   const {
     analysis,
+    actionIntent = 'quick-import',
     appendBreadboardCenterMm,
     document,
     hostSurfaceId,
@@ -3005,6 +3316,7 @@ export function applySvgImportToScene(args: {
     mode,
     previewItems,
     scene,
+    draftComponentIdsByPreviewItemId = new Map<string, string>(),
     workspaceConfig,
   } = args
   const workspaceOverride =
@@ -3175,6 +3487,22 @@ export function applySvgImportToScene(args: {
   const warnings = [...analysis.warnings]
   const existingComponentIds = new Set(baseScene.components.map((component) => component.id))
   const existingAnnotationIds = new Set(baseScene.annotations.map((annotation) => annotation.id))
+  const resolvedDraftComponentIdsByPreviewItemId =
+    draftComponentIdsByPreviewItemId instanceof Map
+      ? draftComponentIdsByPreviewItemId
+      : new Map(Object.entries(draftComponentIdsByPreviewItemId))
+
+  if (actionIntent === 'board-only') {
+    return {
+      actionIntent,
+      draftComponentIdsByPreviewItemId: resolvedDraftComponentIdsByPreviewItemId,
+      importedAnnotations: 0,
+      importedComponents: 0,
+      scene: baseScene,
+      unresolvedAmbiguousElements: 0,
+      warnings,
+    }
+  }
 
   for (const [elementId, resolution] of mappedRecognized.entries()) {
     const element = elementById.get(elementId)
@@ -3234,7 +3562,13 @@ export function applySvgImportToScene(args: {
         definition.defaultVariantId,
       ).variantId
     const componentDraft: ComponentInstance = {
-      id: createComponentId(resolution.suggestion.componentType, existingComponentIds),
+      id: previewItem
+        ? ensureDraftComponentIdForPreviewItem(
+            previewItem.id,
+            draftComponentIdsByPreviewItemId,
+            existingComponentIds,
+          )
+        : createComponentId(resolution.suggestion.componentType, existingComponentIds),
       type: resolution.suggestion.componentType,
       label: createAutoLabel(resolution.suggestion.componentType, baseScene.components),
       variantId,
@@ -3274,7 +3608,11 @@ export function applySvgImportToScene(args: {
       injected.variantId ??
       getResolvedComponentSpec(injected.componentType, definition.defaultVariantId).variantId
     const componentDraft: ComponentInstance = {
-      id: createComponentId(injected.componentType, existingComponentIds),
+      id: ensureDraftComponentIdForPreviewItem(
+        injected.previewItem.id,
+        draftComponentIdsByPreviewItemId,
+        existingComponentIds,
+      ),
       type: injected.componentType,
       label: createAutoLabel(injected.componentType, baseScene.components),
       variantId,
@@ -3358,6 +3696,8 @@ export function applySvgImportToScene(args: {
   }
 
   return {
+    actionIntent,
+    draftComponentIdsByPreviewItemId: resolvedDraftComponentIdsByPreviewItemId,
     scene: baseScene,
     warnings,
     importedComponents: mappedRecognized.size + injectedComponents.length,
@@ -3366,6 +3706,138 @@ export function applySvgImportToScene(args: {
       (mode === 'replace' ? 0 : scene.annotations.length),
     unresolvedAmbiguousElements,
   }
+}
+
+export function applySvgImportToScene(args: {
+  analysis: SvgImportAnalysis
+  document: SvgImportDocument
+  appendBreadboardCenterMm?: Vector2Mm
+  draftComponentIdsByPreviewItemId?: Map<string, string> | Record<string, string>
+  hostSurfaceId?: string
+  manualResolutions?: SvgImportManualResolution[]
+  millimetersPerUnit: number
+  mode: SvgImportMode
+  previewItems?: ImportPreviewItem[]
+  scene: SceneDocument
+  actionIntent?: SvgImportActionIntent
+  workspaceConfig?: SvgImportWorkspaceConfig
+}): SvgImportApplyResult {
+  return buildSvgImportSceneCore({
+    analysis: args.analysis,
+    actionIntent: args.actionIntent,
+    appendBreadboardCenterMm: args.appendBreadboardCenterMm,
+    document: args.document,
+    draftComponentIdsByPreviewItemId: args.draftComponentIdsByPreviewItemId,
+    hostSurfaceId: args.hostSurfaceId,
+    manualResolutions: args.manualResolutions,
+    millimetersPerUnit: args.millimetersPerUnit,
+    mode: args.mode,
+    previewItems: args.previewItems,
+    scene: args.scene,
+    workspaceConfig: args.workspaceConfig,
+  })
+}
+
+export function createImportPreviewDraftScene(args: {
+  analysis?: SvgImportAnalysis
+  appendBreadboardCenterMm?: Vector2Mm
+  actionIntent?: SvgImportActionIntent
+  document: ImportPreviewDocument
+  hostSurfaceId?: string
+  millimetersPerUnit: number
+  mode: SvgImportMode
+  previewItems: ImportPreviewItem[]
+  previewMode?: SvgImportPreviewMode
+  scene: SceneDocument
+  workspaceConfig?: SvgImportWorkspaceConfig
+}): ImportPreviewDraftScene {
+  const document =
+    args.document.sourceKind === 'svg'
+      ? args.document
+      : createSurfaceOnlyImportShim(args.document)
+  const analysis =
+    args.document.sourceKind === 'svg'
+      ? args.analysis ?? createEmptyImportAnalysis(detectSvgImportWorkspace(document))
+      : createEmptyImportAnalysis({
+        breadboardCandidates: [],
+        orphanElementIds: [],
+        warnings: [],
+          workspaceKind: args.workspaceConfig?.workspaceKind ?? 'single-breadboard',
+        })
+  const componentIdByPreviewItemId = Object.fromEntries(
+    args.previewItems
+      .filter((item) => item.disposition === 'component' && item.componentType)
+      .map((item) => [item.id, createImportPreviewDraftComponentId(item.id)]),
+  )
+  const previewItemIdByComponentId = Object.fromEntries(
+    Object.entries(componentIdByPreviewItemId).map(([previewItemId, componentId]) => [
+      componentId,
+      previewItemId,
+    ]),
+  )
+  const result = applySvgImportToScene({
+    analysis,
+    actionIntent: args.actionIntent ?? 'quick-import',
+    appendBreadboardCenterMm: args.appendBreadboardCenterMm,
+    document,
+    draftComponentIdsByPreviewItemId: componentIdByPreviewItemId,
+    hostSurfaceId: args.hostSurfaceId,
+    millimetersPerUnit: args.millimetersPerUnit,
+    mode: args.mode,
+    previewItems: args.previewItems,
+    scene: args.scene,
+    workspaceConfig: args.workspaceConfig,
+  })
+  const { targetsById } = getImportPlacementTargets({
+    baseScene: result.scene,
+    document,
+    hostSurfaceId: args.hostSurfaceId,
+    millimetersPerUnit: args.millimetersPerUnit,
+    mode: args.mode,
+    workspaceConfig: args.workspaceConfig,
+  })
+
+  return {
+    actionIntent: args.actionIntent ?? 'quick-import',
+    componentIdByPreviewItemId,
+    importedComponentIds: Object.values(componentIdByPreviewItemId),
+    previewItemIdByComponentId,
+    previewMode: args.previewMode ?? 'source',
+    scene: result.scene,
+    targetsByHostSurfaceId: Object.fromEntries(targetsById),
+  }
+}
+
+export function buildSvgImportDraftScene(args: {
+  scene: SceneDocument
+  session: SvgImportDraftSession
+}): ImportPreviewDraftScene {
+  const previewItems =
+    args.session.actionIntent === 'board-only'
+      ? []
+      : args.session.actionIntent === 'modified-import'
+        ? args.session.workingPreviewItems
+        : args.session.baselinePreviewItems
+
+  const result = createImportPreviewDraftScene({
+    actionIntent: args.session.actionIntent,
+    analysis: args.session.analysis,
+    appendBreadboardCenterMm: args.session.workingAppendBreadboardCenterMm,
+    document: args.session.document,
+    hostSurfaceId: args.session.workingHostSurfaceId,
+    millimetersPerUnit: args.session.millimetersPerUnit,
+    mode: args.session.workingMode,
+    previewItems,
+    previewMode: args.session.previewMode,
+    scene: args.scene,
+    workspaceConfig: args.session.workingWorkspaceConfig ?? args.session.workspaceConfig,
+  })
+
+  for (const [previewItemId, componentId] of Object.entries(result.componentIdByPreviewItemId)) {
+    args.session.draftComponentIdsByPreviewItemId.set(previewItemId, componentId)
+  }
+
+  return result
 }
 
 export function listSvgImportComponentChoices() {
