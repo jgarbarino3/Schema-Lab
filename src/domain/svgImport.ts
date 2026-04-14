@@ -30,7 +30,7 @@ import {
   getBreadboardAnchorForCenterMm,
 } from './workspace'
 
-export type SvgImportMode = 'merge' | 'replace'
+export type SvgImportMode = 'append-breadboard' | 'merge' | 'replace'
 export type SvgImportProfile = 'strict' | 'guided'
 export type SvgCalibrationMode = 'simple' | 'advanced'
 export type ImportSourceKind = 'svg' | 'raster'
@@ -185,6 +185,36 @@ export interface SvgImportReviewItem {
 export type SvgImportResolutionDisposition = 'component' | 'linework' | 'skip'
 export type SvgImportGeneralReviewItem = SvgImportReviewItem
 export type SvgImportAmbiguousElement = SvgImportReviewItem
+
+export type ImportPreviewItemKind =
+  | 'ambiguous-symbol'
+  | 'linework-fragment'
+  | 'missing-junction'
+  | 'raster-candidate'
+  | 'recognized-component'
+
+export interface ImportPreviewItem {
+  allowKeepAsLinework: boolean
+  bounds: BoundsMm
+  center: Vector2Mm
+  componentType?: ComponentType
+  disposition: SvgImportResolutionDisposition
+  editability: {
+    canMove: boolean
+    canReassign: boolean
+    canRotate: boolean
+  }
+  elementId?: string
+  id: string
+  isStrongMatch: boolean
+  kind: ImportPreviewItemKind
+  label: string
+  rotationQuarterTurns: QuarterTurn
+  sourceElementIds: string[]
+  sourceKind: ImportSourceKind
+  suggestions: SvgImportSuggestion[]
+  variantId?: string
+}
 
 export interface SvgImportAnnotationSegment {
   color: string
@@ -1560,6 +1590,54 @@ function createReplaceSceneTemplate(
   return nextScene
 }
 
+function createAppendBreadboardSceneTemplate(args: {
+  centerMm?: Vector2Mm
+  importWorkspace?: SvgImportWorkspaceConfig
+  scene: SceneDocument
+}) {
+  const nextScene = copyScene(args.scene)
+
+  if (
+    nextScene.workspace.kind !== 'optical-table' ||
+    !args.importWorkspace ||
+    args.importWorkspace.breadboards.length === 0
+  ) {
+    return nextScene
+  }
+
+  const importedSurface = args.importWorkspace.breadboards[0]
+  const breadboardModel = createBreadboardModelFromImportSurface(importedSurface)
+  const centerMm =
+    args.centerMm ?? {
+      x: roundMm(nextScene.workspace.table.widthMm / 2),
+      y: roundMm(nextScene.workspace.table.heightMm / 2),
+    }
+  const anchorMm = getBreadboardAnchorForCenterMm(breadboardModel, centerMm)
+  const existingIds = new Set(nextScene.workspace.breadboards.map((breadboard) => breadboard.id))
+  let suffix = nextScene.workspace.breadboards.length + 1
+  let nextId = importedSurface.id || `breadboard-${suffix}`
+
+  while (existingIds.has(nextId)) {
+    suffix += 1
+    nextId = `breadboard-${suffix}`
+  }
+
+  nextScene.workspace = {
+    ...nextScene.workspace,
+    breadboards: [
+      ...nextScene.workspace.breadboards,
+      createBreadboardInstance({
+        anchorMm,
+        id: nextId,
+        label: importedSurface.label || `Breadboard ${suffix}`,
+        model: breadboardModel,
+      }),
+    ],
+  }
+
+  return nextScene
+}
+
 function computeSegmentLength(start: Vector2Mm, end: Vector2Mm) {
   return Math.hypot(end.x - start.x, end.y - start.y)
 }
@@ -2433,6 +2511,31 @@ function getImportPlacementTargets(args: {
   const targetsById = new Map<string, SvgImportPlacementTarget>()
   const primarySurface = workspaceConfig ? getPrimaryWorkspaceSurfaceConfig(workspaceConfig) : undefined
 
+  if (
+    mode === 'append-breadboard' &&
+    workspaceConfig &&
+    baseScene.workspace.kind === 'optical-table'
+  ) {
+    const appendedBreadboard = baseScene.workspace.breadboards[baseScene.workspace.breadboards.length - 1]
+    const importedSurface = workspaceConfig.breadboards[0]
+
+    if (appendedBreadboard && importedSurface) {
+      const surface = getSurfacePlacementModel(baseScene, appendedBreadboard.id)
+      const target: SvgImportPlacementTarget = {
+        boundsUnits: importedSurface.boundsUnits,
+        hostSurfaceId: appendedBreadboard.id,
+        localOriginMm: { x: 0, y: 0 },
+        rotationQuarterTurns: surface.rotationQuarterTurns,
+        surfaceOriginMm: surface.originMm,
+      }
+
+      return {
+        primaryTarget: target,
+        targetsById: new Map([[appendedBreadboard.id, target]]),
+      }
+    }
+  }
+
   if (mode === 'replace' && workspaceConfig) {
     if (workspaceConfig.workspaceKind === 'optical-table') {
       const tableSurface = workspaceConfig.table
@@ -2512,6 +2615,28 @@ function getPlacementTargetForElement(args: {
   )
   const containingBreadboards = breadboardTargets.filter((target) =>
     boundsContainsPoint(target.boundsUnits, element.center, 0),
+  )
+
+  if (containingBreadboards.length > 0) {
+    return containingBreadboards.sort(
+      (left, right) => boundsArea(left.boundsUnits) - boundsArea(right.boundsUnits),
+    )[0]
+  }
+
+  return targetsById.get(OPTICAL_TABLE_SURFACE_ID) ?? primaryTarget
+}
+
+function getPlacementTargetForPoint(args: {
+  point: Vector2Mm
+  primaryTarget?: SvgImportPlacementTarget
+  targetsById: Map<string, SvgImportPlacementTarget>
+}) {
+  const { point, primaryTarget, targetsById } = args
+  const breadboardTargets = [...targetsById.values()].filter(
+    (target) => target.hostSurfaceId !== OPTICAL_TABLE_SURFACE_ID,
+  )
+  const containingBreadboards = breadboardTargets.filter((target) =>
+    boundsContainsPoint(target.boundsUnits, point, 0),
   )
 
   if (containingBreadboards.length > 0) {
@@ -2758,23 +2883,127 @@ export function analyzeSvgImportDocument(args: {
   }
 }
 
+export function createImportPreviewItemsFromSvgAnalysis(args: {
+  analysis: SvgImportAnalysis
+  document: SvgImportDocument
+}): ImportPreviewItem[] {
+  const { analysis, document } = args
+  const elementById = new Map(document.elements.map((element) => [element.id, element]))
+  const previewItems: ImportPreviewItem[] = []
+
+  for (const recognized of analysis.recognized) {
+    const element = elementById.get(recognized.elementId)
+
+    if (!element) {
+      continue
+    }
+
+    const useElementRotation =
+      isOpenGeometryElement(element) &&
+      (recognized.suggestion.componentType === 'mirror' ||
+        recognized.suggestion.componentType === 'curved-mirror')
+
+    previewItems.push({
+      allowKeepAsLinework: false,
+      bounds: element.bounds,
+      center: element.center,
+      componentType: recognized.suggestion.componentType,
+      disposition: 'component',
+      editability: {
+        canMove: true,
+        canReassign: true,
+        canRotate: true,
+      },
+      elementId: element.id,
+      id: `recognized-${element.id}`,
+      isStrongMatch: true,
+      kind: 'recognized-component',
+      label: element.hints[0] ?? getComponentDefinition(recognized.suggestion.componentType).familyLabel,
+      rotationQuarterTurns: useElementRotation ? toQuarterTurn(element.rotationDeg) : 0,
+      sourceElementIds: [element.id],
+      sourceKind: 'svg',
+      suggestions: [recognized.suggestion],
+    })
+  }
+
+  for (const reviewItem of analysis.reviewItems) {
+    previewItems.push({
+      allowKeepAsLinework: reviewItem.allowKeepAsLinework,
+      bounds: reviewItem.bounds,
+      center: reviewItem.center,
+      disposition: reviewItem.allowKeepAsLinework ? 'linework' : 'skip',
+      editability: {
+        canMove: true,
+        canReassign: true,
+        canRotate: true,
+      },
+      elementId: reviewItem.elementId,
+      id: reviewItem.id,
+      isStrongMatch: false,
+      kind: reviewItem.kind,
+      label: reviewItem.label,
+      rotationQuarterTurns: toQuarterTurn(reviewItem.suggestedRotationDeg ?? 0),
+      sourceElementIds: reviewItem.sourceElementIds,
+      sourceKind: 'svg',
+      suggestions: reviewItem.suggestions,
+    })
+  }
+
+  return previewItems
+}
+
+export function createImportPreviewItemsFromRasterCandidates(args: {
+  candidates: Array<{
+    bounds: BoundsMm
+    center: Vector2Mm
+    id: string
+    label: string
+    suggestions: SvgImportSuggestion[]
+  }>
+}): ImportPreviewItem[] {
+  return args.candidates.map((candidate) => ({
+    allowKeepAsLinework: false,
+    bounds: candidate.bounds,
+    center: candidate.center,
+    componentType: candidate.suggestions[0]?.componentType,
+    disposition: 'skip',
+    editability: {
+      canMove: true,
+      canReassign: true,
+      canRotate: true,
+    },
+    id: candidate.id,
+    isStrongMatch: false,
+    kind: 'raster-candidate',
+    label: candidate.label,
+    rotationQuarterTurns: 0,
+    sourceElementIds: [],
+    sourceKind: 'raster',
+    suggestions: candidate.suggestions,
+  }))
+}
+
 export function applySvgImportToScene(args: {
   analysis: SvgImportAnalysis
   document: SvgImportDocument
+  appendBreadboardCenterMm?: Vector2Mm
   hostSurfaceId?: string
   manualResolutions?: SvgImportManualResolution[]
   millimetersPerUnit: number
   mode: SvgImportMode
+  previewItems?: ImportPreviewItem[]
   scene: SceneDocument
   workspaceConfig?: SvgImportWorkspaceConfig
 }): SvgImportApplyResult {
   const {
     analysis,
+    appendBreadboardCenterMm,
     document,
     hostSurfaceId,
     manualResolutions = [],
     millimetersPerUnit,
     mode,
+    previewItems,
     scene,
     workspaceConfig,
   } = args
@@ -2783,6 +3012,12 @@ export function applySvgImportToScene(args: {
   const baseScene =
     mode === 'replace'
       ? createReplaceSceneTemplate(scene, workspaceOverride)
+      : mode === 'append-breadboard'
+        ? createAppendBreadboardSceneTemplate({
+            centerMm: appendBreadboardCenterMm,
+            importWorkspace: workspaceConfig,
+            scene,
+          })
       : copyScene(scene)
   const { primaryTarget, targetsById } = getImportPlacementTargets({
     baseScene,
@@ -2794,69 +3029,138 @@ export function applySvgImportToScene(args: {
   })
   const mappedRecognized = new Map<
     string,
-    { suggestion: SvgImportSuggestion; variantId?: string }
+    { previewItem?: ImportPreviewItem; suggestion: SvgImportSuggestion; variantId?: string }
   >()
   const suppressedAnnotationElementIds = new Set<string>()
   const reviewItemById = new Map(analysis.reviewItems.map((item) => [item.id, item]))
   const injectedComponents: Array<{
-    reviewItem: SvgImportReviewItem
+    previewItem: ImportPreviewItem
     componentType: ComponentType
     variantId?: string
   }> = []
 
-  for (const recognized of analysis.recognized) {
-    mappedRecognized.set(recognized.elementId, {
-      suggestion: recognized.suggestion,
-    })
-  }
+  if (previewItems && previewItems.length > 0) {
+    for (const item of previewItems) {
+      if (item.disposition === 'skip') {
+        item.sourceElementIds.forEach((elementId) => {
+          suppressedAnnotationElementIds.add(elementId)
+        })
+        continue
+      }
 
-  for (const resolution of manualResolutions) {
-    const reviewItem = reviewItemById.get(resolution.reviewItemId)
+      if (item.disposition === 'linework') {
+        continue
+      }
 
-    if (!reviewItem) {
-      continue
-    }
+      if (!item.componentType) {
+        continue
+      }
 
-    if (resolution.disposition === 'skip') {
-      reviewItem.sourceElementIds.forEach((elementId) => {
-        suppressedAnnotationElementIds.add(elementId)
+      const suggestion =
+        item.suggestions[0] ??
+        ({
+          componentType: item.componentType,
+          confidence: item.isStrongMatch ? 1 : 0.52,
+          reason: item.isStrongMatch
+            ? 'Imported from auto-confirmed preview match.'
+            : 'Assigned during import preview review.',
+          source: item.isStrongMatch ? 'heuristic' : 'deterministic',
+        } satisfies SvgImportSuggestion)
+
+      if (item.elementId) {
+        mappedRecognized.set(item.elementId, {
+          previewItem: item,
+          suggestion: {
+            ...suggestion,
+            componentType: item.componentType,
+          },
+          variantId: item.variantId,
+        })
+        continue
+      }
+
+      injectedComponents.push({
+        componentType: item.componentType,
+        previewItem: item,
+        variantId: item.variantId,
       })
-      continue
+    }
+  } else {
+    for (const recognized of analysis.recognized) {
+      mappedRecognized.set(recognized.elementId, {
+        suggestion: recognized.suggestion,
+      })
     }
 
-    if (resolution.disposition === 'linework') {
-      continue
-    }
+    for (const resolution of manualResolutions) {
+      const reviewItem = reviewItemById.get(resolution.reviewItemId)
 
-    if (!resolution.componentType) {
-      continue
-    }
+      if (!reviewItem) {
+        continue
+      }
 
-    if (reviewItem.elementId) {
-      mappedRecognized.set(reviewItem.elementId, {
-        suggestion: {
-          componentType: resolution.componentType,
-          confidence: 1,
-          reason: 'Manually resolved during import review.',
-          source: 'deterministic',
+      if (resolution.disposition === 'skip') {
+        reviewItem.sourceElementIds.forEach((elementId) => {
+          suppressedAnnotationElementIds.add(elementId)
+        })
+        continue
+      }
+
+      if (resolution.disposition === 'linework') {
+        continue
+      }
+
+      if (!resolution.componentType) {
+        continue
+      }
+
+      if (reviewItem.elementId) {
+        mappedRecognized.set(reviewItem.elementId, {
+          suggestion: {
+            componentType: resolution.componentType,
+            confidence: 1,
+            reason: 'Manually resolved during import review.',
+            source: 'deterministic',
+          },
+          variantId: resolution.variantId,
+        })
+        continue
+      }
+
+      injectedComponents.push({
+        componentType: resolution.componentType,
+        previewItem: {
+          allowKeepAsLinework: reviewItem.allowKeepAsLinework,
+          bounds: reviewItem.bounds,
+          center: reviewItem.center,
+          disposition: 'component',
+          editability: {
+            canMove: true,
+            canReassign: true,
+            canRotate: true,
+          },
+          id: reviewItem.id,
+          isStrongMatch: false,
+          kind: reviewItem.kind,
+          label: reviewItem.label,
+          rotationQuarterTurns: toQuarterTurn(reviewItem.suggestedRotationDeg ?? 0),
+          sourceElementIds: reviewItem.sourceElementIds,
+          sourceKind: 'svg',
+          suggestions: reviewItem.suggestions,
+          variantId: resolution.variantId,
         },
         variantId: resolution.variantId,
       })
-      continue
     }
-
-    injectedComponents.push({
-      reviewItem,
-      componentType: resolution.componentType,
-      variantId: resolution.variantId,
-    })
   }
 
-  const unresolvedAmbiguousElements = analysis.reviewItems.filter(
-    (item) =>
-      !manualResolutions.some((resolution) => resolution.reviewItemId === item.id) &&
-      (!item.elementId || !mappedRecognized.has(item.elementId)),
-  ).length
+  const unresolvedAmbiguousElements = previewItems
+    ? 0
+    : analysis.reviewItems.filter(
+        (item) =>
+          !manualResolutions.some((resolution) => resolution.reviewItemId === item.id) &&
+          (!item.elementId || !mappedRecognized.has(item.elementId)),
+      ).length
   const elementById = new Map(document.elements.map((element) => [element.id, element]))
   const targetByElementId = new Map(
     document.elements.map((element) => [
@@ -2874,7 +3178,17 @@ export function applySvgImportToScene(args: {
 
   for (const [elementId, resolution] of mappedRecognized.entries()) {
     const element = elementById.get(elementId)
-    const target = targetByElementId.get(elementId) ?? primaryTarget
+    const previewItem = resolution.previewItem
+    const target =
+      (previewItem
+        ? getPlacementTargetForPoint({
+            point: previewItem.center,
+            primaryTarget,
+            targetsById,
+          })
+        : undefined) ??
+      targetByElementId.get(elementId) ??
+      primaryTarget
 
     if (!element || !target) {
       continue
@@ -2883,16 +3197,18 @@ export function applySvgImportToScene(args: {
     const worldAnchor = mapSvgPointToWorldMm({
       importBounds: target.boundsUnits,
       millimetersPerUnit,
-      point: element.center,
+      point: previewItem?.center ?? element.center,
       targetOriginLocalMm: target.localOriginMm,
       targetRotationQuarterTurns: target.rotationQuarterTurns,
       targetSurfaceOriginMm: target.surfaceOriginMm,
     })
     const useElementRotation =
+      previewItem === undefined &&
       isOpenGeometryElement(element) &&
       (resolution.suggestion.componentType === 'mirror' ||
         resolution.suggestion.componentType === 'curved-mirror')
-    const localQuarterTurn = useElementRotation ? toQuarterTurn(element.rotationDeg) : 0
+    const localQuarterTurn =
+      previewItem?.rotationQuarterTurns ?? (useElementRotation ? toQuarterTurn(element.rotationDeg) : 0)
     const worldQuarterTurn = normalizeQuarterTurns(
       (localQuarterTurn + target.rotationQuarterTurns) as QuarterTurn,
     )
@@ -2937,10 +3253,17 @@ export function applySvgImportToScene(args: {
 
   for (const injected of injectedComponents) {
     const sourceTarget =
-      injected.reviewItem.sourceElementIds[0]
-        ? targetByElementId.get(injected.reviewItem.sourceElementIds[0])
+      injected.previewItem.sourceElementIds[0]
+        ? targetByElementId.get(injected.previewItem.sourceElementIds[0])
         : undefined
-    const target = sourceTarget ?? primaryTarget
+    const target =
+      getPlacementTargetForPoint({
+        point: injected.previewItem.center,
+        primaryTarget,
+        targetsById,
+      }) ??
+      sourceTarget ??
+      primaryTarget
 
     if (!target) {
       continue
@@ -2958,14 +3281,14 @@ export function applySvgImportToScene(args: {
       anchorMm: mapSvgPointToWorldMm({
         importBounds: target.boundsUnits,
         millimetersPerUnit,
-        point: injected.reviewItem.center,
+        point: injected.previewItem.center,
         targetOriginLocalMm: target.localOriginMm,
         targetRotationQuarterTurns: target.rotationQuarterTurns,
         targetSurfaceOriginMm: target.surfaceOriginMm,
       }),
       hostSurfaceId: target.hostSurfaceId,
       rotationQuarterTurns: normalizeQuarterTurns(
-        (toQuarterTurn(injected.reviewItem.suggestedRotationDeg ?? 0) +
+        (injected.previewItem.rotationQuarterTurns +
           target.rotationQuarterTurns) as QuarterTurn,
       ),
       config: createDefaultComponentConfig(injected.componentType, variantId),
@@ -3037,7 +3360,7 @@ export function applySvgImportToScene(args: {
   return {
     scene: baseScene,
     warnings,
-    importedComponents: mappedRecognized.size,
+    importedComponents: mappedRecognized.size + injectedComponents.length,
     importedAnnotations:
       baseScene.annotations.length -
       (mode === 'replace' ? 0 : scene.annotations.length),

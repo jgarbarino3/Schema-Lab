@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FocusEvent,
   type MouseEvent,
   type ReactNode,
 } from 'react'
@@ -15,6 +16,10 @@ import {
   useToolbarInteractionState,
   useToolbarWorkspaceState,
 } from '../state/editorSelectors'
+import {
+  FloatingToolbarTooltip,
+  SuggestionBoxModal,
+} from './ToolbarOverlays'
 
 export type ExportAction = 'scene-json' | ExportFormat
 
@@ -26,6 +31,7 @@ interface ToolbarProps {
   onClearBreadboard: () => void
   onClearTable: () => void
   onExportAction: (action: ExportAction) => void
+  onImportRaster: () => void
   onImportSceneJson: () => void
   onImportSvg: () => void
   onOpenOnboarding: () => void
@@ -160,24 +166,44 @@ function getFloatingStyle(button: HTMLButtonElement | null) {
   } satisfies CSSProperties
 }
 
+function getAnnotationDockTooltipButton(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return null
+  }
+
+  const button = target.closest('.annotation-dock__tools .toolbar__icon-button[aria-label]')
+  return button instanceof HTMLButtonElement ? button : null
+}
+
 function ToolbarIcon({
   children,
   label,
+  onBlur,
   onClick,
   disabled,
+  onFocus,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   children: ReactNode
   disabled?: boolean
   label: string
   onClick: () => void
+  onBlur?: (event: FocusEvent<HTMLButtonElement>) => void
+  onFocus?: (event: FocusEvent<HTMLButtonElement>) => void
+  onMouseEnter?: (event: MouseEvent<HTMLButtonElement>) => void
+  onMouseLeave?: (event: MouseEvent<HTMLButtonElement>) => void
 }) {
   return (
     <button
       aria-label={label}
       className="toolbar__icon-button"
-      data-tooltip={label}
       disabled={disabled}
+      onBlur={onBlur}
       onClick={onClick}
+      onFocus={onFocus}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       type="button"
     >
       {children}
@@ -197,6 +223,7 @@ export function Toolbar({
   onClearBreadboard,
   onClearTable,
   onExportAction,
+  onImportRaster,
   onImportSceneJson,
   onImportSvg,
   onOpenOnboarding,
@@ -229,7 +256,12 @@ export function Toolbar({
   const menuPopoverRef = useRef<HTMLDivElement | null>(null)
   const [warningStyle, setWarningStyle] = useState<CSSProperties>()
   const [menuStyle, setMenuStyle] = useState<CSSProperties>()
+  const [tooltipTarget, setTooltipTarget] = useState<{
+    label: string
+    element: HTMLButtonElement | null
+  } | null>(null)
   const [isAppendixOpen, setIsAppendixOpen] = useState(false)
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false)
   const [isBoardModeTrayOpen, setIsBoardModeTrayOpen] = useState(false)
   const boardModeTrayCloseTimeoutRef = useRef<number | undefined>(undefined)
   const { hasBreadboards } = useToolbarWorkspaceState()
@@ -309,9 +341,67 @@ export function Toolbar({
     setHelpOpen(false)
     setWarningsOpen(false)
     setIsAppendixOpen(false)
+    setIsSuggestionsOpen(false)
+    setTooltipTarget(null)
     setOpenToolbarMenu(nextMenu)
     setMenuStyle(nextMenu ? getFloatingStyle(event.currentTarget) : undefined)
   }
+
+  const showToolbarTooltip = (
+    label: string,
+    element: HTMLButtonElement | null,
+  ) => {
+    if (
+      !element ||
+      isHelpOpen ||
+      isWarningsOpen ||
+      isSuggestionsOpen ||
+      Boolean(openToolbarMenu)
+    ) {
+      return
+    }
+
+    setTooltipTarget({ label, element })
+  }
+
+  const hideToolbarTooltip = (element: HTMLButtonElement | null) => {
+    setTooltipTarget((current) => {
+      if (!current) {
+        return null
+      }
+
+      if (current.element !== element) {
+        return current
+      }
+
+      return null
+    })
+  }
+
+  const bindToolbarTooltip = (label: string) => ({
+    onBlur: (event: FocusEvent<HTMLButtonElement>) => {
+      hideToolbarTooltip(event.currentTarget)
+    },
+    onFocus: (event: FocusEvent<HTMLButtonElement>) => {
+      showToolbarTooltip(label, event.currentTarget)
+    },
+    onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => {
+      showToolbarTooltip(label, event.currentTarget)
+    },
+    onMouseLeave: (event: MouseEvent<HTMLButtonElement>) => {
+      hideToolbarTooltip(event.currentTarget)
+    },
+  })
+
+  const labelsTooltip = bindToolbarTooltip(showComponentLabels ? 'Hide labels' : 'Show labels')
+  const filesTooltip = bindToolbarTooltip('Files')
+  const resetViewTooltip = bindToolbarTooltip('Reset view')
+  const undoTooltip = bindToolbarTooltip('Undo')
+  const redoTooltip = bindToolbarTooltip('Redo')
+  const moreTooltip = bindToolbarTooltip('More')
+  const suggestionsTooltip = bindToolbarTooltip('Suggestions')
+  const highlightTooltip = bindToolbarTooltip('Highlight')
+  const canvasToolsTooltip = bindToolbarTooltip('Canvas tools')
 
   const getMenuButtonRef = (menu: NonNullable<typeof openToolbarMenu>) => {
     switch (menu) {
@@ -417,6 +507,12 @@ export function Toolbar({
       window.removeEventListener('pointerdown', handlePointerDown)
     }
   }, [isAppendixOpen, isHelpOpen, isWarningsOpen, openToolbarMenu, setHelpOpen, setOpenToolbarMenu, setWarningsOpen])
+
+  useEffect(() => {
+    if (isHelpOpen || isWarningsOpen || openToolbarMenu || isAppendixOpen || isSuggestionsOpen) {
+      setTooltipTarget(null)
+    }
+  }, [isAppendixOpen, isHelpOpen, isSuggestionsOpen, isWarningsOpen, openToolbarMenu])
 
   useEffect(() => {
     if (workspaceKind !== 'optical-table' || !hasBreadboards || !isBoardFocusAvailable) {
@@ -673,7 +769,7 @@ export function Toolbar({
             {openToolbarMenu === 'export' ? (
               <>
                 <div className="toolbar__menu-header">
-                  <strong>Export &amp; Files</strong>
+                  <strong>Files</strong>
                 </div>
                 <section>
                   <h3>Import</h3>
@@ -689,11 +785,20 @@ export function Toolbar({
                   <button
                     onClick={() => {
                       setOpenToolbarMenu(undefined)
+                      onImportRaster()
+                    }}
+                    type="button"
+                  >
+                    Import PNG
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
                       onImportSvg()
                     }}
                     type="button"
                   >
-                    Import Interpreted Drawing
+                    Import SVG
                   </button>
                 </section>
 
@@ -840,6 +945,17 @@ export function Toolbar({
         )
       : null
 
+  const tooltipPortal = <FloatingToolbarTooltip target={tooltipTarget} />
+  const suggestionsModal = (
+    <SuggestionBoxModal
+      isOpen={isSuggestionsOpen}
+      onClose={() => {
+        setIsSuggestionsOpen(false)
+        setTooltipTarget(null)
+      }}
+    />
+  )
+
   return (
     <>
       <header className="toolbar">
@@ -938,43 +1054,41 @@ export function Toolbar({
 
             <button
               aria-expanded={openToolbarMenu === 'export'}
-              className={`toolbar__button-with-icon${openToolbarMenu === 'export' ? ' is-active-tool' : ''}`}
+              aria-label="Files"
+              className={`toolbar__icon-button toolbar__icon-button--primary${openToolbarMenu === 'export' ? ' is-active' : ''}`}
               data-testid="toolbar-export"
               data-tour="toolbar-export"
+              {...filesTooltip}
               onClick={(event) => toggleToolbarMenu('export', event)}
               ref={exportButtonRef}
               type="button"
             >
-              <span aria-hidden="true" className="toolbar__button-icon">
-                <svg fill="none" viewBox="0 0 24 24">
-                  <path
-                    d="M8.4 5.6h6.2l3.2 3.2v9.6a1.8 1.8 0 0 1-1.8 1.8H8.4a1.8 1.8 0 0 1-1.8-1.8V7.4a1.8 1.8 0 0 1 1.8-1.8Z"
-                    stroke="currentColor"
-                    strokeLinejoin="round"
-                    strokeWidth="1.7"
-                  />
-                  <path
-                    d="M14.6 5.6v3.3h3.2"
-                    stroke="currentColor"
-                    strokeLinejoin="round"
-                    strokeWidth="1.7"
-                  />
-                  <path
-                    d="M12 10.2v5.9"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeWidth="1.7"
-                  />
-                  <path
-                    d="m9.6 13.8 2.4 2.4 2.4-2.4"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.7"
-                  />
-                </svg>
-              </span>
-              <span className="toolbar__button-label">Export</span>
+              <svg fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M8.4 5.6h6.2l3.2 3.2v9.6a1.8 1.8 0 0 1-1.8 1.8H8.4a1.8 1.8 0 0 1-1.8-1.8V7.4a1.8 1.8 0 0 1 1.8-1.8Z"
+                  stroke="currentColor"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M14.6 5.6v3.3h3.2"
+                  stroke="currentColor"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M9.2 11.2h5.6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M9.2 14.4h5.6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.7"
+                />
+              </svg>
             </button>
 
             <button
@@ -982,7 +1096,7 @@ export function Toolbar({
               aria-label="More"
               className={`toolbar__icon-button toolbar__icon-button--primary${openToolbarMenu === 'more' ? ' is-active' : ''}`}
               data-testid="toolbar-more"
-              data-tooltip="More"
+              {...moreTooltip}
               onClick={(event) => toggleToolbarMenu('more', event)}
               ref={moreButtonRef}
               type="button"
@@ -991,6 +1105,43 @@ export function Toolbar({
                 <circle cx="5" cy="12" fill="currentColor" r="1.7" />
                 <circle cx="12" cy="12" fill="currentColor" r="1.7" />
                 <circle cx="19" cy="12" fill="currentColor" r="1.7" />
+              </svg>
+            </button>
+
+            <button
+              aria-label="Suggestions"
+              className="toolbar__icon-button toolbar__icon-button--primary toolbar__icon-button--suggestions"
+              data-testid="toolbar-suggestions"
+              {...suggestionsTooltip}
+              onClick={() => {
+                setHelpOpen(false)
+                setWarningsOpen(false)
+                setOpenToolbarMenu(undefined)
+                setIsAppendixOpen(false)
+                setIsSuggestionsOpen(true)
+                setTooltipTarget(null)
+              }}
+              type="button"
+            >
+              <svg fill="none" viewBox="0 0 24 24">
+                <path
+                  d="M4.5 6.8c0-1.21.98-2.2 2.2-2.2h10.6c1.21 0 2.2.99 2.2 2.2v7.15c0 1.22-.99 2.2-2.2 2.2H10.1l-3.95 2.7v-2.7H6.7c-1.21 0-2.2-.98-2.2-2.2V6.8Z"
+                  stroke="currentColor"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M7.2 8.5h9.6"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.7"
+                />
+                <path
+                  d="M7.2 11.7h6.2"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeWidth="1.7"
+                />
               </svg>
             </button>
 
@@ -1038,16 +1189,51 @@ export function Toolbar({
         <div className="toolbar__row toolbar__row--secondary">
           <div className="toolbar__tool-dock" data-testid="toolbar-tool-dock">
             <div className="toolbar__tool-dock-cluster">
-              {toolDock}
+              <div
+                onBlurCapture={(event) => {
+                  const button = getAnnotationDockTooltipButton(event.target)
+
+                  if (button) {
+                    hideToolbarTooltip(button)
+                  }
+                }}
+                onFocusCapture={(event) => {
+                  const button = getAnnotationDockTooltipButton(event.target)
+                  const label = button?.getAttribute('aria-label')
+
+                  if (button && label) {
+                    showToolbarTooltip(label, button)
+                  }
+                }}
+                onMouseOut={(event) => {
+                  const button = getAnnotationDockTooltipButton(event.target)
+                  const nextButton = getAnnotationDockTooltipButton(event.relatedTarget)
+
+                  if (button && button !== nextButton) {
+                    hideToolbarTooltip(button)
+                  }
+                }}
+                onMouseOver={(event) => {
+                  const button = getAnnotationDockTooltipButton(event.target)
+                  const label = button?.getAttribute('aria-label')
+
+                  if (button && label) {
+                    showToolbarTooltip(label, button)
+                  }
+                }}
+              >
+                {toolDock}
+              </div>
               <button
                 aria-label="Highlight"
                 aria-pressed={activeTool === 'highlight'}
                 className={`toolbar__icon-button toolbar__icon-button--highlight${activeTool === 'highlight' ? ' is-active' : ''}`}
-                data-tooltip="Highlight"
+                {...highlightTooltip}
                 onClick={() => {
                   setHelpOpen(false)
                   setWarningsOpen(false)
                   setOpenToolbarMenu(undefined)
+                  setTooltipTarget(null)
                   setActiveTool(activeTool === 'highlight' ? 'select' : 'highlight')
                 }}
                 type="button"
@@ -1085,6 +1271,7 @@ export function Toolbar({
             <div className="toolbar__tool-group toolbar__tool-group--compact toolbar__tool-group--canvas-actions">
               <ToolbarIcon
                 label={showComponentLabels ? 'Hide labels' : 'Show labels'}
+                {...labelsTooltip}
                 onClick={onToggleLabels}
               >
                 <svg fill="none" viewBox="0 0 24 24">
@@ -1099,7 +1286,11 @@ export function Toolbar({
                 </svg>
               </ToolbarIcon>
 
-              <ToolbarIcon label="Reset view" onClick={onResetView}>
+              <ToolbarIcon
+                label="Reset view"
+                {...resetViewTooltip}
+                onClick={onResetView}
+              >
                 <svg fill="none" viewBox="0 0 24 24">
                   <path
                     d="M12 5a7 7 0 1 0 7 7"
@@ -1121,8 +1312,8 @@ export function Toolbar({
               <button
                 aria-expanded={openToolbarMenu === 'canvas-tools'}
                 className={`toolbar__icon-button${openToolbarMenu === 'canvas-tools' ? ' is-active' : ''}`}
-                data-tooltip="Canvas tools"
                 onClick={(event) => toggleToolbarMenu('canvas-tools', event)}
+                {...canvasToolsTooltip}
                 ref={canvasToolsButtonRef}
                 type="button"
               >
@@ -1154,7 +1345,12 @@ export function Toolbar({
             </div>
 
             <div className="toolbar__tool-group toolbar__tool-group--compact">
-              <ToolbarIcon disabled={!canUndo} label="Undo" onClick={undo}>
+              <ToolbarIcon
+                disabled={!canUndo}
+                label="Undo"
+                {...undoTooltip}
+                onClick={undo}
+              >
                 <svg fill="none" viewBox="0 0 24 24">
                   <path
                     d="M9 7 4 12l5 5"
@@ -1172,7 +1368,12 @@ export function Toolbar({
                   />
                 </svg>
               </ToolbarIcon>
-              <ToolbarIcon disabled={!canRedo} label="Redo" onClick={redo}>
+              <ToolbarIcon
+                disabled={!canRedo}
+                label="Redo"
+                {...redoTooltip}
+                onClick={redo}
+              >
                 <svg fill="none" viewBox="0 0 24 24">
                   <path
                     d="m15 7 5 5-5 5"
@@ -1197,8 +1398,10 @@ export function Toolbar({
 
       {helpModal}
       {appendixModal}
+      {suggestionsModal}
       {warningPopover}
       {menuPopover}
+      {tooltipPortal}
     </>
   )
 }

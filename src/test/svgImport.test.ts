@@ -198,6 +198,157 @@ describe('svg import analysis', () => {
     expect(result.scene.annotations.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('imports preview-edited component positions directly from preview items', () => {
+    const scene = makeScene()
+    const document = makeDocument([
+      makeElement({
+        id: 'mirror-preview',
+        kind: 'line',
+        isClosed: false,
+        hints: ['mirror'],
+        points: [
+          { x: 20, y: 20 },
+          { x: 32, y: 32 },
+        ],
+        polylines: [[
+          { x: 20, y: 20 },
+          { x: 32, y: 32 },
+        ]],
+        bounds: { x: 20, y: 20, width: 12, height: 12 },
+        center: { x: 26, y: 26 },
+        rotationDeg: 0,
+        segments: buildSegments([
+          { x: 20, y: 20 },
+          { x: 32, y: 32 },
+        ]),
+      }),
+    ])
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 1,
+      profile: 'guided',
+    })
+    const baseline = applySvgImportToScene({
+      analysis,
+      document,
+      millimetersPerUnit: 1,
+      mode: 'merge',
+      scene: makeScene(),
+    })
+
+    const result = applySvgImportToScene({
+      analysis,
+      document,
+      millimetersPerUnit: 1,
+      mode: 'merge',
+      previewItems: [
+        {
+          allowKeepAsLinework: false,
+          bounds: { x: 44, y: 19, width: 12, height: 12 },
+          center: { x: 50, y: 25 },
+          componentType: 'mirror',
+          disposition: 'component',
+          editability: {
+            canMove: true,
+            canReassign: true,
+            canRotate: true,
+          },
+          elementId: 'mirror-preview',
+          id: 'recognized-mirror-preview',
+          isStrongMatch: true,
+          kind: 'recognized-component',
+          label: 'Mirror',
+          rotationQuarterTurns: 1,
+          sourceElementIds: ['mirror-preview'],
+          sourceKind: 'svg',
+          suggestions: [
+            {
+              componentType: 'mirror',
+              confidence: 0.96,
+              reason: 'Preview override test.',
+              source: 'heuristic',
+            },
+          ],
+        },
+      ],
+      scene,
+    })
+
+    expect(result.importedComponents).toBe(1)
+    expect(result.scene.components).toHaveLength(1)
+    expect(result.scene.components[0].anchorMm.x).toBeGreaterThan(
+      baseline.scene.components[0].anchorMm.x,
+    )
+    expect(result.scene.components[0].rotationQuarterTurns).toBe(1)
+  })
+
+  it('imports raster-style assigned preview candidates without source SVG elements', () => {
+    const scene = makeScene()
+    const document = makeDocument([])
+
+    const result = applySvgImportToScene({
+      analysis: {
+        ambiguous: [],
+        annotationSegments: [],
+        recognized: [],
+        reviewItems: [],
+        warnings: [],
+        workspaceDetection: detectSvgImportWorkspace(document),
+      },
+      document,
+      millimetersPerUnit: 1,
+      mode: 'merge',
+      previewItems: [
+        {
+          allowKeepAsLinework: false,
+          bounds: { x: 18, y: 34, width: 10, height: 10 },
+          center: { x: 23, y: 39 },
+          componentType: 'iris',
+          disposition: 'component',
+          editability: {
+            canMove: true,
+            canReassign: true,
+            canRotate: true,
+          },
+          id: 'raster-candidate-1',
+          isStrongMatch: false,
+          kind: 'raster-candidate',
+          label: 'Candidate 1',
+          rotationQuarterTurns: 0,
+          sourceElementIds: [],
+          sourceKind: 'raster',
+          suggestions: [],
+        },
+        {
+          allowKeepAsLinework: false,
+          bounds: { x: 82, y: 34, width: 10, height: 10 },
+          center: { x: 87, y: 39 },
+          componentType: 'iris',
+          disposition: 'component',
+          editability: {
+            canMove: true,
+            canReassign: true,
+            canRotate: true,
+          },
+          id: 'raster-candidate-2',
+          isStrongMatch: false,
+          kind: 'raster-candidate',
+          label: 'Candidate 2',
+          rotationQuarterTurns: 0,
+          sourceElementIds: [],
+          sourceKind: 'raster',
+          suggestions: [],
+        },
+      ],
+      scene,
+    })
+
+    expect(result.importedComponents).toBe(2)
+    expect(result.scene.components).toHaveLength(2)
+    expect(result.scene.components.every((component) => component.type === 'iris')).toBe(true)
+    expect(result.scene.components[1].anchorMm.x).toBeGreaterThan(result.scene.components[0].anchorMm.x)
+  })
+
   it('warns when rotation is snapped to quarter-turns', () => {
     const scene = makeScene()
     const tiltedPoints = [

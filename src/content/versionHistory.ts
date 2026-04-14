@@ -4,9 +4,42 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v2.0'
+export const CURRENT_VERSION = 'v2.3'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v2.3',
+    summary:
+      'Schema-Lab 2.3 turned drawing import into a guided setup flow with exact sizing, smarter board calibration, stronger review tools, and better hardware defaults for lab planning.',
+    highlights: [
+      'Guided drawing import for single breadboards and optical tables',
+      'Exact-size-first import flow with cleaner required-input guidance',
+      'Auto-calibration from breadboard hole grids, including clean raster drawings',
+      'Stronger import review, better variant resolution, and a compact default sample holder',
+    ],
+  },
+  {
+    version: 'v2.2',
+    summary:
+      'Schema-Lab 2.2 expanded mechanical planning with richer component visuals, broader hardware coverage, and a much fuller way to browse and place variant-heavy optics hardware.',
+    highlights: [
+      'Classic optics and Enhanced simple modes with per-component switching',
+      'Full Library catalog modal with cross-style previews and direct placement',
+      'Broader hardware coverage for stages, holders, samples, and catalog variants',
+      'More realistic Enhanced top-down visuals for optomechanical planning',
+    ],
+  },
+  {
+    version: 'v2.1',
+    summary:
+      'Schema-Lab 2.1 tightened the editor around day-to-day board planning with cleaner panels, smoother board and table workflows, and more reliable canvas framing.',
+    highlights: [
+      'Editor polish across board-focus and optical-table workflows',
+      'Cleaner inspector layout and faster selection editing',
+      'Viewport reliability improvements on refresh, selection, and board switching',
+      'UI cleanup that keeps common layout work more direct',
+    ],
+  },
   {
     version: 'v2.0',
     summary:

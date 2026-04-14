@@ -138,14 +138,16 @@ export function SvgCalibrationModal(props: SvgCalibrationModalProps) {
               <fieldset className="modal-shell__fieldset">
                 <legend>Auto-Calibrate</legend>
                 <p className="modal-shell__hint">
-                  Suggested hole-grid fit: {autoCalibrationSuggestion.gridColumnCount} ×{' '}
+                  Visible lattice: {autoCalibrationSuggestion.visibleGridColumnCount} ×{' '}
+                  {autoCalibrationSuggestion.visibleGridRowCount} visible holes. Inferred board:{' '}
+                  {autoCalibrationSuggestion.gridColumnCount} ×{' '}
                   {autoCalibrationSuggestion.gridRowCount} holes at{' '}
                   {autoCalibrationSuggestion.inferredMmPerUnit.toFixed(5)} mm per{' '}
                   {document.sourceKind === 'svg' ? 'SVG unit' : 'pixel'}.
                 </p>
                 <p className="modal-shell__hint">
                   {autoCalibrationSuggestion.note ??
-                    `Using the standard ${DEFAULT_IMPORT_HOLE_PITCH_MM} mm breadboard pitch assumption.`}
+                    `Using the standard ${DEFAULT_IMPORT_HOLE_PITCH_MM} mm breadboard pitch assumption and board-size inference from the fitted lattice.`}
                 </p>
                 <button
                   className="modal-shell__primary"

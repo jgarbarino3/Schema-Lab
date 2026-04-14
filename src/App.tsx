@@ -45,21 +45,26 @@ import {
 import {
   analyzeSvgImportDocument,
   applySvgImportToScene,
+  createImportPreviewItemsFromRasterCandidates,
+  createImportPreviewItemsFromSvgAnalysis,
   createInitialSvgImportWorkspaceConfig,
   detectSvgImportWorkspace,
   parseSvgImportDocument,
   resolveSvgImportScaleMmPerUnit,
   type ImportPreviewDocument,
+  type ImportPreviewItem,
   type RasterImportDocument,
   type SvgCalibrationRequest,
   type SvgImportAnalysis,
   type SvgImportDocument,
-  type SvgImportManualResolution,
   type SvgImportMode,
-  type SvgImportProfile,
   type SvgImportWorkspaceConfig,
   type SvgImportWorkspaceDetection,
 } from './domain/svgImport'
+import {
+  detectRasterImportCandidates,
+  rescaleRasterImportCandidates,
+} from './domain/rasterImportRecognition'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
 import {
   getBreadboardInstance,
@@ -89,7 +94,6 @@ import { FullLibraryModal } from './ui/FullLibraryModal'
 import { InspectorPanel } from './ui/InspectorPanel'
 import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
-import { SvgAmbiguityModal } from './ui/SvgAmbiguityModal'
 import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
 import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
 import { dispatchClearLibraryRecents } from './ui/libraryRecents'
@@ -120,24 +124,17 @@ interface ExportRequestState {
 
 interface SvgImportPendingOptionsState {
   autoCalibrationSuggestion?: ImportAutoCalibrationResult
+  previewItems: ImportPreviewItem[]
+  analysis?: SvgImportAnalysis
+  appendBreadboardCenterMm?: { x: number; y: number }
   detection: SvgImportWorkspaceDetection
   document: ImportPreviewDocument
   fileName: string
+  mode?: SvgImportMode
   workspaceConfig: SvgImportWorkspaceConfig
 }
 
-interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {
-  mode: SvgImportMode
-  profile: SvgImportProfile
-}
-
-interface SvgImportPendingAmbiguityState {
-  analysis: SvgImportAnalysis
-  document: SvgImportDocument
-  millimetersPerUnit: number
-  mode: SvgImportMode
-  workspaceConfig: SvgImportWorkspaceConfig
-}
+interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {}
 
 type WorkspaceModalState =
   {
@@ -445,7 +442,7 @@ function App() {
   )
   const viewport = useEditorStore((state) => state.viewport)
   const jsonFileInputRef = useRef<HTMLInputElement | null>(null)
-  const svgFileInputRef = useRef<HTMLInputElement | null>(null)
+  const drawingFileInputRef = useRef<HTMLInputElement | null>(null)
   const stageShellRef = useRef<HTMLDivElement | null>(null)
   const [isJsonModalOpen, setIsJsonModalOpen] = useState(false)
   const [jsonSeed, setJsonSeed] = useState('')
@@ -474,15 +471,42 @@ function App() {
     useState<SvgImportPendingOptionsState>()
   const [svgCalibrationState, setSvgCalibrationState] =
     useState<SvgImportPendingCalibrationState>()
-  const [svgAmbiguityState, setSvgAmbiguityState] =
-    useState<SvgImportPendingAmbiguityState>()
   const [contextMenuState, setContextMenuState] = useState<CanvasContextMenuState>()
   const [svgImportNotice, setSvgImportNotice] = useState<string | undefined>()
   const [showComponentLabels, setShowComponentLabels] = useState(true)
   const [showPostHolders, setShowPostHolders] = useState(false)
+
+  const openDrawingImportPicker = useCallback((accept: string) => {
+    const input = drawingFileInputRef.current
+
+    if (!input) {
+      return
+    }
+
+    input.accept = accept
+    input.click()
+  }, [])
   const sceneJson = useMemo(() => serializeSceneDocument(scene), [scene])
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const breadboardInstances = useMemo(() => getBreadboardInstances(scene), [scene])
+  const currentImportTablePlacement = useMemo(
+    () =>
+      scene.workspace.kind === 'optical-table'
+        ? {
+            breadboards: scene.workspace.breadboards.map((breadboard) => ({
+              bounds: getBreadboardWorldBoundsMm(
+                breadboard.model,
+                breadboard.anchorMm,
+                breadboard.rotationQuarterTurns,
+              ),
+              id: breadboard.id,
+              label: breadboard.label,
+            })),
+            tableBounds: getOpticalTableWorldBoundsMm(scene.workspace.table),
+          }
+        : undefined,
+    [scene.workspace],
+  )
   const beamTrace = useMemo(() => traceSceneBeams(scene), [scene])
   const gaussianTrace = useMemo(
     () => analyzeGaussianPaths(scene, beamTrace),
@@ -516,7 +540,6 @@ function App() {
   const isClearModalOpen = clearModalState !== undefined
   const isSvgImportOptionsOpen = svgImportOptionsState !== undefined
   const isSvgCalibrationOpen = svgCalibrationState !== undefined
-  const isSvgAmbiguityOpen = svgAmbiguityState !== undefined
   const exportBreadboardSurfaceId =
     scene.workspace.kind === 'single-breadboard'
       ? SINGLE_BREADBOARD_SURFACE_ID
@@ -685,11 +708,11 @@ function App() {
         ),
       },
       {
-        title: 'Export',
+        title: 'Files',
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
-            <p>Use Export for file actions, imports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
+            <p>Use Files for imports, exports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
           </>
         ),
       },
@@ -735,11 +758,11 @@ function App() {
         ),
       },
       {
-        title: 'Export Review',
+        title: 'Files Review',
         selector: '[data-tour=\"toolbar-export\"]',
         body: (
           <>
-            <p>Export the tutorial once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
+            <p>Open Files once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
           </>
         ),
       },
@@ -1358,7 +1381,6 @@ function App() {
         !isFullLibraryOpen &&
         !isSvgImportOptionsOpen &&
         !isSvgCalibrationOpen &&
-        !isSvgAmbiguityOpen &&
         !isVersionHistoryOpen &&
         !isTypingTarget(event.target)
       ) {
@@ -1392,12 +1414,6 @@ function App() {
         if (isFullLibraryOpen) {
           event.preventDefault()
           setIsFullLibraryOpen(false)
-          return
-        }
-
-        if (isSvgAmbiguityOpen) {
-          event.preventDefault()
-          setSvgAmbiguityState(undefined)
           return
         }
 
@@ -1490,7 +1506,6 @@ function App() {
         isFullLibraryOpen ||
         isSvgImportOptionsOpen ||
         isSvgCalibrationOpen ||
-        isSvgAmbiguityOpen ||
         isVersionHistoryOpen
       ) {
         return
@@ -1666,7 +1681,6 @@ function App() {
     contextMenuState,
     editingTextAnnotationId,
     isOnboardingOpen,
-    isSvgAmbiguityOpen,
     isSvgCalibrationOpen,
     isSvgImportOptionsOpen,
     isHelpOpen,
@@ -1691,7 +1705,6 @@ function App() {
     setPendingExportRequest,
     setRenderMode,
     setSpacePanning,
-    setSvgAmbiguityState,
     setSvgCalibrationState,
     setSvgImportOptionsState,
     setWarningsOpen,
@@ -1709,19 +1722,23 @@ function App() {
   const finalizeSvgImport = useCallback(
     (args: {
       analysis: SvgImportAnalysis
+      appendBreadboardCenterMm?: { x: number; y: number }
       document: SvgImportDocument
-      manualResolutions?: SvgImportManualResolution[]
-      millimetersPerUnit: number
       mode: SvgImportMode
+      previewItems: ImportPreviewItem[]
       workspaceConfig: SvgImportWorkspaceConfig
     }) => {
       const result = applySvgImportToScene({
         analysis: args.analysis,
+        appendBreadboardCenterMm: args.appendBreadboardCenterMm,
         document: args.document,
         hostSurfaceId: activeHostSurfaceId,
-        manualResolutions: args.manualResolutions,
-        millimetersPerUnit: args.millimetersPerUnit,
+        millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+          document: args.document,
+          workspaceConfig: args.workspaceConfig,
+        }),
         mode: args.mode,
+        previewItems: args.previewItems,
         scene,
         workspaceConfig: args.workspaceConfig,
       })
@@ -1732,7 +1749,6 @@ function App() {
 
       const summary = `Imported ${result.importedComponents} components and ${result.importedAnnotations} annotation lines from SVG.`
       setSvgImportNotice(result.warnings[0] ?? summary)
-      setSvgAmbiguityState(undefined)
       setSvgCalibrationState(undefined)
       setSvgImportOptionsState(undefined)
     },
@@ -1741,11 +1757,14 @@ function App() {
 
   const finalizeRasterImport = useCallback(
     (args: {
+      appendBreadboardCenterMm?: { x: number; y: number }
       detection: SvgImportWorkspaceDetection
       document: RasterImportDocument
       mode: SvgImportMode
+      previewItems: ImportPreviewItem[]
       workspaceConfig: SvgImportWorkspaceConfig
     }) => {
+      const documentShim = createSurfaceOnlyImportShim(args.document)
       const result = applySvgImportToScene({
         analysis: {
           ambiguous: [],
@@ -1755,13 +1774,15 @@ function App() {
           warnings: [],
           workspaceDetection: args.detection,
         },
-        document: createSurfaceOnlyImportShim(args.document),
+        appendBreadboardCenterMm: args.appendBreadboardCenterMm,
+        document: documentShim,
         hostSurfaceId: activeHostSurfaceId,
         millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
-          document: createSurfaceOnlyImportShim(args.document),
+          document: documentShim,
           workspaceConfig: args.workspaceConfig,
         }),
         mode: args.mode,
+        previewItems: args.previewItems,
         scene,
         workspaceConfig: args.workspaceConfig,
       })
@@ -1770,50 +1791,38 @@ function App() {
         loadScene(result.scene, { history: 'record' })
       })
 
-      setSvgImportNotice(
-        'Configured workspace from raster drawing. Component interpretation is SVG-only in this pass.',
-      )
+      setSvgImportNotice(result.warnings[0])
       setSvgCalibrationState(undefined)
       setSvgImportOptionsState(undefined)
     },
     [activeHostSurfaceId, loadScene, scene],
   )
 
-  const runSvgImportAnalysis = useCallback(
+  const buildSvgImportPreviewSession = useCallback(
     (args: {
       document: SvgImportDocument
-      millimetersPerUnit: number
-      mode: SvgImportMode
-      profile: SvgImportProfile
+      detection: SvgImportWorkspaceDetection
       workspaceConfig: SvgImportWorkspaceConfig
     }) => {
       const analysis = analyzeSvgImportDocument({
         document: args.document,
-        millimetersPerUnit: args.millimetersPerUnit,
-        profile: args.profile,
-        workspaceDetection: detectSvgImportWorkspace(args.document),
+        millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
+          document: args.document,
+          workspaceConfig: args.workspaceConfig,
+        }),
+        profile: 'guided',
+        workspaceDetection: args.detection,
       })
 
-      if (analysis.reviewItems.length > 0) {
-        setSvgAmbiguityState({
+      return {
+        analysis,
+        previewItems: createImportPreviewItemsFromSvgAnalysis({
           analysis,
           document: args.document,
-          millimetersPerUnit: args.millimetersPerUnit,
-          mode: args.mode,
-          workspaceConfig: args.workspaceConfig,
-        })
-        return
+        }),
       }
-
-      finalizeSvgImport({
-        analysis,
-        document: args.document,
-        millimetersPerUnit: args.millimetersPerUnit,
-        mode: args.mode,
-        workspaceConfig: args.workspaceConfig,
-      })
     },
-    [finalizeSvgImport],
+    [],
   )
 
   const importSceneJson = useCallback(
@@ -1872,21 +1881,35 @@ function App() {
         const rawText = await nextFile.text()
         const document = parseSvgImportDocument(rawText)
         const detection = detectSvgImportWorkspace(document)
-        const workspaceConfig = createInitialSvgImportWorkspaceConfig({
+        const initialWorkspaceConfig = createInitialSvgImportWorkspaceConfig({
           detection,
           document,
+        })
+        const autoCalibrationSuggestion = autoCalibrateSvgImport({
+          detection,
+          document,
+          workspaceConfig: initialWorkspaceConfig,
+        })
+        const workspaceConfig = autoCalibrationSuggestion
+          ? applyAutoCalibrationToWorkspaceConfig({
+              result: autoCalibrationSuggestion,
+              workspaceConfig: initialWorkspaceConfig,
+            })
+          : initialWorkspaceConfig
+        const { analysis, previewItems } = buildSvgImportPreviewSession({
+          detection,
+          document,
+          workspaceConfig,
         })
 
         setSvgImportNotice(undefined)
         setSvgImportOptionsState({
-          autoCalibrationSuggestion: autoCalibrateSvgImport({
-            detection,
-            document,
-            workspaceConfig,
-          }),
+          analysis,
+          autoCalibrationSuggestion,
           detection,
           document,
           fileName: nextFile.name,
+          previewItems,
           workspaceConfig,
         })
       } else {
@@ -1945,6 +1968,15 @@ function App() {
           autoCalibration: scaledAutoCalibration,
           document: rasterDocument,
         })
+        const previewItems = createImportPreviewItemsFromRasterCandidates({
+          candidates: rescaleRasterImportCandidates(
+            detectRasterImportCandidates({
+              autoCalibration: autoCalibrationSuggestion,
+              imageData,
+            }),
+            detectionScale,
+          ),
+        })
 
         setSvgImportNotice(undefined)
         setSvgImportOptionsState({
@@ -1952,6 +1984,7 @@ function App() {
           detection,
           document: rasterDocument,
           fileName: nextFile.name,
+          previewItems,
           workspaceConfig,
         })
       }
@@ -1968,9 +2001,9 @@ function App() {
   }
 
   const handleConfirmSvgImportOptions = (payload: {
+    appendBreadboardCenterMm?: { x: number; y: number }
     mode: SvgImportMode
-    profile: SvgImportProfile
-    requireCalibration: boolean
+    previewItems: ImportPreviewItem[]
     workspaceConfig: SvgImportWorkspaceConfig
   }) => {
     if (!svgImportOptionsState) {
@@ -1979,74 +2012,71 @@ function App() {
 
     setSvgImportOptionsState(undefined)
 
-    if (payload.requireCalibration) {
-      setSvgCalibrationState({
-        autoCalibrationSuggestion: svgImportOptionsState.autoCalibrationSuggestion,
-        detection: svgImportOptionsState.detection,
-        document: svgImportOptionsState.document,
-        fileName: svgImportOptionsState.fileName,
-        mode: payload.mode,
-        profile: payload.profile,
-        workspaceConfig: payload.workspaceConfig,
-      })
-      return
-    }
-
     if (svgImportOptionsState.document.sourceKind === 'raster') {
       finalizeRasterImport({
+        appendBreadboardCenterMm: payload.appendBreadboardCenterMm,
         detection: svgImportOptionsState.detection,
         document: svgImportOptionsState.document,
         mode: payload.mode,
+        previewItems: payload.previewItems,
         workspaceConfig: payload.workspaceConfig,
       })
       return
     }
 
-    runSvgImportAnalysis({
+    finalizeSvgImport({
+      analysis:
+        svgImportOptionsState.analysis ??
+        buildSvgImportPreviewSession({
+          detection: svgImportOptionsState.detection,
+          document: svgImportOptionsState.document,
+          workspaceConfig: payload.workspaceConfig,
+        }).analysis,
+      appendBreadboardCenterMm: payload.appendBreadboardCenterMm,
       document: svgImportOptionsState.document,
-      millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
-        document: svgImportOptionsState.document,
-        workspaceConfig: payload.workspaceConfig,
-      }),
       mode: payload.mode,
-      profile: payload.profile,
+      previewItems: payload.previewItems,
+      workspaceConfig: payload.workspaceConfig,
+    })
+  }
+
+  const handleOpenSvgCalibration = (payload: {
+    appendBreadboardCenterMm?: { x: number; y: number }
+    mode: SvgImportMode
+    previewItems: ImportPreviewItem[]
+    workspaceConfig: SvgImportWorkspaceConfig
+  }) => {
+    if (!svgImportOptionsState) {
+      return
+    }
+
+    setSvgImportOptionsState(undefined)
+    setSvgCalibrationState({
+      ...svgImportOptionsState,
+      appendBreadboardCenterMm: payload.appendBreadboardCenterMm,
+      mode: payload.mode,
+      previewItems: payload.previewItems,
       workspaceConfig: payload.workspaceConfig,
     })
   }
 
   const handleConfirmSvgCalibration = (
-    calibration: SvgCalibrationRequest,
+    _calibration: SvgCalibrationRequest,
     millimetersPerUnit: number,
   ) => {
     if (!svgCalibrationState) {
       return
     }
 
+    const nextWorkspaceConfig = applyScaleToWorkspaceConfig(
+      svgCalibrationState.workspaceConfig,
+      millimetersPerUnit,
+    )
+
     setSvgCalibrationState(undefined)
-
-    if (svgCalibrationState.document.sourceKind === 'raster') {
-      finalizeRasterImport({
-        detection: svgCalibrationState.detection,
-        document: svgCalibrationState.document,
-        mode: svgCalibrationState.mode,
-        workspaceConfig: applyScaleToWorkspaceConfig(
-          svgCalibrationState.workspaceConfig,
-          millimetersPerUnit,
-        ),
-      })
-      return
-    }
-
-    runSvgImportAnalysis({
-      document: svgCalibrationState.document,
-      millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
-        calibration,
-        document: svgCalibrationState.document,
-        workspaceConfig: svgCalibrationState.workspaceConfig,
-      }),
-      mode: svgCalibrationState.mode,
-      profile: svgCalibrationState.profile,
-      workspaceConfig: svgCalibrationState.workspaceConfig,
+    setSvgImportOptionsState({
+      ...svgCalibrationState,
+      workspaceConfig: nextWorkspaceConfig,
     })
 
     if (!Number.isFinite(millimetersPerUnit) || millimetersPerUnit <= 0) {
@@ -2067,44 +2097,13 @@ function App() {
 
       setSvgCalibrationState(undefined)
 
-      if (svgCalibrationState.document.sourceKind === 'raster') {
-        finalizeRasterImport({
-          detection: svgCalibrationState.detection,
-          document: svgCalibrationState.document,
-          mode: svgCalibrationState.mode,
-          workspaceConfig: nextWorkspaceConfig,
-        })
-        return
-      }
-
-      runSvgImportAnalysis({
-        document: svgCalibrationState.document,
-        millimetersPerUnit: resolveSvgImportScaleMmPerUnit({
-          document: svgCalibrationState.document,
-          workspaceConfig: nextWorkspaceConfig,
-        }),
-        mode: svgCalibrationState.mode,
-        profile: svgCalibrationState.profile,
+      setSvgImportOptionsState({
+        ...svgCalibrationState,
         workspaceConfig: nextWorkspaceConfig,
       })
     },
-    [finalizeRasterImport, runSvgImportAnalysis, svgCalibrationState],
+    [svgCalibrationState],
   )
-
-  const handleConfirmSvgAmbiguity = (manualResolutions: SvgImportManualResolution[]) => {
-    if (!svgAmbiguityState) {
-      return
-    }
-
-    finalizeSvgImport({
-      analysis: svgAmbiguityState.analysis,
-      document: svgAmbiguityState.document,
-      manualResolutions,
-      millimetersPerUnit: svgAmbiguityState.millimetersPerUnit,
-      mode: svgAmbiguityState.mode,
-      workspaceConfig: svgAmbiguityState.workspaceConfig,
-    })
-  }
 
   const handleLoadFromJson = (rawText: string) => {
     importSceneJson(rawText)
@@ -2330,8 +2329,11 @@ function App() {
         onClearBreadboard={handleRequestClearBreadboard}
         onClearTable={handleRequestClearTable}
         onExportAction={handleExportAction}
+        onImportRaster={() =>
+          openDrawingImportPicker('.png,image/png,.jpg,.jpeg,image/jpeg')
+        }
         onImportSceneJson={() => jsonFileInputRef.current?.click()}
-        onImportSvg={() => svgFileInputRef.current?.click()}
+        onImportSvg={() => openDrawingImportPicker('.svg,image/svg+xml')}
         onOpenOnboarding={handleOpenOnboarding}
         onOpenJson={() => openJsonModal(sceneJson)}
         onRestoreSavedTable={handleRestoreSavedTable}
@@ -2541,7 +2543,7 @@ function App() {
       />
 
       <input
-        ref={svgFileInputRef}
+        ref={drawingFileInputRef}
         accept=".svg,image/svg+xml,.png,image/png,.jpg,.jpeg,image/jpeg"
         data-testid="drawing-import-file-input"
         className="visually-hidden"
@@ -2552,13 +2554,21 @@ function App() {
       {svgImportOptionsState ? (
         <SvgImportOptionsModal
           autoCalibrationSuggestion={svgImportOptionsState.autoCalibrationSuggestion}
-          detection={svgImportOptionsState.detection}
+          canAppendBreadboardToTable={
+            scene.workspace.kind === 'optical-table' &&
+            svgImportOptionsState.workspaceConfig.breadboards.length === 1
+          }
+          currentTablePlacement={currentImportTablePlacement}
           document={svgImportOptionsState.document}
           fileName={svgImportOptionsState.fileName}
+          initialAppendBreadboardCenterMm={svgImportOptionsState.appendBreadboardCenterMm}
+          initialMode={svgImportOptionsState.mode}
+          initialPreviewItems={svgImportOptionsState.previewItems}
           initialWorkspaceConfig={svgImportOptionsState.workspaceConfig}
           isOpen={isSvgImportOptionsOpen}
           onCancel={() => setSvgImportOptionsState(undefined)}
           onConfirm={handleConfirmSvgImportOptions}
+          onOpenCalibration={handleOpenSvgCalibration}
           scaleIsReliable={svgImportOptionsState.document.scale.isReliable}
           scaleReason={svgImportOptionsState.document.scale.reason}
         />
@@ -2572,10 +2582,14 @@ function App() {
           isOpen={isSvgCalibrationOpen}
           onBack={() => {
             setSvgImportOptionsState({
+              analysis: svgCalibrationState.analysis,
+              appendBreadboardCenterMm: svgCalibrationState.appendBreadboardCenterMm,
               autoCalibrationSuggestion: svgCalibrationState.autoCalibrationSuggestion,
               detection: svgCalibrationState.detection,
               document: svgCalibrationState.document,
               fileName: svgCalibrationState.fileName,
+              mode: svgCalibrationState.mode,
+              previewItems: svgCalibrationState.previewItems,
               workspaceConfig: svgCalibrationState.workspaceConfig,
             })
             setSvgCalibrationState(undefined)
@@ -2583,16 +2597,6 @@ function App() {
           onCancel={() => setSvgCalibrationState(undefined)}
           onConfirm={handleConfirmSvgCalibration}
           onUseSuggestedAutoCalibration={handleUseSuggestedAutoCalibration}
-        />
-      ) : null}
-
-      {svgAmbiguityState ? (
-        <SvgAmbiguityModal
-          document={svgAmbiguityState.document}
-          isOpen={isSvgAmbiguityOpen}
-          onCancel={() => setSvgAmbiguityState(undefined)}
-          onConfirm={handleConfirmSvgAmbiguity}
-          reviewItems={svgAmbiguityState.analysis.reviewItems}
         />
       ) : null}
 

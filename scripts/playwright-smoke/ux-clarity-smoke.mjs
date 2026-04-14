@@ -163,11 +163,6 @@ try {
   const shapeTool = page.getByRole('button', { exact: true, name: 'Shape' })
   await shapeTool.click()
   await page.getByTestId('annotation-tool-popover-shape').waitFor()
-  await page.mouse.move(6, 6)
-  const shapeTooltipOpacity = await shapeTool.evaluate((element) =>
-    Number(window.getComputedStyle(element, '::after').opacity),
-  )
-  assert.ok(shapeTooltipOpacity < 0.05)
   await page.mouse.click(6, 6)
   await expectHidden(page.getByTestId('annotation-tool-popover-shape'))
 
@@ -236,7 +231,8 @@ try {
 
   const exportMenu = await openToolbarMenu('toolbar-export', 'toolbar-menu-export')
   assert.match((await exportMenu.textContent()) ?? '', /Import Scene JSON/i)
-  assert.match((await exportMenu.textContent()) ?? '', /Import Interpreted Drawing/i)
+  assert.match((await exportMenu.textContent()) ?? '', /Import PNG/i)
+  assert.match((await exportMenu.textContent()) ?? '', /Import SVG/i)
   assert.match((await exportMenu.textContent()) ?? '', /PNG/i)
   assert.match((await exportMenu.textContent()) ?? '', /PDF/i)
   assert.match((await exportMenu.textContent()) ?? '', /SVG/i)
@@ -271,7 +267,7 @@ try {
   assert.match((await moreMenu.textContent()) ?? '', /Simple icon default/i)
   await moreMenu.getByRole('button', { name: 'Classic optics' }).click()
   moreMenu = await openToolbarMenu('toolbar-more', 'toolbar-menu-more')
-  await moreMenu.getByRole('button', { name: 'Clean' }).click()
+  await moreMenu.getByRole('button', { name: 'Enhanced' }).click()
   await realisticButton.click()
   assert.equal(await realisticButton.getAttribute('aria-pressed'), 'true')
   step('render mode and hidden simple icon default controls work')

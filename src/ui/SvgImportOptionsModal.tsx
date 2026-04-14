@@ -1,40 +1,57 @@
 import {
+  useEffect,
   useMemo,
-  useRef,
   useState,
   type FocusEvent,
+  type MouseEvent as ReactMouseEvent,
 } from 'react'
 import {
-  DEFAULT_IMPORT_HOLE_PITCH_MM,
   applyAutoCalibrationToWorkspaceConfig,
+  DEFAULT_IMPORT_HOLE_PITCH_MM,
   type ImportAutoCalibrationResult,
 } from '../domain/importAutoCalibration'
+import { getComponentDefinition } from '../domain/componentCatalog'
+import type { BoundsMm, Vector2Mm } from '../domain/types'
 import type {
   ImportPreviewDocument,
+  ImportPreviewItem,
   SvgImportMode,
-  SvgImportProfile,
   SvgImportWorkspaceConfig,
-  SvgImportWorkspaceDetection,
   SvgImportWorkspaceSurfaceConfig,
 } from '../domain/svgImport'
 import { SvgImportPreview } from './SvgImportPreview'
+import { SvgImportVariantChooser } from './SvgImportVariantChooser'
 
 interface ConfirmPayload {
+  appendBreadboardCenterMm?: Vector2Mm
   mode: SvgImportMode
-  profile: SvgImportProfile
-  requireCalibration: boolean
+  previewItems: ImportPreviewItem[]
   workspaceConfig: SvgImportWorkspaceConfig
+}
+
+interface TablePlacementPreviewData {
+  breadboards: Array<{
+    bounds: BoundsMm
+    id: string
+    label: string
+  }>
+  tableBounds: BoundsMm
 }
 
 interface SvgImportOptionsModalProps {
   autoCalibrationSuggestion?: ImportAutoCalibrationResult
-  detection: SvgImportWorkspaceDetection
+  canAppendBreadboardToTable: boolean
+  currentTablePlacement?: TablePlacementPreviewData
   document: ImportPreviewDocument
   fileName: string
+  initialAppendBreadboardCenterMm?: Vector2Mm
+  initialMode?: SvgImportMode
+  initialPreviewItems: ImportPreviewItem[]
   initialWorkspaceConfig: SvgImportWorkspaceConfig
   isOpen: boolean
   onCancel: () => void
   onConfirm: (payload: ConfirmPayload) => void
+  onOpenCalibration: (payload: ConfirmPayload) => void
   scaleIsReliable: boolean
   scaleReason?: string
 }
@@ -147,59 +164,290 @@ function formatScaleHint(args: {
   if (args.sourceKind === 'raster') {
     return (
       args.scaleReason ??
-      'Raster drawings do not carry reliable physical units. Use the suggested auto-calibration or enter exact sizes manually.'
+      'Raster drawings do not carry reliable physical units. Auto-calibration has been applied where possible, and manual calibration remains available in Advanced.'
     )
   }
 
   if (args.scaleIsReliable) {
-    return 'Physical SVG units look reliable. Calibration is optional once you confirm the exact surface sizes.'
+    return 'Physical SVG units look usable. The preview is already using the inferred board size.'
   }
 
-  return args.scaleReason ?? 'SVG units are ambiguous. Exact surface sizing is required, and calibration is recommended.'
+  return (
+    args.scaleReason ??
+    'SVG units were ambiguous, so the preview is using the detected board size and auto-calibration suggestion.'
+  )
+}
+
+function shiftBounds(bounds: BoundsMm, nextCenter: Vector2Mm) {
+  return {
+    ...bounds,
+    x: nextCenter.x - bounds.width / 2,
+    y: nextCenter.y - bounds.height / 2,
+  }
+}
+
+function normalizeQuarterTurn(value: number) {
+  const normalized = value % 4
+  return (normalized < 0 ? normalized + 4 : normalized) as 0 | 1 | 2 | 3
+}
+
+function createDefaultMode(args: {
+  canAppendBreadboardToTable: boolean
+  document: ImportPreviewDocument
+  initialMode?: SvgImportMode
+}) {
+  if (args.initialMode) {
+    return args.initialMode
+  }
+
+  if (args.document.sourceKind === 'raster') {
+    return 'replace'
+  }
+
+  if (args.canAppendBreadboardToTable) {
+    return 'replace'
+  }
+
+  return 'replace'
+}
+
+function clampAppendCenter(
+  center: Vector2Mm,
+  boardSize: { width: number; height: number },
+  tableBounds: BoundsMm,
+) {
+  const halfWidth = boardSize.width / 2
+  const halfHeight = boardSize.height / 2
+
+  return {
+    x: Math.min(
+      tableBounds.x + tableBounds.width - halfWidth,
+      Math.max(tableBounds.x + halfWidth, center.x),
+    ),
+    y: Math.min(
+      tableBounds.y + tableBounds.height - halfHeight,
+      Math.max(tableBounds.y + halfHeight, center.y),
+    ),
+  }
+}
+
+function createDefaultAppendCenter(args: {
+  boardHeight: number
+  boardWidth: number
+  currentTablePlacement?: TablePlacementPreviewData
+  fallback?: Vector2Mm
+}) {
+  if (!args.currentTablePlacement) {
+    return args.fallback
+  }
+
+  const { tableBounds, breadboards } = args.currentTablePlacement
+  const rightMostBreadboard = breadboards.reduce<BoundsMm | undefined>((current, candidate) => {
+    if (!current) {
+      return candidate.bounds
+    }
+
+    return candidate.bounds.x + candidate.bounds.width > current.x + current.width
+      ? candidate.bounds
+      : current
+  }, undefined)
+
+  const desiredCenter = rightMostBreadboard
+    ? {
+        x:
+          rightMostBreadboard.x +
+          rightMostBreadboard.width +
+          args.boardWidth / 2 +
+          35,
+        y: rightMostBreadboard.y + rightMostBreadboard.height / 2,
+      }
+    : {
+        x: tableBounds.x + tableBounds.width / 2,
+        y: tableBounds.y + tableBounds.height / 2,
+      }
+
+  return clampAppendCenter(
+    desiredCenter,
+    { width: args.boardWidth, height: args.boardHeight },
+    tableBounds,
+  )
+}
+
+function TablePlacementPreview(props: {
+  boardHeight: number
+  boardWidth: number
+  center: Vector2Mm
+  data: TablePlacementPreviewData
+  onChange: (center: Vector2Mm) => void
+}) {
+  const { boardHeight, boardWidth, center, data, onChange } = props
+  const margin = 40
+  const viewBox = {
+    x: data.tableBounds.x - margin,
+    y: data.tableBounds.y - margin,
+    width: data.tableBounds.width + margin * 2,
+    height: data.tableBounds.height + margin * 2,
+  }
+  const ghostBounds = shiftBounds(
+    { x: 0, y: 0, width: boardWidth, height: boardHeight },
+    center,
+  )
+
+  const setFromPointer = (event: ReactMouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) {
+      return
+    }
+
+    const xRatio = (event.clientX - rect.left) / rect.width
+    const yRatio = (event.clientY - rect.top) / rect.height
+    const rawCenter = {
+      x: viewBox.x + xRatio * viewBox.width,
+      y: viewBox.y + yRatio * viewBox.height,
+    }
+
+    onChange(
+      clampAppendCenter(rawCenter, { width: boardWidth, height: boardHeight }, data.tableBounds),
+    )
+  }
+
+  return (
+    <div className="svg-import-table-placement">
+      <div className="svg-import-panel__eyebrow">Table placement</div>
+      <svg
+        className="svg-import-table-placement__preview"
+        onClick={setFromPointer}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+      >
+        <rect
+          fill="rgba(46, 65, 84, 0.22)"
+          height={data.tableBounds.height}
+          rx={18}
+          stroke="rgba(125, 167, 201, 0.5)"
+          strokeWidth={8}
+          width={data.tableBounds.width}
+          x={data.tableBounds.x}
+          y={data.tableBounds.y}
+        />
+
+        {data.breadboards.map((breadboard) => (
+          <g key={breadboard.id}>
+            <rect
+              fill="rgba(105, 128, 148, 0.16)"
+              height={breadboard.bounds.height}
+              stroke="rgba(172, 197, 217, 0.7)"
+              strokeDasharray="10 6"
+              strokeWidth={4}
+              width={breadboard.bounds.width}
+              x={breadboard.bounds.x}
+              y={breadboard.bounds.y}
+            />
+            <text
+              fill="#dce8f2"
+              fontSize="18"
+              x={breadboard.bounds.x + 14}
+              y={breadboard.bounds.y + 28}
+            >
+              {breadboard.label}
+            </text>
+          </g>
+        ))}
+
+        <rect
+          fill="rgba(110, 216, 147, 0.16)"
+          height={ghostBounds.height}
+          rx={14}
+          stroke="#7ef0a8"
+          strokeDasharray="8 5"
+          strokeWidth={4}
+          width={ghostBounds.width}
+          x={ghostBounds.x}
+          y={ghostBounds.y}
+        />
+      </svg>
+      <p className="modal-shell__hint">
+        Click inside the table preview to place the new breadboard.
+      </p>
+    </div>
+  )
 }
 
 export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
   const {
     autoCalibrationSuggestion,
-    detection,
+    canAppendBreadboardToTable,
+    currentTablePlacement,
     document,
     fileName,
+    initialAppendBreadboardCenterMm,
+    initialMode,
+    initialPreviewItems,
     initialWorkspaceConfig,
     isOpen,
     onCancel,
     onConfirm,
+    onOpenCalibration,
     scaleIsReliable,
     scaleReason,
   } = props
-  const [mode, setMode] = useState<SvgImportMode>(() =>
-    initialWorkspaceConfig.workspaceKind === 'optical-table' &&
-    initialWorkspaceConfig.breadboards.length > 1
-      ? 'replace'
-      : 'merge',
+  const defaultMode = useMemo(
+    () => createDefaultMode({ canAppendBreadboardToTable, document, initialMode }),
+    [canAppendBreadboardToTable, document, initialMode],
   )
-  const [profile, setProfile] = useState<SvgImportProfile>('guided')
-  const [requireCalibration, setRequireCalibration] = useState(!scaleIsReliable)
+  const [mode, setMode] = useState<SvgImportMode>(defaultMode)
   const [workspaceConfig, setWorkspaceConfig] = useState<SvgImportWorkspaceConfig>(() =>
     cloneWorkspaceConfig(initialWorkspaceConfig),
   )
   const [inputState, setInputState] = useState<WorkspaceInputState>(() =>
     createWorkspaceInputState(initialWorkspaceConfig),
   )
-  const sceneActionRef = useRef<HTMLFieldSetElement | null>(null)
-  const workspaceRef = useRef<HTMLFieldSetElement | null>(null)
-  const sizesRef = useRef<HTMLFieldSetElement | null>(null)
-  const autoCalibrationRef = useRef<HTMLFieldSetElement | null>(null)
-  const regionsRef = useRef<HTMLFieldSetElement | null>(null)
-  const regionsDetailsRef = useRef<HTMLDetailsElement | null>(null)
-  const calibrationRef = useRef<HTMLFieldSetElement | null>(null)
-  const [activeStep, setActiveStep] = useState<
-    'scene' | 'workspace' | 'sizes' | 'auto' | 'regions' | 'calibration'
-  >('sizes')
+  const [previewItems, setPreviewItems] = useState<ImportPreviewItem[]>(initialPreviewItems)
+  const [selectedPreviewItemId, setSelectedPreviewItemId] = useState<string | undefined>(
+    initialPreviewItems.find((item) => item.disposition !== 'skip')?.id ?? initialPreviewItems[0]?.id,
+  )
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false)
+  const [appendBreadboardCenterMm, setAppendBreadboardCenterMm] = useState<Vector2Mm | undefined>(
+    initialAppendBreadboardCenterMm ??
+      createDefaultAppendCenter({
+        boardHeight: initialWorkspaceConfig.breadboards[0]?.physicalHeightMm ?? 300,
+        boardWidth: initialWorkspaceConfig.breadboards[0]?.physicalWidthMm ?? 600,
+        currentTablePlacement,
+      }),
+  )
+  const appendModeAvailable =
+    canAppendBreadboardToTable &&
+    workspaceConfig.workspaceKind === 'single-breadboard' &&
+    workspaceConfig.breadboards.length === 1
 
-  const isMultiBreadboardTable =
-    workspaceConfig.workspaceKind === 'optical-table' && workspaceConfig.breadboards.length > 1
-  const isReplaceOnly = isMultiBreadboardTable || document.sourceKind === 'raster'
-  const supportsInterpretationProfiles = document.sourceKind === 'svg'
+  useEffect(() => {
+    setMode(defaultMode)
+    setWorkspaceConfig(cloneWorkspaceConfig(initialWorkspaceConfig))
+    setInputState(createWorkspaceInputState(initialWorkspaceConfig))
+    setPreviewItems(initialPreviewItems)
+    setSelectedPreviewItemId(
+      initialPreviewItems.find((item) => item.disposition !== 'skip')?.id ?? initialPreviewItems[0]?.id,
+    )
+    setAppendBreadboardCenterMm(
+      initialAppendBreadboardCenterMm ??
+        createDefaultAppendCenter({
+          boardHeight: initialWorkspaceConfig.breadboards[0]?.physicalHeightMm ?? 300,
+          boardWidth: initialWorkspaceConfig.breadboards[0]?.physicalWidthMm ?? 600,
+          currentTablePlacement,
+        }),
+    )
+  }, [
+    currentTablePlacement,
+    defaultMode,
+    initialAppendBreadboardCenterMm,
+    initialPreviewItems,
+    initialWorkspaceConfig,
+  ])
+
+  useEffect(() => {
+    if (mode === 'append-breadboard' && !appendModeAvailable) {
+      setMode('replace')
+    }
+  }, [appendModeAvailable, mode])
 
   const surfaceOverlays = useMemo(
     () => [
@@ -281,15 +529,21 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
   }, [inputState, workspaceConfig.breadboards, workspaceConfig.table])
 
   const configIsValid = requiredItems.length === 0 && regionInputsAreValid
+  const selectedPreviewItem = previewItems.find((item) => item.id === selectedPreviewItemId)
+  const importablePreviewItems = previewItems.filter((item) => item.disposition === 'component')
+  const weakPreviewItemCount = previewItems.filter((item) => !item.isStrongMatch).length
+  const strongPreviewItemCount = previewItems.filter((item) => item.isStrongMatch).length
+  const boardWidthMm = workspaceConfig.breadboards[0]?.physicalWidthMm ?? 600
+  const boardHeightMm = workspaceConfig.breadboards[0]?.physicalHeightMm ?? 300
+  const canFinish =
+    configIsValid &&
+    (mode !== 'append-breadboard' || appendBreadboardCenterMm !== undefined)
 
   if (!isOpen) {
     return null
   }
 
-  const commitWorkspaceConfig = (
-    nextConfig: SvgImportWorkspaceConfig,
-    syncInputs = false,
-  ) => {
+  const commitWorkspaceConfig = (nextConfig: SvgImportWorkspaceConfig, syncInputs = false) => {
     setWorkspaceConfig(nextConfig)
     if (syncInputs) {
       setInputState(createWorkspaceInputState(nextConfig))
@@ -346,10 +600,8 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
     if (kind === 'table') {
       setInputState((previous) => ({
         ...previous,
-        tableBoundsHeight:
-          field === 'height' ? value : previous.tableBoundsHeight,
-        tableBoundsWidth:
-          field === 'width' ? value : previous.tableBoundsWidth,
+        tableBoundsHeight: field === 'height' ? value : previous.tableBoundsHeight,
+        tableBoundsWidth: field === 'width' ? value : previous.tableBoundsWidth,
         tableX: field === 'x' ? value : previous.tableX,
         tableY: field === 'y' ? value : previous.tableY,
       }))
@@ -463,30 +715,6 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
     commitWorkspaceConfig(nextConfig, true)
   }
 
-  const scrollToStep = (
-    step: 'scene' | 'workspace' | 'sizes' | 'auto' | 'regions' | 'calibration',
-  ) => {
-    setActiveStep(step)
-    const target =
-      step === 'scene'
-        ? sceneActionRef.current
-        : step === 'workspace'
-          ? workspaceRef.current
-          : step === 'sizes'
-            ? sizesRef.current
-            : step === 'auto'
-              ? autoCalibrationRef.current
-              : step === 'regions'
-                ? regionsRef.current
-                : calibrationRef.current
-
-    if (step === 'regions' && regionsDetailsRef.current) {
-      regionsDetailsRef.current.open = true
-    }
-
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   const applySuggestedAutoCalibration = () => {
     if (!autoCalibrationSuggestion) {
       return
@@ -499,87 +727,94 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
       }),
       true,
     )
-    setRequireCalibration(false)
+  }
+
+  const updatePreviewItem = (id: string, updater: (item: ImportPreviewItem) => ImportPreviewItem) => {
+    setPreviewItems((current) =>
+      current.map((item) => (item.id === id ? updater(item) : item)),
+    )
+  }
+
+  const updatePreviewItemPosition = (id: string, nextCenter: Vector2Mm, nextBounds: BoundsMm) => {
+    updatePreviewItem(id, (item) => ({
+      ...item,
+      bounds: nextBounds,
+      center: nextCenter,
+    }))
   }
 
   const sourceTitle =
     document.sourceKind === 'svg' ? 'Import Drawing' : 'Import Raster Drawing'
-  const previewLabel =
-    document.sourceKind === 'svg' ? 'Drawing preview' : 'Raster preview'
+  const finishLabel =
+    document.sourceKind === 'raster' && importablePreviewItems.length === 0
+      ? 'Finish Surface Only'
+      : 'Finish Import'
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Drawing import options">
+    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Drawing import">
       <button className="modal-shell__backdrop" onClick={onCancel} type="button" />
       <div
-        className="modal-shell__card modal-shell__card--export svg-import-options"
+        className="modal-shell__card modal-shell__card--export svg-import-options svg-import-options--preview"
         data-testid="drawing-import-modal"
       >
         <header className="modal-shell__header">
-          <h2>{sourceTitle}</h2>
-          <p>{fileName}</p>
+          <div>
+            <h2>{sourceTitle}</h2>
+            <p>{fileName}</p>
+          </div>
+          <div className="svg-import-header__summary">
+            <div className="svg-import-header__badge">
+              {boardWidthMm} × {boardHeightMm} mm
+            </div>
+            <div className="svg-import-header__badge">
+              {strongPreviewItemCount} auto, {weakPreviewItemCount} editable
+            </div>
+          </div>
         </header>
 
-        <div className="svg-import-options__layout">
-          <aside className="svg-import-step-rail">
-            <div className="svg-import-step-rail__eyebrow">Setup flow</div>
-            <h3>{sourceTitle}</h3>
-            <p className="svg-import-step-rail__summary-text">
-              Confirm the scene, surface kind, exact sizes, then use the suggested calibration if it matches the drawing.
-            </p>
-            <nav className="svg-import-step-rail__steps" aria-label="Import steps">
-              {[
-                ['scene', 'Scene'],
-                ['workspace', 'Workspace'],
-                ['sizes', 'Exact Sizes'],
-                ['auto', 'Auto-Calibrate'],
-                ['regions', 'Surface Regions'],
-                ['calibration', 'Calibration'],
-              ].map(([step, label]) => (
-                <button
-                  aria-current={activeStep === step ? 'step' : undefined}
-                  className={`svg-import-step-rail__step${activeStep === step ? ' is-active' : ''}`}
-                  key={step}
-                  onClick={() => scrollToStep(step as typeof activeStep)}
-                  type="button"
-                >
-                  <span>{label}</span>
-                  <span className="svg-import-step-rail__step-dot" />
-                </button>
-              ))}
-            </nav>
-            <section className="svg-import-summary-card" aria-label="Required inputs">
-              <div className="svg-import-summary-card__eyebrow">Required inputs</div>
-              <div className={`svg-import-summary-card__state${configIsValid ? ' is-ready' : ''}`}>
-                {configIsValid ? 'Ready to continue' : `${requiredItems.length} field${requiredItems.length === 1 ? '' : 's'} left`}
+        <div className="svg-import-options__layout svg-import-options__layout--preview">
+          <section className="svg-import-preview-pane svg-import-preview-pane--primary">
+            <div className="svg-import-preview-pane__header">
+              <div>
+                <div className="svg-import-panel__eyebrow">Preview</div>
+                <h3>Auto-calibrated import preview</h3>
               </div>
-              {requiredItems.length > 0 ? (
-                <ul className="svg-import-summary-card__list">
-                  {requiredItems.slice(0, 4).map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="svg-import-summary-card__note">Exact sizes and regions are already valid.</p>
-              )}
-            </section>
-          </aside>
+              <p className="modal-shell__hint">
+                Click a highlighted item to review it, or finish immediately if the preview looks right.
+              </p>
+            </div>
+
+            <SvgImportPreview
+              className="svg-import-preview svg-import-preview--interactive"
+              document={document}
+              onSelectPreviewItem={setSelectedPreviewItemId}
+              onUpdatePreviewItem={updatePreviewItemPosition}
+              previewItems={previewItems}
+              selectedPreviewItemId={selectedPreviewItemId}
+              surfaceOverlays={surfaceOverlays}
+            />
+          </section>
 
           <form
-            className="modal-shell__form svg-ambiguity-modal__controls svg-import-options__controls"
+            className="modal-shell__form svg-import-options__controls svg-import-options__controls--preview"
             onSubmit={(event) => event.preventDefault()}
           >
-            <fieldset className="modal-shell__fieldset" ref={sceneActionRef}>
-              <legend>Scene</legend>
-              <label className="modal-shell__choice">
-                <input
-                  checked={mode === 'merge'}
-                  disabled={isReplaceOnly}
-                  name="svg-import-mode"
-                  onChange={() => setMode('merge')}
-                  type="radio"
-                />
-                <span>Merge into current scene</span>
-              </label>
+            <section className="svg-import-summary-card svg-import-summary-card--inline" aria-label="Import summary">
+              <div className="svg-import-summary-card__eyebrow">Ready state</div>
+              <div className={`svg-import-summary-card__state${canFinish ? ' is-ready' : ''}`}>
+                {canFinish ? 'Ready to finish' : `${requiredItems.length} required field${requiredItems.length === 1 ? '' : 's'} left`}
+              </div>
+              <p className="svg-import-summary-card__note">
+                {formatScaleHint({
+                  scaleIsReliable,
+                  scaleReason,
+                  sourceKind: document.sourceKind,
+                })}
+              </p>
+            </section>
+
+            <fieldset className="modal-shell__fieldset">
+              <legend>Import target</legend>
               <label className="modal-shell__choice">
                 <input
                   checked={mode === 'replace'}
@@ -589,41 +824,40 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                 />
                 <span>Replace current scene</span>
               </label>
-              <label className="modal-shell__choice">
-                <input
-                  checked={profile === 'guided'}
-                  disabled={!supportsInterpretationProfiles}
-                  name="svg-import-profile"
-                  onChange={() => setProfile('guided')}
-                  type="radio"
-                />
-                <span>Guided mode (heuristics + review)</span>
-              </label>
-              <label className="modal-shell__choice">
-                <input
-                  checked={profile === 'strict'}
-                  disabled={!supportsInterpretationProfiles}
-                  name="svg-import-profile"
-                  onChange={() => setProfile('strict')}
-                  type="radio"
-                />
-                <span>Strict mode (deterministic only)</span>
-              </label>
-              <p className="modal-shell__hint svg-import-inline-hint">
-                {document.sourceKind === 'raster'
-                  ? 'Raster import is workspace-setup only in this pass, so it stays replace-only and skips component interpretation.'
-                  : isMultiBreadboardTable
-                    ? 'Multi-breadboard table imports stay replace-only.'
-                    : 'Choose scene behavior and interpreter strictness first.'}
-              </p>
+
+              <details className="svg-import-advanced-toggle">
+                <summary>Advanced targets</summary>
+                {document.sourceKind === 'svg' ? (
+                  <label className="modal-shell__choice">
+                    <input
+                      checked={mode === 'merge'}
+                      name="svg-import-mode"
+                      onChange={() => setMode('merge')}
+                      type="radio"
+                    />
+                    <span>Merge into current scene</span>
+                  </label>
+                ) : null}
+                {appendModeAvailable ? (
+                  <label className="modal-shell__choice">
+                    <input
+                      checked={mode === 'append-breadboard'}
+                      name="svg-import-mode"
+                      onChange={() => setMode('append-breadboard')}
+                      type="radio"
+                    />
+                    <span>Add as new breadboard to current table</span>
+                  </label>
+                ) : null}
+              </details>
             </fieldset>
 
-            <fieldset className="modal-shell__fieldset" ref={workspaceRef}>
-              <legend>Workspace</legend>
+            <fieldset className="modal-shell__fieldset">
+              <legend>Surface setup</legend>
               <label className="modal-shell__choice">
                 <input
                   checked={workspaceConfig.workspaceKind === 'single-breadboard'}
-                  name="svg-workspace-kind"
+                  name="svg-import-workspace"
                   onChange={() => setWorkspaceKind('single-breadboard')}
                   type="radio"
                 />
@@ -632,261 +866,272 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
               <label className="modal-shell__choice">
                 <input
                   checked={workspaceConfig.workspaceKind === 'optical-table'}
-                  name="svg-workspace-kind"
+                  name="svg-import-workspace"
                   onChange={() => setWorkspaceKind('optical-table')}
                   type="radio"
                 />
                 <span>Optical table with breadboards</span>
               </label>
-              <p className="modal-shell__hint svg-import-inline-hint">
-                {detection.warnings[0] ??
-                  (workspaceConfig.workspaceKind === 'single-breadboard'
-                    ? 'Single-board sizing enters below.'
-                    : 'Table and breadboard sizing enter below.')}
-              </p>
-            </fieldset>
 
-            <fieldset className="modal-shell__fieldset" ref={sizesRef}>
-              <legend>Exact Surface Sizes</legend>
-              {workspaceConfig.workspaceKind === 'optical-table' && workspaceConfig.table ? (
-                <>
-                  <label className="svg-import-field">
-                    Table width (mm)
-                    <input
-                      inputMode="decimal"
-                      onBlur={() =>
-                        setInputState((previous) => ({
-                          ...previous,
-                          tableWidth:
-                            parsePositiveNumberInput(previous.tableWidth) !== undefined
-                              ? formatNumericInput(parsePositiveNumberInput(previous.tableWidth)!)
-                              : previous.tableWidth,
-                        }))
-                      }
-                      onChange={(event) => {
-                        const nextValue = event.target.value
-                        setInputState((previous) => ({
-                          ...previous,
-                          tableWidth: nextValue,
-                        }))
-                        const parsed = parsePositiveNumberInput(nextValue)
-                        if (parsed !== undefined) {
-                          updateSurface('table', 0, {
-                            physicalWidthMm: parsed,
-                          })
+              <div className="svg-import-field-grid">
+                {workspaceConfig.workspaceKind === 'optical-table' ? (
+                  <>
+                    <label className="svg-import-field">
+                      Table width (mm)
+                      <input
+                        onBlur={(event) => {
+                          const parsed = parsePositiveNumberInput(event.target.value)
+                          if (parsed !== undefined && workspaceConfig.table) {
+                            updateSurface('table', 0, { physicalWidthMm: parsed })
+                          }
+                        }}
+                        onChange={(event) =>
+                          setInputState((previous) => ({
+                            ...previous,
+                            tableWidth: event.target.value,
+                          }))
                         }
-                      }}
-                      onFocus={selectAllText}
-                      type="text"
-                      value={inputState.tableWidth}
-                    />
-                  </label>
-                  <label className="svg-import-field">
-                    Table height (mm)
-                    <input
-                      inputMode="decimal"
-                      onBlur={() =>
-                        setInputState((previous) => ({
-                          ...previous,
-                          tableHeight:
-                            parsePositiveNumberInput(previous.tableHeight) !== undefined
-                              ? formatNumericInput(parsePositiveNumberInput(previous.tableHeight)!)
-                              : previous.tableHeight,
-                        }))
-                      }
-                      onChange={(event) => {
-                        const nextValue = event.target.value
-                        setInputState((previous) => ({
-                          ...previous,
-                          tableHeight: nextValue,
-                        }))
-                        const parsed = parsePositiveNumberInput(nextValue)
-                        if (parsed !== undefined) {
-                          updateSurface('table', 0, {
-                            physicalHeightMm: parsed,
-                          })
+                        onFocus={selectAllText}
+                        type="text"
+                        value={inputState.tableWidth}
+                      />
+                    </label>
+                    <label className="svg-import-field">
+                      Table height (mm)
+                      <input
+                        onBlur={(event) => {
+                          const parsed = parsePositiveNumberInput(event.target.value)
+                          if (parsed !== undefined && workspaceConfig.table) {
+                            updateSurface('table', 0, { physicalHeightMm: parsed })
+                          }
+                        }}
+                        onChange={(event) =>
+                          setInputState((previous) => ({
+                            ...previous,
+                            tableHeight: event.target.value,
+                          }))
                         }
-                      }}
-                      onFocus={selectAllText}
-                      type="text"
-                      value={inputState.tableHeight}
-                    />
-                  </label>
-                  <label className="svg-import-field">
-                    Breadboard count
-                    <input
-                      inputMode="numeric"
-                      onBlur={() =>
-                        setInputState((previous) => ({
-                          ...previous,
-                          breadboardCount:
-                            parsePositiveIntegerInput(previous.breadboardCount) !== undefined
-                              ? `${parsePositiveIntegerInput(previous.breadboardCount)}`
-                              : previous.breadboardCount,
-                        }))
-                      }
-                      onChange={(event) => setBreadboardCount(event.target.value)}
-                      onFocus={selectAllText}
-                      type="text"
-                      value={inputState.breadboardCount}
-                    />
-                  </label>
-                </>
-              ) : null}
+                        onFocus={selectAllText}
+                        type="text"
+                        value={inputState.tableHeight}
+                      />
+                    </label>
+                    <label className="svg-import-field">
+                      Breadboard count
+                      <input
+                        onChange={(event) => setBreadboardCount(event.target.value)}
+                        onFocus={selectAllText}
+                        type="text"
+                        value={inputState.breadboardCount}
+                      />
+                    </label>
+                  </>
+                ) : null}
 
-              {workspaceConfig.workspaceKind === 'single-breadboard' ? (
-                <>
-                  <label className="svg-import-field">
-                    Breadboard width (mm)
-                    <input
-                      inputMode="decimal"
-                      onBlur={() =>
-                        updateBreadboardInputField(
-                          'breadboardWidths',
-                          0,
-                          parsePositiveNumberInput(inputState.breadboardWidths[0] ?? '') !==
-                            undefined
-                            ? formatNumericInput(
-                                parsePositiveNumberInput(
-                                  inputState.breadboardWidths[0] ?? '',
-                                )!,
-                              )
-                            : inputState.breadboardWidths[0] ?? '',
-                        )
+                <label className="svg-import-field">
+                  Breadboard width (mm)
+                  <input
+                    onBlur={(event) => {
+                      const parsed = parsePositiveNumberInput(event.target.value)
+                      if (parsed !== undefined && workspaceConfig.breadboards[0]) {
+                        updateSurface('breadboard', 0, { physicalWidthMm: parsed })
                       }
-                      onChange={(event) => {
-                        const nextValue = event.target.value
-                        updateBreadboardInputField('breadboardWidths', 0, nextValue)
-                        const parsed = parsePositiveNumberInput(nextValue)
-                        if (parsed !== undefined) {
-                          updateSurface('breadboard', 0, {
-                            physicalWidthMm: parsed,
-                          })
-                        }
-                      }}
-                      onFocus={selectAllText}
-                      type="text"
-                      value={inputState.breadboardWidths[0] ?? ''}
-                    />
-                  </label>
-                  <label className="svg-import-field">
-                    Breadboard height (mm)
-                    <input
-                      inputMode="decimal"
-                      onBlur={() =>
-                        updateBreadboardInputField(
-                          'breadboardHeights',
-                          0,
-                          parsePositiveNumberInput(inputState.breadboardHeights[0] ?? '') !==
-                            undefined
-                            ? formatNumericInput(
-                                parsePositiveNumberInput(
-                                  inputState.breadboardHeights[0] ?? '',
-                                )!,
-                              )
-                            : inputState.breadboardHeights[0] ?? '',
-                        )
+                    }}
+                    onChange={(event) =>
+                      updateBreadboardInputField('breadboardWidths', 0, event.target.value)
+                    }
+                    onFocus={selectAllText}
+                    type="text"
+                    value={inputState.breadboardWidths[0] ?? ''}
+                  />
+                </label>
+                <label className="svg-import-field">
+                  Breadboard height (mm)
+                  <input
+                    onBlur={(event) => {
+                      const parsed = parsePositiveNumberInput(event.target.value)
+                      if (parsed !== undefined && workspaceConfig.breadboards[0]) {
+                        updateSurface('breadboard', 0, { physicalHeightMm: parsed })
                       }
-                      onChange={(event) => {
-                        const nextValue = event.target.value
-                        updateBreadboardInputField('breadboardHeights', 0, nextValue)
-                        const parsed = parsePositiveNumberInput(nextValue)
-                        if (parsed !== undefined) {
-                          updateSurface('breadboard', 0, {
-                            physicalHeightMm: parsed,
-                          })
-                        }
-                      }}
-                      onFocus={selectAllText}
-                      type="text"
-                      value={inputState.breadboardHeights[0] ?? ''}
-                    />
-                  </label>
-                </>
-              ) : null}
-            </fieldset>
+                    }}
+                    onChange={(event) =>
+                      updateBreadboardInputField('breadboardHeights', 0, event.target.value)
+                    }
+                    onFocus={selectAllText}
+                    type="text"
+                    value={inputState.breadboardHeights[0] ?? ''}
+                  />
+                </label>
+              </div>
 
-            <fieldset className="modal-shell__fieldset" ref={autoCalibrationRef}>
-              <legend>Auto-Calibrate</legend>
               {autoCalibrationSuggestion ? (
-                <div
-                  className="svg-import-summary-card"
-                  data-testid="drawing-import-auto-calibration-card"
-                >
-                  <div className="svg-import-summary-card__eyebrow">Suggested hole-grid fit</div>
-                  <div
-                    className={`svg-import-summary-card__state${
-                      autoCalibrationSuggestion.confidence >= 0.74 ? ' is-ready' : ''
-                    }`}
-                  >
-                    {autoCalibrationSuggestion.confidence >= 0.74
-                      ? 'Ready to apply'
-                      : 'Review before applying'}
-                  </div>
-                  <ul className="svg-import-summary-card__list">
-                    <li>
-                      Pitch assumption: {DEFAULT_IMPORT_HOLE_PITCH_MM} mm
-                    </li>
-                    <li>
-                      Grid fit: {autoCalibrationSuggestion.gridColumnCount} ×{' '}
-                      {autoCalibrationSuggestion.gridRowCount} holes
-                    </li>
-                    <li>
-                      Inferred scale:{' '}
-                      {autoCalibrationSuggestion.inferredMmPerUnit.toFixed(5)} mm per{' '}
-                      {document.sourceKind === 'svg' ? 'SVG unit' : 'pixel'}
-                    </li>
-                    <li>
-                      Estimated size:{' '}
-                      {autoCalibrationSuggestion.suggestedPhysicalWidthMm} ×{' '}
-                      {autoCalibrationSuggestion.suggestedPhysicalHeightMm} mm
-                    </li>
-                  </ul>
-                  <p className="svg-import-summary-card__note">
-                    {autoCalibrationSuggestion.note ??
-                      (document.sourceKind === 'svg'
-                        ? 'The preview found a repeated breadboard hole lattice inside the detected board region.'
-                        : 'The preview found a repeated breadboard hole lattice in the raster image.' )}
+                <div className="svg-import-auto-card" data-testid="drawing-import-auto-calibration-card">
+                  <div className="svg-import-panel__eyebrow">Auto-calibrate</div>
+                  <h4>
+                    {autoCalibrationSuggestion.visibleGridColumnCount} ×{' '}
+                    {autoCalibrationSuggestion.visibleGridRowCount} visible,{' '}
+                    {autoCalibrationSuggestion.gridColumnCount} ×{' '}
+                    {autoCalibrationSuggestion.gridRowCount} inferred
+                  </h4>
+                  <p className="modal-shell__hint">
+                    Assuming {DEFAULT_IMPORT_HOLE_PITCH_MM} mm pitch at{' '}
+                    {autoCalibrationSuggestion.inferredMmPerUnit.toFixed(4)} mm/unit.
                   </p>
-                  <button
-                    className="modal-shell__primary"
-                    data-testid="drawing-import-apply-auto-calibration"
-                    onClick={applySuggestedAutoCalibration}
-                    type="button"
-                  >
-                    Apply Suggested Auto-Calibration
+                  <button data-testid="drawing-import-apply-auto-calibration" onClick={applySuggestedAutoCalibration} type="button">
+                    Apply suggested surface sizes
                   </button>
                 </div>
+              ) : null}
+            </fieldset>
+
+            {mode === 'append-breadboard' && currentTablePlacement && appendBreadboardCenterMm ? (
+              <TablePlacementPreview
+                boardHeight={boardHeightMm}
+                boardWidth={boardWidthMm}
+                center={appendBreadboardCenterMm}
+                data={currentTablePlacement}
+                onChange={setAppendBreadboardCenterMm}
+              />
+            ) : null}
+
+            <fieldset className="modal-shell__fieldset">
+              <legend>Selected item</legend>
+              {selectedPreviewItem ? (
+                <div className="svg-import-selected-item">
+                  <div className="svg-import-selected-item__header">
+                    <div>
+                      <div className="svg-import-panel__eyebrow">{selectedPreviewItem.kind}</div>
+                      <h4>{selectedPreviewItem.label}</h4>
+                    </div>
+                    <div className="svg-import-selected-item__status">
+                      {selectedPreviewItem.disposition === 'component'
+                        ? selectedPreviewItem.componentType
+                          ? getComponentDefinition(selectedPreviewItem.componentType).familyLabel
+                          : 'Assigned'
+                        : selectedPreviewItem.disposition === 'linework'
+                          ? 'Keep as linework'
+                          : 'Skipped'}
+                    </div>
+                  </div>
+
+                  {selectedPreviewItem.suggestions.length > 0 ? (
+                    <div className="svg-import-suggestion-list">
+                      {selectedPreviewItem.suggestions.slice(0, 3).map((suggestion) => (
+                        <button
+                          key={`${selectedPreviewItem.id}-${suggestion.componentType}`}
+                          onClick={() =>
+                            updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                              ...item,
+                              componentType: suggestion.componentType,
+                              disposition: 'component',
+                            }))
+                          }
+                          type="button"
+                        >
+                          {getComponentDefinition(suggestion.componentType).familyLabel} (
+                          {Math.round(suggestion.confidence * 100)}%)
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="modal-shell__hint">
+                      No family guess yet. Use the chooser below if you want to import this marker as a component.
+                    </p>
+                  )}
+
+                  <div className="svg-import-selected-item__actions">
+                    <button
+                      onClick={() =>
+                        updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                          ...item,
+                          disposition: 'component',
+                        }))
+                      }
+                      type="button"
+                    >
+                      Import as component
+                    </button>
+                    {selectedPreviewItem.allowKeepAsLinework ? (
+                      <button
+                        onClick={() =>
+                          updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                            ...item,
+                            disposition: 'linework',
+                          }))
+                        }
+                        type="button"
+                      >
+                        Keep as linework
+                      </button>
+                    ) : null}
+                    <button
+                      onClick={() =>
+                        updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                          ...item,
+                          disposition: 'skip',
+                        }))
+                      }
+                      type="button"
+                    >
+                      Skip
+                    </button>
+                    <button
+                      onClick={() =>
+                        updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                          ...item,
+                          rotationQuarterTurns: normalizeQuarterTurn(item.rotationQuarterTurns - 1),
+                        }))
+                      }
+                      type="button"
+                    >
+                      Rotate left
+                    </button>
+                    <button
+                      onClick={() =>
+                        updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                          ...item,
+                          rotationQuarterTurns: normalizeQuarterTurn(item.rotationQuarterTurns + 1),
+                        }))
+                      }
+                      type="button"
+                    >
+                      Rotate right
+                    </button>
+                  </div>
+
+                  <SvgImportVariantChooser
+                    onSelect={(selection) =>
+                      updatePreviewItem(selectedPreviewItem.id, (item) => ({
+                        ...item,
+                        componentType: selection.componentType,
+                        disposition: 'component',
+                        variantId: selection.variantId,
+                      }))
+                    }
+                    selectedComponentType={selectedPreviewItem.componentType}
+                    selectedVariantId={selectedPreviewItem.variantId}
+                  />
+                </div>
               ) : (
-                <p className="modal-shell__hint svg-import-inline-hint">
-                  No confident hole grid was detected automatically. You can still enter the exact sizes manually and use point calibration below if needed.
+                <p className="modal-shell__hint">
+                  Click a highlighted item in the preview if you want to correct it before import.
                 </p>
               )}
             </fieldset>
 
-            <fieldset className="modal-shell__fieldset" ref={regionsRef}>
-              <legend>Detected Surface Regions</legend>
-              <details className="svg-import-advanced" ref={regionsDetailsRef}>
-                <summary>Advanced region editing</summary>
-                <p className="modal-shell__hint svg-import-inline-hint">
-                  Fine-tune only if the detected outlines need manual adjustment.
-                </p>
+            <details
+              className="svg-import-advanced-toggle"
+              open={isAdvancedOpen}
+              onToggle={(event) => setIsAdvancedOpen((event.target as HTMLDetailsElement).open)}
+            >
+              <summary>Advanced</summary>
+              <fieldset className="modal-shell__fieldset">
+                <legend>Detected surface regions</legend>
                 {workspaceConfig.table ? (
-                  <details open>
-                    <summary>Optical Table Region</summary>
+                  <div className="svg-import-field-grid">
                     <label className="svg-import-field">
-                      X ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
+                      Table region X
                       <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          setInputState((previous) => ({
-                            ...previous,
-                            tableX:
-                              parseFiniteNumberInput(previous.tableX) !== undefined
-                                ? formatNumericInput(parseFiniteNumberInput(previous.tableX)!)
-                                : previous.tableX,
-                          }))
-                        }
                         onChange={(event) =>
                           updateSurfaceBoundsField('table', 0, 'x', event.target.value)
                         }
@@ -896,18 +1141,8 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                       />
                     </label>
                     <label className="svg-import-field">
-                      Y ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
+                      Table region Y
                       <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          setInputState((previous) => ({
-                            ...previous,
-                            tableY:
-                              parseFiniteNumberInput(previous.tableY) !== undefined
-                                ? formatNumericInput(parseFiniteNumberInput(previous.tableY)!)
-                                : previous.tableY,
-                          }))
-                        }
                         onChange={(event) =>
                           updateSurfaceBoundsField('table', 0, 'y', event.target.value)
                         }
@@ -917,20 +1152,8 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                       />
                     </label>
                     <label className="svg-import-field">
-                      Width ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
+                      Table region width
                       <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          setInputState((previous) => ({
-                            ...previous,
-                            tableBoundsWidth:
-                              parsePositiveNumberInput(previous.tableBoundsWidth) !== undefined
-                                ? formatNumericInput(
-                                    parsePositiveNumberInput(previous.tableBoundsWidth)!,
-                                  )
-                                : previous.tableBoundsWidth,
-                          }))
-                        }
                         onChange={(event) =>
                           updateSurfaceBoundsField('table', 0, 'width', event.target.value)
                         }
@@ -940,20 +1163,8 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                       />
                     </label>
                     <label className="svg-import-field">
-                      Height ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
+                      Table region height
                       <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          setInputState((previous) => ({
-                            ...previous,
-                            tableBoundsHeight:
-                              parsePositiveNumberInput(previous.tableBoundsHeight) !== undefined
-                                ? formatNumericInput(
-                                    parsePositiveNumberInput(previous.tableBoundsHeight)!,
-                                  )
-                                : previous.tableBoundsHeight,
-                          }))
-                        }
                         onChange={(event) =>
                           updateSurfaceBoundsField('table', 0, 'height', event.target.value)
                         }
@@ -962,251 +1173,72 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
                         value={inputState.tableBoundsHeight}
                       />
                     </label>
-                  </details>
+                  </div>
                 ) : null}
 
-                {workspaceConfig.breadboards.map((surface, index) => (
-                  <details key={surface.id} open>
-                    <summary>{surface.label}</summary>
-                    <label className="svg-import-field">
-                      X ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
-                      <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          updateBreadboardInputField(
-                            'breadboardX',
-                            index,
-                            parseFiniteNumberInput(inputState.breadboardX[index] ?? '') !==
-                              undefined
-                              ? formatNumericInput(
-                                  parseFiniteNumberInput(
-                                    inputState.breadboardX[index] ?? '',
-                                  )!,
-                                )
-                              : inputState.breadboardX[index] ?? '',
-                          )
-                        }
-                        onChange={(event) =>
-                          updateSurfaceBoundsField(
-                            'breadboard',
-                            index,
-                            'x',
-                            event.target.value,
-                          )
-                        }
-                        onFocus={selectAllText}
-                        type="text"
-                        value={inputState.breadboardX[index] ?? ''}
-                      />
-                    </label>
-                    <label className="svg-import-field">
-                      Y ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
-                      <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          updateBreadboardInputField(
-                            'breadboardY',
-                            index,
-                            parseFiniteNumberInput(inputState.breadboardY[index] ?? '') !==
-                              undefined
-                              ? formatNumericInput(
-                                  parseFiniteNumberInput(
-                                    inputState.breadboardY[index] ?? '',
-                                  )!,
-                                )
-                              : inputState.breadboardY[index] ?? '',
-                          )
-                        }
-                        onChange={(event) =>
-                          updateSurfaceBoundsField(
-                            'breadboard',
-                            index,
-                            'y',
-                            event.target.value,
-                          )
-                        }
-                        onFocus={selectAllText}
-                        type="text"
-                        value={inputState.breadboardY[index] ?? ''}
-                      />
-                    </label>
-                    <label className="svg-import-field">
-                      Width ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
-                      <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          updateBreadboardInputField(
-                            'breadboardBoundsWidths',
-                            index,
-                            parsePositiveNumberInput(
-                              inputState.breadboardBoundsWidths[index] ?? '',
-                            ) !== undefined
-                              ? formatNumericInput(
-                                  parsePositiveNumberInput(
-                                    inputState.breadboardBoundsWidths[index] ?? '',
-                                  )!,
-                                )
-                              : inputState.breadboardBoundsWidths[index] ?? '',
-                          )
-                        }
-                        onChange={(event) =>
-                          updateSurfaceBoundsField(
-                            'breadboard',
-                            index,
-                            'width',
-                            event.target.value,
-                          )
-                        }
-                        onFocus={selectAllText}
-                        type="text"
-                        value={inputState.breadboardBoundsWidths[index] ?? ''}
-                      />
-                    </label>
-                    <label className="svg-import-field">
-                      Height ({document.sourceKind === 'svg' ? 'SVG units' : 'pixels'})
-                      <input
-                        inputMode="decimal"
-                        onBlur={() =>
-                          updateBreadboardInputField(
-                            'breadboardBoundsHeights',
-                            index,
-                            parsePositiveNumberInput(
-                              inputState.breadboardBoundsHeights[index] ?? '',
-                            ) !== undefined
-                              ? formatNumericInput(
-                                  parsePositiveNumberInput(
-                                    inputState.breadboardBoundsHeights[index] ?? '',
-                                  )!,
-                                )
-                              : inputState.breadboardBoundsHeights[index] ?? '',
-                          )
-                        }
-                        onChange={(event) =>
-                          updateSurfaceBoundsField(
-                            'breadboard',
-                            index,
-                            'height',
-                            event.target.value,
-                          )
-                        }
-                        onFocus={selectAllText}
-                        type="text"
-                        value={inputState.breadboardBoundsHeights[index] ?? ''}
-                      />
-                    </label>
-                    {workspaceConfig.workspaceKind === 'optical-table' ? (
-                      <>
-                        <label className="svg-import-field">
-                          Physical width (mm)
-                          <input
-                            inputMode="decimal"
-                            onBlur={() =>
-                              updateBreadboardInputField(
-                                'breadboardWidths',
-                                index,
-                                parsePositiveNumberInput(
-                                  inputState.breadboardWidths[index] ?? '',
-                                ) !== undefined
-                                  ? formatNumericInput(
-                                      parsePositiveNumberInput(
-                                        inputState.breadboardWidths[index] ?? '',
-                                      )!,
-                                    )
-                                  : inputState.breadboardWidths[index] ?? '',
-                              )
-                            }
-                            onChange={(event) => {
-                              const nextValue = event.target.value
-                              updateBreadboardInputField(
-                                'breadboardWidths',
-                                index,
-                                nextValue,
-                              )
-                              const parsed = parsePositiveNumberInput(nextValue)
-                              if (parsed !== undefined) {
-                                updateSurface('breadboard', index, {
-                                  physicalWidthMm: parsed,
-                                })
-                              }
-                            }}
-                            onFocus={selectAllText}
-                            type="text"
-                            value={inputState.breadboardWidths[index] ?? ''}
-                          />
-                        </label>
-                        <label className="svg-import-field">
-                          Physical height (mm)
-                          <input
-                            inputMode="decimal"
-                            onBlur={() =>
-                              updateBreadboardInputField(
-                                'breadboardHeights',
-                                index,
-                                parsePositiveNumberInput(
-                                  inputState.breadboardHeights[index] ?? '',
-                                ) !== undefined
-                                  ? formatNumericInput(
-                                      parsePositiveNumberInput(
-                                        inputState.breadboardHeights[index] ?? '',
-                                      )!,
-                                    )
-                                  : inputState.breadboardHeights[index] ?? '',
-                              )
-                            }
-                            onChange={(event) => {
-                              const nextValue = event.target.value
-                              updateBreadboardInputField(
-                                'breadboardHeights',
-                                index,
-                                nextValue,
-                              )
-                              const parsed = parsePositiveNumberInput(nextValue)
-                              if (parsed !== undefined) {
-                                updateSurface('breadboard', index, {
-                                  physicalHeightMm: parsed,
-                                })
-                              }
-                            }}
-                            onFocus={selectAllText}
-                            type="text"
-                            value={inputState.breadboardHeights[index] ?? ''}
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                  </details>
-                ))}
-              </details>
-            </fieldset>
+                <div className="svg-import-field-grid">
+                  <label className="svg-import-field">
+                    Breadboard region X
+                    <input
+                      onChange={(event) =>
+                        updateSurfaceBoundsField('breadboard', 0, 'x', event.target.value)
+                      }
+                      onFocus={selectAllText}
+                      type="text"
+                      value={inputState.breadboardX[0] ?? ''}
+                    />
+                  </label>
+                  <label className="svg-import-field">
+                    Breadboard region Y
+                    <input
+                      onChange={(event) =>
+                        updateSurfaceBoundsField('breadboard', 0, 'y', event.target.value)
+                      }
+                      onFocus={selectAllText}
+                      type="text"
+                      value={inputState.breadboardY[0] ?? ''}
+                    />
+                  </label>
+                  <label className="svg-import-field">
+                    Breadboard region width
+                    <input
+                      onChange={(event) =>
+                        updateSurfaceBoundsField('breadboard', 0, 'width', event.target.value)
+                      }
+                      onFocus={selectAllText}
+                      type="text"
+                      value={inputState.breadboardBoundsWidths[0] ?? ''}
+                    />
+                  </label>
+                  <label className="svg-import-field">
+                    Breadboard region height
+                    <input
+                      onChange={(event) =>
+                        updateSurfaceBoundsField('breadboard', 0, 'height', event.target.value)
+                      }
+                      onFocus={selectAllText}
+                      type="text"
+                      value={inputState.breadboardBoundsHeights[0] ?? ''}
+                    />
+                  </label>
+                </div>
 
-            <fieldset className="modal-shell__fieldset" ref={calibrationRef}>
-              <legend>Scale Calibration</legend>
-              <p className="modal-shell__hint">
-                {formatScaleHint({
-                  scaleIsReliable,
-                  scaleReason,
-                  sourceKind: document.sourceKind,
-                })}
-              </p>
-              <label className="modal-shell__choice">
-                <input
-                  checked={requireCalibration}
-                  onChange={(event) => setRequireCalibration(event.target.checked)}
-                  type="checkbox"
-                />
-                <span>Run calibration before import</span>
-              </label>
-            </fieldset>
+                <button
+                  onClick={() =>
+                    onOpenCalibration({
+                      appendBreadboardCenterMm,
+                      mode,
+                      previewItems,
+                      workspaceConfig,
+                    })
+                  }
+                  type="button"
+                >
+                  Manual calibration
+                </button>
+              </fieldset>
+            </details>
           </form>
-
-          <aside className="svg-import-preview-pane" aria-label={previewLabel}>
-            <div className="svg-import-preview-pane__eyebrow">Preview</div>
-            <SvgImportPreview
-              className="svg-import-preview"
-              document={document}
-              surfaceOverlays={surfaceOverlays}
-            />
-          </aside>
         </div>
 
         <footer className="modal-shell__actions">
@@ -1214,19 +1246,18 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
             Cancel
           </button>
           <button
-            className="modal-shell__primary"
-            disabled={!configIsValid}
+            disabled={!canFinish}
             onClick={() =>
               onConfirm({
-                mode: isReplaceOnly ? 'replace' : mode,
-                profile,
-                requireCalibration,
+                appendBreadboardCenterMm,
+                mode,
+                previewItems,
                 workspaceConfig,
               })
             }
             type="button"
           >
-            Continue
+            {finishLabel}
           </button>
         </footer>
       </div>

@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import type { BoundsMm, Vector2Mm } from '../domain/types'
-import type { ImportPreviewDocument } from '../domain/svgImport'
+import type { ImportPreviewDocument, ImportPreviewItem } from '../domain/svgImport'
 
 interface SvgImportPreviewSurfaceOverlay {
   bounds: BoundsMm
@@ -21,7 +21,11 @@ interface SvgImportPreviewProps {
   document: ImportPreviewDocument
   focusOverlay?: SvgImportPreviewFocusOverlay
   highlightedElementIds?: string[]
+  onSelectPreviewItem?: (itemId: string) => void
   onSelectPoint?: (point: Vector2Mm) => void
+  onUpdatePreviewItem?: (itemId: string, center: Vector2Mm, bounds: BoundsMm) => void
+  previewItems?: ImportPreviewItem[]
+  selectedPreviewItemId?: string
   selectedPoints?: Vector2Mm[]
   surfaceOverlays?: SvgImportPreviewSurfaceOverlay[]
 }
@@ -36,43 +40,97 @@ export function SvgImportPreview(props: SvgImportPreviewProps) {
     document,
     focusOverlay,
     highlightedElementIds = [],
+    onSelectPreviewItem,
     onSelectPoint,
+    onUpdatePreviewItem,
+    previewItems = [],
+    selectedPreviewItemId,
     selectedPoints = [],
     surfaceOverlays = [],
   } = props
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const highlightedSet = useMemo(
     () => new Set(highlightedElementIds),
     [highlightedElementIds],
   )
+  const [dragState, setDragState] = useState<{
+    bounds: BoundsMm
+    center: Vector2Mm
+    id: string
+    pointerStart: Vector2Mm
+  } | null>(null)
+
+  const mapClientPointToViewBox = (clientX: number, clientY: number): Vector2Mm | undefined => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return undefined
+    }
+
+    const xRatio = (clientX - rect.left) / rect.width
+    const yRatio = (clientY - rect.top) / rect.height
+
+    return {
+      x: document.bounds.x + xRatio * document.bounds.width,
+      y: document.bounds.y + yRatio * document.bounds.height,
+    }
+  }
 
   const handleClick = (event: MouseEvent<SVGSVGElement>) => {
     if (!onSelectPoint) {
       return
     }
 
-    const rect = event.currentTarget.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) {
+    const point = mapClientPointToViewBox(event.clientX, event.clientY)
+    if (!point) {
       return
     }
 
-    const xRatio = (event.clientX - rect.left) / rect.width
-    const yRatio = (event.clientY - rect.top) / rect.height
+    onSelectPoint(point)
+  }
 
-    onSelectPoint({
-      x: document.bounds.x + xRatio * document.bounds.width,
-      y: document.bounds.y + yRatio * document.bounds.height,
-    })
+  const handleMouseMove = (event: MouseEvent<SVGSVGElement>) => {
+    if (!dragState || !onUpdatePreviewItem) {
+      return
+    }
+
+    const point = mapClientPointToViewBox(event.clientX, event.clientY)
+    if (!point) {
+      return
+    }
+
+    const deltaX = point.x - dragState.pointerStart.x
+    const deltaY = point.y - dragState.pointerStart.y
+    const nextCenter = {
+      x: dragState.center.x + deltaX,
+      y: dragState.center.y + deltaY,
+    }
+    const nextBounds = {
+      ...dragState.bounds,
+      x: dragState.bounds.x + deltaX,
+      y: dragState.bounds.y + deltaY,
+    }
+
+    onUpdatePreviewItem(dragState.id, nextCenter, nextBounds)
+  }
+
+  const clearDragState = () => {
+    setDragState(null)
   }
 
   return (
     <svg
       className={className}
       onClick={handleClick}
+      onMouseLeave={clearDragState}
+      onMouseMove={handleMouseMove}
+      onMouseUp={clearDragState}
+      ref={svgRef}
       viewBox={`${document.bounds.x} ${document.bounds.y} ${document.bounds.width} ${document.bounds.height}`}
     >
       <rect
         fill="rgba(6, 9, 12, 0.42)"
         height={document.bounds.height}
+        pointerEvents="none"
         stroke="rgba(130, 166, 192, 0.32)"
         strokeWidth={0.8}
         width={document.bounds.width}
@@ -83,6 +141,7 @@ export function SvgImportPreview(props: SvgImportPreviewProps) {
         <image
           height={document.bounds.height}
           href={document.imageDataUrl}
+          pointerEvents="none"
           preserveAspectRatio="xMidYMid meet"
           width={document.bounds.width}
           x={document.bounds.x}
@@ -119,7 +178,7 @@ export function SvgImportPreview(props: SvgImportPreviewProps) {
       )}
 
       {surfaceOverlays.map((overlay) => (
-        <g key={overlay.id}>
+        <g key={overlay.id} pointerEvents="none">
           <rect
             fill={overlay.kind === 'table' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(34, 197, 94, 0.08)'}
             height={overlay.bounds.height}
@@ -159,10 +218,87 @@ export function SvgImportPreview(props: SvgImportPreviewProps) {
             ))
         : null}
 
+      {previewItems.map((item) => {
+        const isSelected = item.id === selectedPreviewItemId
+        const isImported = item.disposition === 'component'
+        const isLinework = item.disposition === 'linework'
+        const stroke = isSelected
+          ? '#f5d28c'
+          : isImported
+            ? item.isStrongMatch
+              ? '#6edf93'
+              : '#8fd6ff'
+            : isLinework
+              ? '#f5d28c'
+              : 'rgba(203, 220, 236, 0.68)'
+        const fill = isSelected
+          ? 'rgba(245, 210, 140, 0.14)'
+          : isImported
+            ? item.isStrongMatch
+              ? 'rgba(110, 223, 147, 0.12)'
+              : 'rgba(143, 214, 255, 0.12)'
+            : isLinework
+              ? 'rgba(245, 210, 140, 0.08)'
+              : 'rgba(203, 220, 236, 0.05)'
+
+        return (
+          <g key={item.id}>
+            <rect
+              data-testid={`import-preview-item-${item.id}`}
+              fill={fill}
+              height={item.bounds.height}
+              onMouseDown={(event) => {
+                event.stopPropagation()
+                onSelectPreviewItem?.(item.id)
+
+                if (!item.editability.canMove || !onUpdatePreviewItem) {
+                  return
+                }
+
+                const point = mapClientPointToViewBox(event.clientX, event.clientY)
+                if (!point) {
+                  return
+                }
+
+                setDragState({
+                  bounds: item.bounds,
+                  center: item.center,
+                  id: item.id,
+                  pointerStart: point,
+                })
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                onSelectPreviewItem?.(item.id)
+              }}
+              rx={4}
+              stroke={stroke}
+              strokeDasharray={isImported ? undefined : '4 3'}
+              strokeWidth={isSelected ? 1.8 : 1.1}
+              style={{ cursor: item.editability.canMove ? 'move' : 'pointer' }}
+              width={item.bounds.width}
+              x={item.bounds.x}
+              y={item.bounds.y}
+            />
+            <circle cx={item.center.x} cy={item.center.y} fill={stroke} pointerEvents="none" r={1.6} />
+            <text
+              fill={stroke}
+              fontSize="4.5"
+              pointerEvents="none"
+              x={item.bounds.x}
+              y={item.bounds.y - 3}
+            >
+              {item.label}
+            </text>
+          </g>
+        )
+      })}
+
       {focusOverlay?.bounds ? (
         <rect
           fill="rgba(245, 210, 140, 0.08)"
           height={focusOverlay.bounds.height}
+          pointerEvents="none"
           stroke="#f5d28c"
           strokeDasharray="3 2"
           strokeWidth={1.2}
@@ -172,7 +308,7 @@ export function SvgImportPreview(props: SvgImportPreviewProps) {
         />
       ) : null}
       {focusOverlay?.center ? (
-        <g>
+        <g pointerEvents="none">
           <circle cx={focusOverlay.center.x} cy={focusOverlay.center.y} fill="#f5d28c" r={2.2} />
           <circle
             cx={focusOverlay.center.x}

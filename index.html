@@ -8,6 +8,25 @@
   </head>
   <body>
     <div id="root"></div>
+    <form
+      name="schema-lab-suggestions"
+      data-netlify="true"
+      data-netlify-honeypot="bot-field"
+      enctype="multipart/form-data"
+      method="POST"
+      hidden
+    >
+      <input type="hidden" name="form-name" value="schema-lab-suggestions" />
+      <p>
+        <label>
+          Do not fill this out if you are human:
+          <input name="bot-field" />
+        </label>
+      </p>
+      <input name="category" />
+      <textarea name="message"></textarea>
+      <input accept="image/*" name="screenshot" type="file" />
+    </form>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
