@@ -424,8 +424,6 @@ function choosePresetSnap(args: {
   visibleRows: number
 }) {
   const { estimatedHeightMm, estimatedWidthMm, visibleColumns, visibleRows } = args
-  const estimatedAspectRatio =
-    estimatedHeightMm > 1e-6 ? estimatedWidthMm / estimatedHeightMm : 1
   let bestMatch:
     | {
         confidence: number
@@ -439,27 +437,57 @@ function choosePresetSnap(args: {
 
   for (const preset of getBreadboardPresetOrientations()) {
     if (
-      preset.gridColumnCount < visibleColumns ||
-      preset.gridRowCount < visibleRows
+      visibleColumns > preset.gridColumnCount + 1 ||
+      visibleRows > preset.gridRowCount + 2
     ) {
       continue
     }
 
-    const widthError = Math.abs(estimatedWidthMm - preset.widthMm) / preset.widthMm
-    const heightError = Math.abs(estimatedHeightMm - preset.heightMm) / preset.heightMm
+    const visibleWidthMm = visibleColumns * DEFAULT_IMPORT_HOLE_PITCH_MM
+    const visibleHeightMm = visibleRows * DEFAULT_IMPORT_HOLE_PITCH_MM
+    const widthError = Math.min(
+      Math.abs(estimatedWidthMm - preset.widthMm) / preset.widthMm,
+      Math.abs(visibleWidthMm - preset.widthMm) / preset.widthMm,
+    )
+    const heightError =
+      visibleRows >= Math.round(preset.gridRowCount * 0.6)
+        ? Math.min(
+            Math.abs(estimatedHeightMm - preset.heightMm) / preset.heightMm,
+            Math.abs(visibleHeightMm - preset.heightMm) / preset.heightMm,
+          )
+        : Math.abs(estimatedHeightMm - preset.heightMm) / preset.heightMm
+    const effectiveWidthMm =
+      Math.abs(visibleWidthMm - preset.widthMm) <=
+      Math.abs(estimatedWidthMm - preset.widthMm)
+        ? visibleWidthMm
+        : estimatedWidthMm
+    const effectiveHeightMm =
+      visibleRows >= Math.round(preset.gridRowCount * 0.6) &&
+      Math.abs(visibleHeightMm - preset.heightMm) <=
+        Math.abs(estimatedHeightMm - preset.heightMm)
+        ? visibleHeightMm
+        : estimatedHeightMm
     const presetAspectRatio =
       preset.heightMm > 1e-6 ? preset.widthMm / preset.heightMm : 1
+    const estimatedAspectRatio =
+      effectiveHeightMm > 1e-6 ? effectiveWidthMm / effectiveHeightMm : 1
     const aspectError =
       Math.abs(estimatedAspectRatio - presetAspectRatio) /
       Math.max(presetAspectRatio, 1e-6)
     const hiddenPenalty =
-      (preset.gridColumnCount - visibleColumns + preset.gridRowCount - visibleRows) /
+      (Math.max(0, preset.gridColumnCount - visibleColumns) +
+        Math.max(0, preset.gridRowCount - visibleRows)) /
+      Math.max(1, preset.gridColumnCount + preset.gridRowCount)
+    const overcountPenalty =
+      (Math.max(0, visibleColumns - preset.gridColumnCount) +
+        Math.max(0, visibleRows - preset.gridRowCount)) /
       Math.max(1, preset.gridColumnCount + preset.gridRowCount)
     const score =
       widthError * 0.42 +
       heightError * 0.42 +
       aspectError * 0.12 +
-      hiddenPenalty * 0.04
+      hiddenPenalty * 0.04 +
+      overcountPenalty * 0.08
 
     if (score > 0.18) {
       continue
@@ -655,12 +683,12 @@ function fitHoleGrid(args: {
   )
   const fallbackXClusters = xClusters
   const fallbackYClusters = yClusters
-  const visibleXClusters = xClusters
-  const visibleYClusters = yClusters
   const resolvedXClusters =
     finalXClusters.length >= 4 ? finalXClusters : fallbackXClusters
   const resolvedYClusters =
     finalYClusters.length >= 4 ? finalYClusters : fallbackYClusters
+  const visibleXClusters = resolvedXClusters
+  const visibleYClusters = resolvedYClusters
   const xSpacings = resolvedXClusters
     .slice(1)
     .map((cluster, index) => cluster.center - resolvedXClusters[index].center)

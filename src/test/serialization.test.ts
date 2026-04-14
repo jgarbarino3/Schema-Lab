@@ -157,11 +157,11 @@ describe('scene serialization', () => {
         id: 'holder-1',
         type: 'sample-holder',
         label: 'Holder',
-        variantId: 'slotted-silver-sample-holder',
+        variantId: 'thorlabs-km100b-m',
         anchorMm: { x: 120, y: 120 },
         rotationQuarterTurns: 0,
         finishId: 'graphite',
-        config: createDefaultComponentConfig('sample-holder', 'slotted-silver-sample-holder'),
+        config: createDefaultComponentConfig('sample-holder', 'thorlabs-km100b-m'),
       },
       {
         id: 'sample-1',
@@ -334,7 +334,7 @@ describe('scene serialization', () => {
 
     expect(parsed.components[0]).toMatchObject({
       type: 'sample-holder',
-      variantId: 'compact-slotted-sample-holder',
+      variantId: 'thorlabs-km100b-m',
       label: 'Legacy Stage',
     })
   })

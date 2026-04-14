@@ -373,10 +373,7 @@ function migrateLegacyType(type: string, variantId?: string) {
 
       return {
         type: 'sample-holder' as const,
-        variantId:
-          variantId === 'slotted-silver-sample-holder'
-            ? 'slotted-silver-sample-holder'
-            : 'compact-slotted-sample-holder',
+        variantId: 'thorlabs-km100b-m',
       }
     }
     default:

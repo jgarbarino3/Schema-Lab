@@ -134,13 +134,14 @@ export function buildCompactLibraryComponentEntries(
           definition.category,
           describeMountMode(definition.mount.mode),
           variantLabels,
-          'slotted silver',
+          'thorlabs',
+          'platform mount',
         ].join(' '),
-        specVariantId: 'compact-slotted-sample-holder',
+        specVariantId: 'thorlabs-km100b-m',
         testId: `library-item-${definition.type}`,
         title: definition.familyLabel,
         variantCount: definition.variants.length,
-        variantId: 'compact-slotted-sample-holder',
+        variantId: 'thorlabs-km100b-m',
       }),
     ]
   }

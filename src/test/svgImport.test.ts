@@ -4,8 +4,10 @@ import { createFreshSingleBreadboardWorkspace } from '../domain/workspace'
 import {
   analyzeSvgImportDocument,
   applySvgImportToScene,
+  createImportPreviewItemsFromSvgAnalysis,
   createInitialSvgImportWorkspaceConfig,
   detectSvgImportWorkspace,
+  parseSvgImportDocument,
   type SvgImportDocument,
   type SvgImportElement,
   type SvgImportElementSegment,
@@ -121,6 +123,29 @@ describe('svg import analysis', () => {
     expect(analysis.recognized).toHaveLength(1)
     expect(analysis.recognized[0].suggestion.componentType).toBe('mirror')
     expect(analysis.reviewItems.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('attaches nearby SVG text labels to component hints before analysis', () => {
+    const document = parseSvgImportDocument(`
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 120">
+        <circle id="iris-shape" cx="64" cy="58" r="10" stroke="#66e4ff" fill="none" />
+        <text x="92" y="62">Iris 1</text>
+      </svg>
+    `)
+
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 1,
+      profile: 'guided',
+    })
+
+    expect(
+      analysis.recognized.some(
+        (recognized) =>
+          recognized.elementId === 'iris-shape' &&
+          recognized.suggestion.componentType === 'iris',
+      ),
+    ).toBe(true)
   })
 
   it('builds import scene with exact variant manual review resolutions', () => {
@@ -659,5 +684,98 @@ describe('svg import analysis', () => {
     }
     expect(result.scene.workspace.breadboards.length).toBeGreaterThanOrEqual(2)
     expect(result.scene.components[0]?.hostSurfaceId).toBe(result.scene.workspace.breadboards[0]?.id)
+  })
+
+  it('ignores a full-canvas background frame and seeds ambiguous symbols as preview components', () => {
+    const elements = [
+      makeElement({
+        id: 'page-background',
+        kind: 'rect',
+        bounds: { x: 0, y: 0, width: 1700, height: 900 },
+        center: { x: 850, y: 450 },
+        points: [
+          { x: 0, y: 0 },
+          { x: 1700, y: 0 },
+          { x: 1700, y: 900 },
+          { x: 0, y: 900 },
+          { x: 0, y: 0 },
+        ],
+      }),
+      makeElement({
+        id: 'board-outline',
+        kind: 'rect',
+        bounds: { x: 280, y: 120, width: 1120, height: 560 },
+        center: { x: 840, y: 400 },
+        points: [
+          { x: 280, y: 120 },
+          { x: 1400, y: 120 },
+          { x: 1400, y: 680 },
+          { x: 280, y: 680 },
+          { x: 280, y: 120 },
+        ],
+      }),
+      ...Array.from({ length: 12 * 24 }, (_, index) => {
+        const column = index % 24
+        const row = Math.floor(index / 24)
+        const x = 320 + column * 40
+        const y = 160 + row * 40
+
+        return makeElement({
+          id: `hole-${index}`,
+          kind: 'circle',
+          bounds: { x: x - 4, y: y - 4, width: 8, height: 8 },
+          center: { x, y },
+        })
+      }),
+      makeElement({
+        id: 'iris-symbol',
+        kind: 'circle',
+        bounds: { x: 650, y: 420, width: 26, height: 26 },
+        center: { x: 663, y: 433 },
+      }),
+    ]
+    const document: SvgImportDocument = {
+      svgText: '<svg />',
+      elements,
+      bounds: { x: 0, y: 0, width: 1700, height: 900 },
+      scale: {
+        baseMmPerUnit: 1,
+        isReliable: true,
+        sourceUnit: 'mm',
+      },
+      sourceKind: 'svg',
+    }
+    const detection = detectSvgImportWorkspace(document)
+    const workspaceConfig = createInitialSvgImportWorkspaceConfig({
+      detection,
+      document,
+    })
+    const analysis = analyzeSvgImportDocument({
+      document,
+      millimetersPerUnit: 0.5,
+      profile: 'guided',
+      workspaceDetection: detection,
+    })
+    const previewItems = createImportPreviewItemsFromSvgAnalysis({
+      analysis,
+      document,
+    })
+
+    expect(detection.workspaceKind).toBe('single-breadboard')
+    expect(detection.breadboardCandidates).toHaveLength(1)
+    expect(previewItems.some((item) => item.disposition === 'component')).toBe(true)
+
+    const result = applySvgImportToScene({
+      analysis,
+      document,
+      millimetersPerUnit: 0.5,
+      mode: 'replace',
+      previewItems,
+      scene: makeScene(),
+      workspaceConfig,
+    })
+
+    expect(result.scene.workspace.kind).toBe('single-breadboard')
+    expect(result.importedComponents).toBeGreaterThan(0)
   })
 })

@@ -87,17 +87,16 @@ describe('component catalog variants', () => {
     expect(skus.has('R2/M')).toBe(false)
   })
 
-  it('makes the compact slotted holder the default and preserves the generic holder geometry', () => {
+  it('makes the Thorlabs platform mount the default sample holder', () => {
     expect(
       COMPONENT_DEFINITIONS.find((definition) => definition.type === 'sample-holder')
         ?.defaultVariantId,
-    ).toBe('compact-slotted-sample-holder')
-    const holder = getResolvedComponentSpec('sample-holder', 'compact-slotted-sample-holder')
-    const genericHolder = getResolvedComponentSpec('sample-holder', 'sample-holder-generic')
+    ).toBe('thorlabs-km100b-m')
+    const holder = getResolvedComponentSpec('sample-holder', 'thorlabs-km100b-m')
     const opticSeat = holder.mountSites.find((seat) => seat.id === 'optic-seat')
 
-    expect(holder.footprintBoundsMm.width).toBeCloseTo(75, 3)
-    expect(genericHolder.footprintBoundsMm.width).toBeCloseTo(62.5, 3)
+    expect(holder.variantId).toBe('thorlabs-km100b-m')
+    expect(holder.footprintBoundsMm.width).toBeCloseTo(48.6, 3)
     expect(opticSeat).toBeDefined()
     expect(opticSeat?.seatBoundsMm.width).toBeGreaterThanOrEqual(30)
     expect(opticSeat?.seatBoundsMm.height).toBeGreaterThanOrEqual(30)
@@ -242,11 +241,11 @@ describe('component catalog variants', () => {
       id: 'stage-1',
       type: 'sample-holder',
       label: 'Holder',
-      variantId: 'slotted-silver-sample-holder',
+      variantId: 'thorlabs-km100b-m',
       anchorMm: { x: 0, y: 0 },
       rotationQuarterTurns: 0,
       finishId: 'graphite',
-      config: createDefaultComponentConfig('sample-holder', 'slotted-silver-sample-holder'),
+      config: createDefaultComponentConfig('sample-holder', 'thorlabs-km100b-m'),
     })
     const sampleSpec = getResolvedComponentSpecForInstance({
       id: 'sample-1',
@@ -260,7 +259,7 @@ describe('component catalog variants', () => {
     })
 
     expect(stageSpec.renderHint.fill).not.toBe(
-      getResolvedComponentSpec('sample-holder', 'slotted-silver-sample-holder').renderHint.fill,
+      getResolvedComponentSpec('sample-holder', 'thorlabs-km100b-m').renderHint.fill,
     )
     expect(stageSpec.realisticVisualPreset?.finish).toBe('graphite')
     expect(sampleSpec.realisticVisualPreset?.accentFill).toBeDefined()

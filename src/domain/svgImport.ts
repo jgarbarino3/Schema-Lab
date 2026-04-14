@@ -349,25 +349,51 @@ const COMPONENT_KEYWORD_MAP: Array<{
   { type: 'curved-mirror', keywords: ['curved mirror', 'concave', 'convex'] },
   { type: 'mirror', keywords: [' mirror', ' m1', ' m2', ' m3'] },
   { type: 'lens', keywords: [' lens', ' l1', ' l2', 'focal'] },
-  { type: 'filter', keywords: ['filter', 'longpass', 'shortpass', 'bandpass'] },
-  { type: 'attenuator', keywords: ['attenuator', 'neutral density', ' nd '] },
+  {
+    type: 'filter',
+    keywords: ['filter', 'longpass', 'shortpass', 'bandpass', 'fgb37', 'fgb39'],
+  },
+  {
+    type: 'attenuator',
+    keywords: ['attenuator', 'neutral density', ' nd ', 'ndl 10c 2', 'variable attenuator'],
+  },
   { type: 'polarizer', keywords: ['polarizer', 'polariser', 'pol'] },
   { type: 'waveplate', keywords: ['waveplate', 'hwp', 'qwp', 'lambda'] },
-  { type: 'iris', keywords: ['iris', 'aperture'] },
+  { type: 'iris', keywords: ['iris', 'aperture', 'ida12'] },
   { type: 'bbo-crystal', keywords: ['bbo', 'crystal'] },
   { type: 'telescope', keywords: ['telescope', 'compressor', 'expander'] },
   { type: 'opa-module', keywords: ['opa', 'parametric amplifier'] },
-  { type: 'sample-holder', keywords: ['sample holder', 'sample stage', 'sample mount'] },
-  { type: 'translation-stage', keywords: ['translation stage', ' xy ', ' xyz ', 'stage'] },
-  { type: 'delay-stage', keywords: ['delay line', 'delay stage'] },
+  {
+    type: 'sample-holder',
+    keywords: ['sample holder', 'sample mount', 'platform mount', 'kinematic platform', 'km100'],
+  },
+  {
+    type: 'translation-stage',
+    keywords: [
+      'translation stage',
+      'sample stage',
+      ' xy ',
+      ' xyz ',
+      'pt1 m',
+      'pt3 m',
+      'st1xy',
+      'translator',
+    ],
+  },
+  { type: 'delay-stage', keywords: ['delay line', 'delay stage', 'm 112', 'ls 180'] },
   { type: 'sample', keywords: ['sample', 'substrate', 'crystal', 'tin'] },
-  { type: 'fiber-coupler', keywords: ['fiber', 'fibre', 'coupler'] },
-  { type: 'spectrometer', keywords: ['spectrometer'] },
-  { type: 'detector', keywords: ['detector', 'photodiode', 'pd '] },
+  { type: 'fiber-coupler', keywords: ['fiber', 'fibre', 'coupler', 'mm fiber'] },
+  { type: 'spectrometer', keywords: ['spectrometer', 'cct10'] },
+  { type: 'detector', keywords: ['detector', 'photodiode', 'pd ', 's120vc', 'bc207vis'] },
   { type: 'beam-dump', keywords: ['beam dump', 'dump'] },
   { type: 'optic-mount', keywords: ['optic mount', 'mount'] },
   { type: 'support-hardware', keywords: ['support'] },
 ]
+
+interface SvgImportTextHint {
+  position: Vector2Mm
+  value: string
+}
 
 function identityMatrix(): Matrix2D {
   return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
@@ -713,6 +739,129 @@ function collectElementHints(element: Element, inheritedHints: string[]) {
   }
 
   return Array.from(new Set(hintValues))
+}
+
+function parseCoordinateList(value: string | null | undefined) {
+  if (!value) {
+    return []
+  }
+
+  return value
+    .trim()
+    .split(/[\s,]+/)
+    .map((token) => Number.parseFloat(token))
+    .filter((token) => Number.isFinite(token))
+}
+
+function collectTextHints(
+  element: Element,
+  inheritedMatrix: Matrix2D,
+): SvgImportTextHint[] {
+  const tagName = element.tagName.toLowerCase()
+
+  if (tagName !== 'text' && tagName !== 'tspan') {
+    return []
+  }
+
+  const value = element.textContent?.replace(/\s+/g, ' ').trim()
+  if (!value) {
+    return []
+  }
+
+  const xValues = parseCoordinateList(element.getAttribute('x'))
+  const yValues = parseCoordinateList(element.getAttribute('y'))
+  if (xValues.length === 0 || yValues.length === 0) {
+    return []
+  }
+
+  return [
+    {
+      position: applyMatrixToPoint(
+        {
+          x: xValues[0],
+          y: yValues[0],
+        },
+        inheritedMatrix,
+      ),
+      value,
+    },
+  ]
+}
+
+function pointDistanceToBounds(point: Vector2Mm, bounds: BoundsMm) {
+  const dx =
+    point.x < bounds.x
+      ? bounds.x - point.x
+      : point.x > bounds.x + bounds.width
+        ? point.x - (bounds.x + bounds.width)
+        : 0
+  const dy =
+    point.y < bounds.y
+      ? bounds.y - point.y
+      : point.y > bounds.y + bounds.height
+        ? point.y - (bounds.y + bounds.height)
+        : 0
+
+  return Math.hypot(dx, dy)
+}
+
+function attachNearbyTextHints(
+  elements: SvgImportElement[],
+  textHints: SvgImportTextHint[],
+) {
+  if (elements.length === 0 || textHints.length === 0) {
+    return elements
+  }
+
+  const assignedTextHints = new Map<string, string[]>()
+
+  for (const textHint of textHints) {
+    let bestElementId: string | undefined
+    let bestScore = Number.POSITIVE_INFINITY
+
+    for (const element of elements) {
+      const distance = pointDistanceToBounds(textHint.position, element.bounds)
+      const distanceThreshold = Math.max(
+        70,
+        Math.max(element.bounds.width, element.bounds.height) * 4,
+      )
+
+      if (distance > distanceThreshold) {
+        continue
+      }
+
+      const openGeometryPenalty =
+        !element.isClosed && element.kind !== 'path' && element.kind !== 'polygon' ? 18 : 0
+      const largeSurfacePenalty =
+        element.bounds.width * element.bounds.height > 120000 ? 36 : 0
+      const score = distance + openGeometryPenalty + largeSurfacePenalty
+
+      if (score < bestScore) {
+        bestScore = score
+        bestElementId = element.id
+      }
+    }
+
+    if (!bestElementId) {
+      continue
+    }
+
+    const nextHints = assignedTextHints.get(bestElementId) ?? []
+    nextHints.push(textHint.value)
+    assignedTextHints.set(bestElementId, nextHints)
+  }
+
+  return elements.map((element) => {
+    const matchingTextHints = assignedTextHints.get(element.id)
+    if (!matchingTextHints || matchingTextHints.length === 0) {
+      return element
+    }
+
+    return {
+      ...element,
+      hints: Array.from(new Set([...element.hints, ...matchingTextHints])),
+    }
+  })
 }
 
 function extractStroke(element: Element) {
@@ -1237,6 +1386,7 @@ function unionBounds(boundsA: BoundsMm, boundsB: BoundsMm): BoundsMm {
 
 function parseSvgElements(svgRoot: Element): SvgImportElement[] {
   const elements: SvgImportElement[] = []
+  const textHints: SvgImportTextHint[] = []
 
   const visitNode = (
     currentNode: Element,
@@ -1250,6 +1400,7 @@ function parseSvgElements(svgRoot: Element): SvgImportElement[] {
     const localMatrix = parseTransformList(currentNode.getAttribute('transform'))
     const currentMatrix = multiplyMatrices(inheritedMatrix, localMatrix)
     const currentHints = collectElementHints(currentNode, inheritedHints)
+    textHints.push(...collectTextHints(currentNode, currentMatrix))
     const geometry = parseElementGeometry(currentNode, currentMatrix)
 
     if (geometry && geometry.points.length >= 2) {
@@ -1282,7 +1433,7 @@ function parseSvgElements(svgRoot: Element): SvgImportElement[] {
   }
 
   visitNode(svgRoot, identityMatrix(), [])
-  return elements
+  return attachNearbyTextHints(elements, textHints)
 }
 
 function scoreRectilinearCandidate(element: SvgImportElement) {
@@ -1400,6 +1551,56 @@ export function detectSvgImportWorkspace(document: SvgImportDocument): SvgImport
     })
     .sort((left, right) => boundsArea(right.boundsUnits) - boundsArea(left.boundsUnits))
 
+  const backgroundFrameCandidateIds = new Set(
+    closedCandidates
+      .filter((candidate) => {
+        const areaRatio = boundsArea(candidate.boundsUnits) / documentArea
+        if (areaRatio < 0.88) {
+          return false
+        }
+
+        const matchesDocumentFrame =
+          Math.abs(candidate.boundsUnits.x - document.bounds.x) <= 1 &&
+          Math.abs(candidate.boundsUnits.y - document.bounds.y) <= 1 &&
+          Math.abs(candidate.boundsUnits.width - document.bounds.width) <= 1 &&
+          Math.abs(candidate.boundsUnits.height - document.bounds.height) <= 1
+
+        if (!matchesDocumentFrame) {
+          return false
+        }
+
+        const nestedChildren = closedCandidates.filter(
+          (other) =>
+            other.id !== candidate.id &&
+            boundsContainBounds(candidate.boundsUnits, other.boundsUnits, 0) &&
+            boundsArea(other.boundsUnits) < boundsArea(candidate.boundsUnits) * 0.86,
+        )
+
+        if (nestedChildren.length !== 1) {
+          return false
+        }
+
+        const child = nestedChildren[0]
+        const childAreaRatio =
+          boundsArea(child.boundsUnits) / Math.max(boundsArea(candidate.boundsUnits), 1e-6)
+        const childWidthRatio =
+          child.boundsUnits.width / Math.max(candidate.boundsUnits.width, 1e-6)
+        const childHeightRatio =
+          child.boundsUnits.height / Math.max(candidate.boundsUnits.height, 1e-6)
+        const childCarriesGrid =
+          child.holeGridEvidence >= 6 &&
+          child.holeGridEvidence >= candidate.holeGridEvidence * 0.72
+
+        return (
+          childAreaRatio >= 0.34 &&
+          childWidthRatio >= 0.5 &&
+          childHeightRatio >= 0.5 &&
+          childCarriesGrid
+        )
+      })
+      .map((candidate) => candidate.id),
+  )
+
   if (closedCandidates.length === 0) {
     return {
       breadboardCandidates: [],
@@ -1409,36 +1610,38 @@ export function detectSvgImportWorkspace(document: SvgImportDocument): SvgImport
     }
   }
 
-  const candidates = closedCandidates.map((candidate) => {
-    const nestingDepth = closedCandidates.filter(
+  const candidates = closedCandidates
+    .filter((candidate) => !backgroundFrameCandidateIds.has(candidate.id))
+    .map((candidate) => {
+      const nestingDepth = closedCandidates.filter(
       (other) =>
         other.id !== candidate.id &&
         boundsContainBounds(other.boundsUnits, candidate.boundsUnits, 0),
-    ).length
-    const containsOtherCandidateCount = closedCandidates.filter(
+      ).length
+      const containsOtherCandidateCount = closedCandidates.filter(
       (other) =>
         other.id !== candidate.id &&
         boundsContainBounds(candidate.boundsUnits, other.boundsUnits, 0),
-    ).length
-    const baseConfidence = Math.min(
-      0.96,
-      candidate.rectilinearScore * 0.52 +
-        Math.min(0.26, containsOtherCandidateCount * 0.12) +
-        Math.min(0.18, candidate.holeGridEvidence * 0.01),
-    )
+      ).length
+      const baseConfidence = Math.min(
+        0.96,
+        candidate.rectilinearScore * 0.52 +
+          Math.min(0.26, containsOtherCandidateCount * 0.12) +
+          Math.min(0.18, candidate.holeGridEvidence * 0.01),
+      )
 
-    return {
-      ...candidate,
-      confidence: baseConfidence,
-      nestingDepth,
-      kind:
-        candidate.holeGridEvidence >= 6
-          ? ('breadboard' as const)
-          : containsOtherCandidateCount >= 2
-            ? ('table' as const)
-            : ('unknown-rectilinear' as const),
-    }
-  })
+      return {
+        ...candidate,
+        confidence: baseConfidence,
+        nestingDepth,
+        kind:
+          candidate.holeGridEvidence >= 6
+            ? ('breadboard' as const)
+            : containsOtherCandidateCount >= 2
+              ? ('table' as const)
+              : ('unknown-rectilinear' as const),
+      }
+    })
 
   const tableCandidate = candidates.find((candidate) => {
     const containsBoardLikeChildren = candidates.filter(
@@ -2329,6 +2532,14 @@ function createHeuristicSuggestions(
   const smallestDimensionMm = Math.min(metrics.widthMm, metrics.heightMm)
   const aspectRatio = metrics.aspectRatio
   const enclosedOpenLineCount = context.enclosedOpenLineCountById.get(element.id) ?? 0
+  const hintCorpus = toNormalizedHintCorpus(element.hints)
+  const hasStageHint =
+    hintCorpus.includes(' stage ') ||
+    hintCorpus.includes(' translation ') ||
+    hintCorpus.includes(' pt1 ') ||
+    hintCorpus.includes(' pt3 ') ||
+    hintCorpus.includes(' st1xy ') ||
+    hintCorpus.includes(' delay ')
   const crossingLineCount = context.crossingLineCountById.get(element.id) ?? 0
   const concentricCount = context.concentricCountById.get(element.id) ?? 0
   const scores = new Map<ComponentType, SvgImportSuggestion>()
@@ -2435,7 +2646,13 @@ function createHeuristicSuggestions(
 
   if ((element.kind === 'rect' || element.kind === 'path') && largestDimensionMm >= 18) {
     const stageConfidence =
-      enclosedOpenLineCount > 0 || aspectRatio >= 2.2 ? 0.74 : 0.58
+      hasStageHint
+        ? enclosedOpenLineCount > 0 || aspectRatio >= 1.8
+          ? 0.84
+          : 0.72
+        : enclosedOpenLineCount > 1 || aspectRatio >= 2.8
+          ? 0.62
+          : 0.48
     pushSuggestion(scores, {
       componentType: 'translation-stage',
       confidence: stageConfidence,
@@ -2465,7 +2682,6 @@ function createHeuristicSuggestions(
     })
   }
 
-  const hintCorpus = toNormalizedHintCorpus(element.hints)
   for (const entry of COMPONENT_KEYWORD_MAP) {
     if (!entry.keywords.some((keyword) => hintCorpus.includes(normalizeHintValue(keyword)))) {
       continue
@@ -2896,7 +3112,10 @@ export function parseSvgImportDocument(svgText: string): SvgImportDocument {
 
   const parser = new DOMParser()
   const parsedDocument = parser.parseFromString(svgText, 'image/svg+xml')
-  const parseError = parsedDocument.querySelector('parsererror')
+  const parseError =
+    typeof parsedDocument.querySelector === 'function'
+      ? parsedDocument.querySelector('parsererror')
+      : parsedDocument.getElementsByTagName?.('parsererror')?.[0]
 
   if (parseError) {
     throw new Error('SVG could not be parsed. Please check that the file is valid SVG XML.')
@@ -3106,9 +3325,19 @@ export function createImportPreviewItemsFromSvgAnalysis(args: {
 }): ImportPreviewItem[] {
   const { analysis, document } = args
   const elementById = new Map(document.elements.map((element) => [element.id, element]))
+  const surfaceSourceElementIds = new Set<string>([
+    ...(analysis.workspaceDetection.tableCandidate?.sourceElementIds ?? []),
+    ...analysis.workspaceDetection.breadboardCandidates.flatMap(
+      (candidate) => candidate.sourceElementIds,
+    ),
+  ])
   const previewItems: ImportPreviewItem[] = []
 
   for (const recognized of analysis.recognized) {
+    if (surfaceSourceElementIds.has(recognized.elementId)) {
+      continue
+    }
+
     const element = elementById.get(recognized.elementId)
 
     if (!element) {
@@ -3144,11 +3373,35 @@ export function createImportPreviewItemsFromSvgAnalysis(args: {
   }
 
   for (const reviewItem of analysis.reviewItems) {
+    if (reviewItem.elementId && surfaceSourceElementIds.has(reviewItem.elementId)) {
+      continue
+    }
+    if (
+      reviewItem.sourceElementIds.length > 0 &&
+      reviewItem.sourceElementIds.every((elementId) =>
+        surfaceSourceElementIds.has(elementId),
+      )
+    ) {
+      continue
+    }
+
+    const topSuggestion = reviewItem.suggestions[0]
+    const shouldSeedAsComponent =
+      reviewItem.kind === 'ambiguous-symbol' &&
+      !reviewItem.allowKeepAsLinework &&
+      topSuggestion !== undefined &&
+      topSuggestion.confidence >= 0.66
+
     previewItems.push({
       allowKeepAsLinework: reviewItem.allowKeepAsLinework,
       bounds: reviewItem.bounds,
       center: reviewItem.center,
-      disposition: reviewItem.allowKeepAsLinework ? 'linework' : 'skip',
+      componentType: shouldSeedAsComponent ? topSuggestion.componentType : undefined,
+      disposition: shouldSeedAsComponent
+        ? 'component'
+        : reviewItem.allowKeepAsLinework
+          ? 'linework'
+          : 'skip',
       editability: {
         canMove: true,
         canReassign: true,
@@ -3178,26 +3431,32 @@ export function createImportPreviewItemsFromRasterCandidates(args: {
     suggestions: SvgImportSuggestion[]
   }>
 }): ImportPreviewItem[] {
-  return args.candidates.map((candidate) => ({
+  return args.candidates.map((candidate) => {
+    const topSuggestion = candidate.suggestions[0]
+    const shouldAutoAssign = Boolean(
+      topSuggestion && topSuggestion.confidence >= 0.58,
+    )
+
+    return {
     allowKeepAsLinework: false,
     bounds: candidate.bounds,
     center: candidate.center,
-    componentType: candidate.suggestions[0]?.componentType,
-    disposition: candidate.suggestions[0] ? 'component' : 'skip',
+    componentType: topSuggestion?.componentType,
+    disposition: shouldAutoAssign ? 'component' : 'skip',
     editability: {
       canMove: true,
       canReassign: true,
       canRotate: true,
     },
     id: candidate.id,
-    isStrongMatch: false,
+    isStrongMatch: shouldAutoAssign,
     kind: 'raster-candidate',
     label: candidate.label,
     rotationQuarterTurns: 0,
     sourceElementIds: [],
     sourceKind: 'raster',
     suggestions: candidate.suggestions,
-  }))
+  }})
 }
 
 export function createSvgImportDraftSession(args: {
