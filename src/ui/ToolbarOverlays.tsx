@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom'
 
 export const SUGGESTION_FORM_NAME = 'schema-lab-suggestions'
+export const SUGGESTION_FORM_ENDPOINT = '/__forms.html'
+export const SUGGESTION_FORM_SUBJECT = 'Schema-Lab suggestion'
 
 export type SuggestionCategory =
   | 'Bug report'
@@ -98,7 +100,9 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
   const [screenshot, setScreenshot] = useState<File | null>(null)
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
+  const screenshotInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
@@ -110,6 +114,9 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
     setScreenshot(null)
     setStatus('idle')
     setError(null)
+    if (screenshotInputRef.current) {
+      screenshotInputRef.current.value = ''
+    }
 
     const timeout = window.setTimeout(() => {
       messageRef.current?.focus()
@@ -154,23 +161,23 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
     setError(null)
 
     try {
-      const formData = new FormData()
-
-      formData.append('form-name', SUGGESTION_FORM_NAME)
-      formData.append('bot-field', '')
-      formData.append('category', category)
-      formData.append('message', message.trim())
-
-      if (screenshot) {
-        formData.append('screenshot', screenshot)
+      const form = formRef.current
+      if (!form) {
+        throw new Error('Suggestion form is not ready.')
       }
+      const formData = new FormData(form)
 
-      const response = await fetch('/', {
+      const response = await fetch(form.getAttribute('action') || '/', {
         body: formData,
         method: 'POST',
       })
 
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error(
+            'Netlify Forms is not active on this deploy yet. Redeploy after enabling form detection so /__forms.html is published, then add form-submission email notifications in Netlify Configuration > Notifications.',
+          )
+        }
         throw new Error(`Suggestion submission failed with status ${response.status}`)
       }
 
@@ -178,6 +185,9 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
       setMessage('')
       setScreenshot(null)
       setCategory('Bug report')
+      if (screenshotInputRef.current) {
+        screenshotInputRef.current.value = ''
+      }
     } catch (submissionError) {
       const messageText =
         submissionError instanceof Error
@@ -197,7 +207,7 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
           <h2>Suggestions</h2>
           <p>
             Anonymous feedback only. Send bugs, friction points, or ideas; submissions go to the
-            developer through Netlify Forms.
+            developer through Netlify Forms and optional Netlify email notifications.
           </p>
         </div>
 
@@ -216,13 +226,21 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
           </div>
         ) : (
           <form
+            action={SUGGESTION_FORM_ENDPOINT}
             className="modal-shell__form toolbar-suggestions__form"
+            data-netlify="true"
+            data-netlify-honeypot="bot-field"
+            encType="multipart/form-data"
+            method="POST"
+            name={SUGGESTION_FORM_NAME}
             onSubmit={(event) => {
               event.preventDefault()
               void handleSubmit()
             }}
+            ref={formRef}
           >
             <input name="form-name" type="hidden" value={SUGGESTION_FORM_NAME} />
+            <input name="subject" type="hidden" value={SUGGESTION_FORM_SUBJECT} />
             <input name="bot-field" type="text" className="visually-hidden" tabIndex={-1} autoComplete="off" />
 
             <fieldset className="modal-shell__fieldset">
@@ -263,6 +281,7 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
                   aria-label="Screenshot"
                   name="screenshot"
                   onChange={(event) => setScreenshot(event.target.files?.[0] ?? null)}
+                  ref={screenshotInputRef}
                   type="file"
                 />
               </label>
@@ -274,7 +293,12 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
                   <span>{screenshot.name}</span>
                   <button
                     className="toolbar-suggestions__clear-file"
-                    onClick={() => setScreenshot(null)}
+                    onClick={() => {
+                      if (screenshotInputRef.current) {
+                        screenshotInputRef.current.value = ''
+                      }
+                      setScreenshot(null)
+                    }}
                     type="button"
                   >
                     Remove

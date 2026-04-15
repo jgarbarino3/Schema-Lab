@@ -1,36 +1,22 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>schema-lab</title>
-  </head>
   <body>
-    <div id="root"></div>
     <form
       action="/__forms.html"
       name="schema-lab-suggestions"
-      netlify
       data-netlify="true"
-      data-netlify-honeypot="bot-field"
+      netlify-honeypot="bot-field"
       enctype="multipart/form-data"
       method="POST"
       hidden
     >
       <input type="hidden" name="form-name" value="schema-lab-suggestions" />
       <input type="hidden" name="subject" value="Schema-Lab suggestion" />
-      <p>
-        <label>
-          Do not fill this out if you are human:
-          <input name="bot-field" />
-        </label>
-      </p>
+      <input type="text" name="bot-field" />
       <input name="category" />
       <textarea name="message"></textarea>
       <input accept="image/*" name="screenshot" type="file" />
       <button type="submit">Send</button>
     </form>
-    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
