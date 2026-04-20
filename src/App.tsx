@@ -72,6 +72,7 @@ import {
   getBreadboardInstances,
   getBreadboardWorldBoundsMm,
   getOpticalTableWorldBoundsMm,
+  getSurfaceMountPlaneOffsetMm,
   getWorkspacePrimaryBreadboard,
 } from './domain/workspace'
 import type { AnnotationText } from './domain/types'
@@ -104,6 +105,10 @@ import { TutorialModal } from './ui/TutorialModal'
 import { VersionHistoryModal } from './ui/VersionHistoryModal'
 import { WarningReviewModal } from './ui/WarningReviewModal'
 import { WorkspaceModeModal } from './ui/WorkspaceModeModal'
+import {
+  getProjectedBoundsAabb,
+  shouldUseProjectedTableView,
+} from './canvas/renderers/tableViewProjection'
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
@@ -2177,14 +2182,56 @@ function App() {
     selectedAnnotation,
     selection,
   ])
+  const useProjectedSelectionBounds = useMemo(
+    () =>
+      shouldUseProjectedTableView(scene, renderMode, workspaceViewMode),
+    [renderMode, scene, workspaceViewMode],
+  )
+  const selectionBoundsElevationMm = useMemo(() => {
+    if (!useProjectedSelectionBounds) {
+      return 0
+    }
 
-  const canCenterSelection = useMemo(() => {
-    if (
-      !selectionBoundsMm ||
-      viewport.canvasSizePx.width <= 0 ||
-      viewport.canvasSizePx.height <= 0
-    ) {
-      return false
+    if (highlightSelection) {
+      return Math.max(
+        0,
+        ...highlightSelection.breadboardIds.map((surfaceId) =>
+          getSurfaceMountPlaneOffsetMm(scene, surfaceId),
+        ),
+        ...highlightSelection.componentIds.map((componentId) =>
+          getSurfaceMountPlaneOffsetMm(
+            scene,
+            scene.components.find((component) => component.id === componentId)?.hostSurfaceId,
+          ),
+        ),
+      )
+    }
+
+    if (selection.type === 'component') {
+      const selectedComponent = scene.components.find(
+        (component) => component.id === selection.componentId,
+      )
+
+      return getSurfaceMountPlaneOffsetMm(scene, selectedComponent?.hostSurfaceId)
+    }
+
+    if (selection.type === 'breadboard') {
+      return getSurfaceMountPlaneOffsetMm(scene, selection.surfaceId)
+    }
+
+    return 0
+  }, [highlightSelection, scene, selection, useProjectedSelectionBounds])
+  const selectionBoundsScreenAabb = useMemo(() => {
+    if (!selectionBoundsMm) {
+      return undefined
+    }
+
+    if (useProjectedSelectionBounds) {
+      return getProjectedBoundsAabb(
+        selectionBoundsMm,
+        viewport,
+        selectionBoundsElevationMm,
+      )
     }
 
     const topLeftPx = worldToScreen(
@@ -2198,11 +2245,37 @@ function App() {
       },
       viewport,
     )
+
+    return {
+      x: topLeftPx.x,
+      y: topLeftPx.y,
+      width: bottomRightPx.x - topLeftPx.x,
+      height: bottomRightPx.y - topLeftPx.y,
+    }
+  }, [
+    selectionBoundsElevationMm,
+    selectionBoundsMm,
+    useProjectedSelectionBounds,
+    viewport,
+  ])
+
+  const canCenterSelection = useMemo(() => {
+    if (
+      !selectionBoundsMm ||
+      !selectionBoundsScreenAabb ||
+      viewport.canvasSizePx.width <= 0 ||
+      viewport.canvasSizePx.height <= 0
+    ) {
+      return false
+    }
+
     const offscreen =
-      topLeftPx.x < 48 ||
-      topLeftPx.y < 48 ||
-      bottomRightPx.x > viewport.canvasSizePx.width - 48 ||
-      bottomRightPx.y > viewport.canvasSizePx.height - 48
+      selectionBoundsScreenAabb.x < 48 ||
+      selectionBoundsScreenAabb.y < 48 ||
+      selectionBoundsScreenAabb.x + selectionBoundsScreenAabb.width >
+        viewport.canvasSizePx.width - 48 ||
+      selectionBoundsScreenAabb.y + selectionBoundsScreenAabb.height >
+        viewport.canvasSizePx.height - 48
     const targetViewport = createTopBiasedViewportForBounds(selectionBoundsMm, viewport)
     const farFromTargetFrame =
       Math.abs(targetViewport.cameraCenterMm.x - viewport.cameraCenterMm.x) >
@@ -2212,7 +2285,7 @@ function App() {
       Math.abs(targetViewport.zoomPxPerMm - viewport.zoomPxPerMm) > 0.08
 
     return offscreen || farFromTargetFrame
-  }, [selectionBoundsMm, viewport])
+  }, [selectionBoundsMm, selectionBoundsScreenAabb, viewport])
 
   const canShowSelectionToolbar =
     !pendingPlacement &&
@@ -2221,40 +2294,36 @@ function App() {
     !!selectionBoundsMm
 
   const selectionToolbarStyle = useMemo(() => {
-    if (!canShowSelectionToolbar || !selectionBoundsMm) {
+    if (!canShowSelectionToolbar || !selectionBoundsScreenAabb) {
       return undefined
     }
 
-    const topLeftPx = worldToScreen(
-      { x: selectionBoundsMm.x, y: selectionBoundsMm.y },
-      viewport,
-    )
-    const bottomRightPx = worldToScreen(
-      {
-        x: selectionBoundsMm.x + selectionBoundsMm.width,
-        y: selectionBoundsMm.y + selectionBoundsMm.height,
-      },
-      viewport,
-    )
     const toolbarWidthPx = 224
     const toolbarHeightPx = 58
-    const centerXPx = (topLeftPx.x + bottomRightPx.x) / 2
-    const fitsAbove = topLeftPx.y >= toolbarHeightPx + 20
-    const rawTopPx = fitsAbove ? topLeftPx.y - toolbarHeightPx - 12 : bottomRightPx.y + 12
+    const stageFrameWidthPx =
+      stageShellRef.current?.clientWidth ?? viewport.canvasSizePx.width
+    const stageFrameHeightPx =
+      stageShellRef.current?.clientHeight ?? viewport.canvasSizePx.height
+    const centerXPx =
+      selectionBoundsScreenAabb.x + selectionBoundsScreenAabb.width / 2
+    const fitsAbove = selectionBoundsScreenAabb.y >= toolbarHeightPx + 20
+    const rawTopPx = fitsAbove
+      ? selectionBoundsScreenAabb.y - toolbarHeightPx - 12
+      : selectionBoundsScreenAabb.y + selectionBoundsScreenAabb.height + 12
 
     return {
       left: clamp(
         centerXPx - toolbarWidthPx / 2,
         12,
-        Math.max(12, viewport.canvasSizePx.width - toolbarWidthPx - 12),
+        Math.max(12, stageFrameWidthPx - toolbarWidthPx - 12),
       ),
       top: clamp(
         rawTopPx,
         12,
-        Math.max(12, viewport.canvasSizePx.height - toolbarHeightPx - 12),
+        Math.max(12, stageFrameHeightPx - toolbarHeightPx - 12),
       ),
     }
-  }, [canShowSelectionToolbar, selectionBoundsMm, viewport])
+  }, [canShowSelectionToolbar, selectionBoundsScreenAabb, viewport])
 
   const statusBoardLabel =
     scene.workspace.kind === 'optical-table'

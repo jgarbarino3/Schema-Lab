@@ -12,6 +12,7 @@ import {
   convertSceneToOpticalTable,
   surfaceLocalToWorld,
 } from '../domain/workspace'
+import { SCENE_DOCUMENT_VERSION } from '../domain/types'
 
 function createMirrorComponent(overrides?: {
   anchorMm?: { x: number; y: number }
@@ -42,7 +43,7 @@ describe('scene import', () => {
     const result = importSceneDocument(rawJson)
 
     expect(result.scene.kind).toBe('schema-lab.scene')
-    expect(result.scene.version).toBe(10)
+    expect(result.scene.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(result.diagnostics.usedFallback).toBe(true)
     expect(result.diagnostics.wrapperInjected).toBe(true)
     expect(result.diagnostics.versionCoerced).toBe(true)
@@ -57,7 +58,7 @@ describe('scene import', () => {
 
     const result = importSceneDocument(rawJson)
 
-    expect(result.scene.version).toBe(10)
+    expect(result.scene.version).toBe(SCENE_DOCUMENT_VERSION)
     expect(result.diagnostics.usedFallback).toBe(true)
     expect(result.diagnostics.versionCoerced).toBe(true)
   })

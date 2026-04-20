@@ -3,13 +3,22 @@ import { Circle, Layer, Line, Text } from 'react-konva'
 import { getBeamColor } from '../domain/beamTracing'
 import { getGaussianWaistMarkers } from '../domain/gaussian'
 import { worldToScreen } from '../domain/geometry'
-import type { BeamTraceResult, GaussianTraceResult, ViewportState } from '../domain/types'
+import { getSurfaceMountPlaneOffsetMm } from '../domain/workspace'
+import type {
+  BeamTraceResult,
+  GaussianTraceResult,
+  SceneDocument,
+  ViewportState,
+} from '../domain/types'
+import { projectWorldPointToScreen } from './renderers/tableViewProjection'
 
 interface GaussianEnvelopeLayerProps {
   beamTrace: BeamTraceResult
   gaussianTrace: GaussianTraceResult
   hoveredSegmentId?: string
+  scene: SceneDocument
   selectedPathId?: string
+  useProjectedTableView?: boolean
   viewport: ViewportState
 }
 
@@ -21,12 +30,31 @@ export function GaussianEnvelopeLayer({
   beamTrace,
   gaussianTrace,
   hoveredSegmentId,
+  scene,
   selectedPathId,
+  useProjectedTableView = false,
   viewport,
 }: GaussianEnvelopeLayerProps) {
   const hoveredPathId = beamTrace.segments.find(
     (segment) => segment.id === hoveredSegmentId,
   )?.pathId
+  const componentById = new Map(
+    scene.components.map((component) => [component.id, component] as const),
+  )
+  const eventByInputSegmentId = new Map(
+    beamTrace.events.map((event) => [event.inputSegmentId, event] as const),
+  )
+  const projectPointForSurface = (
+    pointMm: { x: number; y: number },
+    surfaceId?: string,
+  ) =>
+    useProjectedTableView
+      ? projectWorldPointToScreen(
+          pointMm,
+          viewport,
+          getSurfaceMountPlaneOffsetMm(scene, surfaceId),
+        )
+      : worldToScreen(pointMm, viewport)
   const segmentById = new Map(
     beamTrace.segments.map((segment) => [segment.id, segment] as const),
   )
@@ -51,6 +79,11 @@ export function GaussianEnvelopeLayer({
           return null
         }
 
+        const startSurfaceId =
+          componentById.get(segment.sourceComponentId)?.hostSurfaceId
+        const endSurfaceId =
+          componentById.get(eventByInputSegmentId.get(segment.id)?.componentId ?? '')?.hostSurfaceId ??
+          startSurfaceId
         const lengthMm = Math.hypot(segment.directionMm.x, segment.directionMm.y)
 
         if (lengthMm <= 0) {
@@ -61,33 +94,33 @@ export function GaussianEnvelopeLayer({
           x: -segment.directionMm.y,
           y: segment.directionMm.x,
         }
-        const startPlus = worldToScreen(
+        const startPlus = projectPointForSurface(
           {
             x: segment.startMm.x + normalMm.x * analysis.start.spotRadiusMm,
             y: segment.startMm.y + normalMm.y * analysis.start.spotRadiusMm,
           },
-          viewport,
+          startSurfaceId,
         )
-        const endPlus = worldToScreen(
+        const endPlus = projectPointForSurface(
           {
             x: segment.endMm.x + normalMm.x * analysis.end.spotRadiusMm,
             y: segment.endMm.y + normalMm.y * analysis.end.spotRadiusMm,
           },
-          viewport,
+          endSurfaceId,
         )
-        const endMinus = worldToScreen(
+        const endMinus = projectPointForSurface(
           {
             x: segment.endMm.x - normalMm.x * analysis.end.spotRadiusMm,
             y: segment.endMm.y - normalMm.y * analysis.end.spotRadiusMm,
           },
-          viewport,
+          endSurfaceId,
         )
-        const startMinus = worldToScreen(
+        const startMinus = projectPointForSurface(
           {
             x: segment.startMm.x - normalMm.x * analysis.start.spotRadiusMm,
             y: segment.startMm.y - normalMm.y * analysis.start.spotRadiusMm,
           },
-          viewport,
+          startSurfaceId,
         )
         const isSelected = segment.pathId === selectedPathId
         const isHovered = segment.pathId === hoveredPathId
@@ -135,7 +168,10 @@ export function GaussianEnvelopeLayer({
           return null
         }
 
-        const pointPx = worldToScreen(event.hitPointMm, viewport)
+        const pointPx = projectPointForSurface(
+          event.hitPointMm,
+          componentById.get(event.componentId)?.hostSurfaceId,
+        )
 
         return (
           <Text
@@ -151,7 +187,7 @@ export function GaussianEnvelopeLayer({
       })}
 
       {waistMarkers.map((marker) => {
-        const pointPx = worldToScreen(marker.pointMm, viewport)
+        const pointPx = projectPointForSurface(marker.pointMm)
 
         return (
           <Fragment key={`${marker.segmentId}-waist`}>

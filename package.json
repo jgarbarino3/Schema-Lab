@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:optical-table": "node scripts/playwright-smoke/optical-table-smoke.mjs",
+    "smoke:projected-table": "node scripts/playwright-smoke/projected-table-smoke.mjs",
     "smoke:touch": "node scripts/playwright-smoke/touch-pinch-smoke.mjs",
     "smoke:ux": "node scripts/playwright-smoke/ux-clarity-smoke.mjs",
     "test": "vitest run",

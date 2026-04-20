@@ -4,12 +4,15 @@ import { getBeamColor } from '../domain/beamTracing'
 import { getNearestBeamSegmentHit } from '../domain/beamSelection'
 import { worldToScreen } from '../domain/geometry'
 import { getGaussianInteractionAnalysis } from '../domain/gaussian'
+import { getSurfaceMountPlaneOffsetMm } from '../domain/workspace'
 import type {
   BeamInteractionEvent,
   BeamTraceResult,
   GaussianTraceResult,
+  SceneDocument,
   ViewportState,
 } from '../domain/types'
+import { projectWorldPointToScreen } from './renderers/tableViewProjection'
 
 interface BeamLayerProps {
   beamTrace: BeamTraceResult
@@ -26,7 +29,9 @@ interface BeamLayerProps {
   selectedInteractionId?: string
   selectedPathId?: string
   selectedSegmentId?: string
+  scene: SceneDocument
   showDetails: boolean
+  useProjectedTableView?: boolean
   viewport: ViewportState
 }
 
@@ -81,14 +86,49 @@ export function BeamLayer({
   selectedInteractionId,
   selectedPathId,
   selectedSegmentId,
+  scene,
   showDetails,
+  useProjectedTableView = false,
   viewport,
 }: BeamLayerProps) {
   const hoveredPathId = beamTrace.segments.find(
     (segment) => segment.id === hoveredSegmentId,
   )?.pathId
+  const componentById = new Map(
+    scene.components.map((component) => [component.id, component] as const),
+  )
+  const eventByInputSegmentId = new Map(
+    beamTrace.events.map((event) => [event.inputSegmentId, event] as const),
+  )
+  const projectPointForSurface = (
+    pointMm: { x: number; y: number },
+    surfaceId?: string,
+  ) =>
+    useProjectedTableView
+      ? projectWorldPointToScreen(
+          pointMm,
+          viewport,
+          getSurfaceMountPlaneOffsetMm(scene, surfaceId),
+        )
+      : worldToScreen(pointMm, viewport)
   const selectNearestSegmentAtPoint = (pointPx: { x: number; y: number }) => {
-    const hit = getNearestBeamSegmentHit(beamTrace, viewport, pointPx)
+    const hit = getNearestBeamSegmentHit(
+      beamTrace,
+      viewport,
+      pointPx,
+      18,
+      (worldPointMm, segment, endpoint) => {
+        const sourceSurfaceId =
+          componentById.get(segment.sourceComponentId)?.hostSurfaceId
+        const targetSurfaceId =
+          endpoint === 'end'
+            ? componentById.get(eventByInputSegmentId.get(segment.id)?.componentId ?? '')?.hostSurfaceId ??
+              sourceSurfaceId
+            : sourceSurfaceId
+
+        return projectPointForSurface(worldPointMm, targetSurfaceId)
+      },
+    )
 
     if (!hit) {
       return
@@ -104,8 +144,13 @@ export function BeamLayer({
   return (
     <Layer>
       {beamTrace.segments.map((segment) => {
-        const startPx = worldToScreen(segment.startMm, viewport)
-        const endPx = worldToScreen(segment.endMm, viewport)
+        const sourceSurfaceId =
+          componentById.get(segment.sourceComponentId)?.hostSurfaceId
+        const endSurfaceId =
+          componentById.get(eventByInputSegmentId.get(segment.id)?.componentId ?? '')?.hostSurfaceId ??
+          sourceSurfaceId
+        const startPx = projectPointForSurface(segment.startMm, sourceSurfaceId)
+        const endPx = projectPointForSurface(segment.endMm, endSurfaceId)
         const isSelected =
           segment.id === selectedSegmentId || segment.pathId === selectedPathId
         const isHovered =
@@ -196,7 +241,10 @@ export function BeamLayer({
       })}
 
       {beamTrace.events.map((event) => {
-        const hitPx = worldToScreen(event.hitPointMm, viewport)
+        const hitPx = projectPointForSurface(
+          event.hitPointMm,
+          componentById.get(event.componentId)?.hostSurfaceId,
+        )
         const stroke = getBeamColor(
           event.outputWavelengthNm ?? event.wavelengthNm,
           event.interactionKind === 'shg' ? 'shg' : 'fundamental',
@@ -260,7 +308,10 @@ export function BeamLayer({
             event.pathId === hoveredPathId,
         )
         .map((event) => {
-          const hitPx = worldToScreen(event.hitPointMm, viewport)
+          const hitPx = projectPointForSurface(
+            event.hitPointMm,
+            componentById.get(event.componentId)?.hostSurfaceId,
+          )
           const badge = selectedPathId && event.pathId === selectedPathId
             ? getInteractionBadge(event, gaussianTrace)
             : undefined

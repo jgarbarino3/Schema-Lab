@@ -27,6 +27,33 @@ interface RenderRealisticHardwareArgs {
   spec: ResolvedComponentSpec
 }
 
+function applyAlpha(hexColor: string, alpha: number) {
+  const normalized = hexColor.replace('#', '')
+
+  if (![3, 6].includes(normalized.length)) {
+    return hexColor
+  }
+
+  const expanded =
+    normalized.length === 3
+      ? normalized
+          .split('')
+          .map((character) => `${character}${character}`)
+          .join('')
+      : normalized
+  const parsed = Number.parseInt(expanded, 16)
+
+  if (!Number.isFinite(parsed)) {
+    return hexColor
+  }
+
+  const red = (parsed >> 16) & 255
+  const green = (parsed >> 8) & 255
+  const blue = parsed & 255
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
 function createRealisticPalette({
   mountFill,
   opticFill,
@@ -142,6 +169,181 @@ function createRealisticPalette({
   }
 }
 
+function renderBeamControlHardware(args: RenderRealisticHardwareArgs, palette: RealisticPalette) {
+  const { bodyBoundsMm, instance, mountBoundsMm, mountStroke, opticStroke, showMount, spec } = args
+  const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
+  const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
+  const plateWidth = Math.max(11, bodyBoundsMm.width * 0.92)
+  const plateHeight = Math.max(4.8, bodyBoundsMm.height * 0.28)
+  const frameWidth = plateWidth + Math.max(1.6, bodyBoundsMm.width * 0.06)
+  const frameHeight = plateHeight + Math.max(1.4, bodyBoundsMm.height * 0.08)
+  const frameX = centerX - frameWidth / 2
+  const frameY = centerY - frameHeight / 2
+  const plateX = centerX - plateWidth / 2
+  const plateY = centerY - plateHeight / 2
+  const clampWidth = Math.max(1.3, plateWidth * 0.06)
+  const clampHeight = Math.max(3.4, plateHeight * 0.82)
+  const highlightWidth = Math.max(1.8, plateWidth * 0.18)
+  const labelChipWidth = Math.max(2.4, plateWidth * 0.12)
+  const labelChipHeight = Math.max(1.6, plateHeight * 0.3)
+  const attenuatorOrientation =
+    instance.config.attenuator?.orientation ??
+    (spec.physics.kind === 'attenuator' ? spec.physics.orientation : 'horizontal')
+  const gradientStart =
+    instance.type === 'attenuator' && attenuatorOrientation === 'vertical'
+      ? { x: centerX, y: plateY }
+      : { x: plateX, y: centerY }
+  const gradientEnd =
+    instance.type === 'attenuator' && attenuatorOrientation === 'vertical'
+      ? { x: centerX, y: plateY + plateHeight }
+      : { x: plateX + plateWidth, y: centerY }
+  const gradientStops =
+    instance.type === 'attenuator'
+      ? [
+          0,
+          'rgba(46, 51, 58, 0.88)',
+          0.22,
+          'rgba(74, 76, 76, 0.7)',
+          0.52,
+          'rgba(134, 123, 102, 0.42)',
+          0.82,
+          'rgba(194, 198, 203, 0.2)',
+          1,
+          'rgba(233, 240, 245, 0.1)',
+        ]
+      : instance.type === 'polarizer'
+        ? [
+            0,
+            'rgba(41, 51, 38, 0.82)',
+            0.58,
+            'rgba(90, 110, 78, 0.38)',
+            1,
+            'rgba(182, 208, 156, 0.14)',
+          ]
+        : [
+            0,
+            'rgba(244, 247, 255, 0.12)',
+            0.22,
+            'rgba(173, 191, 255, 0.24)',
+            0.5,
+            'rgba(208, 191, 255, 0.22)',
+            0.78,
+            'rgba(155, 205, 234, 0.18)',
+            1,
+            'rgba(244, 247, 255, 0.1)',
+          ]
+
+  return (
+    <>
+      {showMount && spec.realisticVisualPreset?.mountVisual === 'kinematic-round' ? (
+        <KinematicMountTop
+          boundsMm={mountBoundsMm}
+          centerX={centerX}
+          centerY={centerY}
+          palette={palette}
+          stroke={mountStroke}
+        />
+      ) : null}
+      <Rect
+        cornerRadius={Math.max(1.8, frameHeight * 0.24)}
+        fill={palette.mountShadow}
+        height={frameHeight}
+        opacity={0.95}
+        stroke="rgba(232, 239, 245, 0.16)"
+        strokeWidth={0.42}
+        width={frameWidth}
+        x={frameX}
+        y={frameY}
+      />
+      <Rect
+        cornerRadius={Math.max(1.6, plateHeight * 0.24)}
+        fill="rgba(255, 255, 255, 0.04)"
+        height={plateHeight}
+        stroke={opticStroke}
+        strokeWidth={0.72}
+        width={plateWidth}
+        x={plateX}
+        y={plateY}
+        fillLinearGradientStartPoint={gradientStart}
+        fillLinearGradientEndPoint={gradientEnd}
+        fillLinearGradientColorStops={gradientStops}
+      />
+      <Rect
+        cornerRadius={Math.max(1.2, plateHeight * 0.18)}
+        fill="rgba(244, 249, 252, 0.14)"
+        height={plateHeight * 0.58}
+        opacity={0.9}
+        width={highlightWidth}
+        x={
+          instance.type === 'attenuator' && attenuatorOrientation === 'vertical'
+            ? plateX + plateWidth * 0.54
+            : plateX + plateWidth * 0.62
+        }
+        y={
+          instance.type === 'attenuator' && attenuatorOrientation === 'vertical'
+            ? plateY + plateHeight * 0.12
+            : plateY + plateHeight * 0.1
+        }
+      />
+      <Rect
+        cornerRadius={Math.max(0.9, clampWidth * 0.4)}
+        fill={palette.bodyShadow}
+        height={clampHeight}
+        stroke="rgba(224, 232, 238, 0.14)"
+        strokeWidth={0.28}
+        width={clampWidth}
+        x={plateX - clampWidth * 0.55}
+        y={centerY - clampHeight / 2}
+      />
+      <Rect
+        cornerRadius={Math.max(0.9, clampWidth * 0.4)}
+        fill={palette.bodyShadow}
+        height={clampHeight}
+        stroke="rgba(224, 232, 238, 0.14)"
+        strokeWidth={0.28}
+        width={clampWidth}
+        x={plateX + plateWidth - clampWidth * 0.45}
+        y={centerY - clampHeight / 2}
+      />
+      {instance.type === 'attenuator' ? (
+        <Rect
+          cornerRadius={Math.max(1.1, plateHeight * 0.22)}
+          fill={palette.fastenerFill}
+          height={Math.max(1.8, plateHeight * 0.34)}
+          opacity={0.88}
+          stroke={palette.detailStroke}
+          strokeWidth={0.32}
+          width={Math.max(2.4, plateWidth * 0.1)}
+          x={plateX + plateWidth + Math.max(0.8, clampWidth * 0.4)}
+          y={centerY - Math.max(1.8, plateHeight * 0.34) / 2}
+        />
+      ) : null}
+      {instance.type === 'polarizer' ? (
+        <Rect
+          cornerRadius={Math.max(0.8, labelChipHeight * 0.35)}
+          fill={applyAlpha(spec.realisticVisualPreset?.accentFill ?? '#94aa7c', 0.56)}
+          height={labelChipHeight}
+          opacity={0.85}
+          width={labelChipWidth}
+          x={plateX + plateWidth * 0.08}
+          y={plateY - labelChipHeight * 0.25}
+        />
+      ) : null}
+      {instance.type === 'waveplate' ? (
+        <Rect
+          cornerRadius={Math.max(0.8, labelChipHeight * 0.35)}
+          fill={applyAlpha(spec.realisticVisualPreset?.accentFill ?? '#c6b7ff', 0.48)}
+          height={labelChipHeight}
+          opacity={0.82}
+          width={labelChipWidth}
+          x={plateX + plateWidth - labelChipWidth - plateWidth * 0.08}
+          y={plateY - labelChipHeight * 0.25}
+        />
+      ) : null}
+    </>
+  )
+}
+
 function renderHeroHardware(args: RenderRealisticHardwareArgs) {
   const { bodyBoundsMm, instance, mountBoundsMm, mountStroke, opticStroke, showMount, spec } = args
   const palette = createRealisticPalette(args)
@@ -150,6 +352,8 @@ function renderHeroHardware(args: RenderRealisticHardwareArgs) {
   const opticRadius = Math.max(4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.42)
 
   switch (spec.realisticVisualPreset?.family) {
+    case 'beam-control':
+      return renderBeamControlHardware(args, palette)
     case 'mirror':
       return showMount && spec.realisticVisualPreset.mountVisual === 'kinematic-round' ? (
         <MirrorMountTopView

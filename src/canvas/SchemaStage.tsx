@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import type Konva from 'konva'
-import { Layer, Rect, Stage } from 'react-konva'
+import { Stage } from 'react-konva'
 import {
   ANNOTATION_DRAG_GUIDE_THRESHOLD_MM,
   getAnnotationBoundsMm,
@@ -11,7 +11,7 @@ import {
 import { boundsFromPointsMm, screenToWorld, worldToScreen } from '../domain/geometry'
 import { sortAnnotationsByZIndex } from '../domain/annotations'
 import { getSourceGuideSnapshot, inspectSceneComponentPlacement } from '../domain/placement'
-import { SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
+import { OPTICAL_TABLE_SURFACE_ID, SINGLE_BREADBOARD_SURFACE_ID } from '../domain/types'
 import type {
   BeamTraceResult,
   GaussianTraceResult,
@@ -22,10 +22,16 @@ import { useEditorStore } from '../state/editorStore'
 import {
   getBreadboardInstances,
   getOpticalTable,
+  getSurfaceMountPlaneOffsetMm,
   getWorkspacePrimaryBreadboard,
 } from '../domain/workspace'
 import { BoardFocusRenderer } from './renderers/BoardFocusRenderer'
 import { TableViewRenderer } from './renderers/TableViewRenderer'
+import {
+  projectWorldPointToScreen,
+  resolveProjectedScreenPointToWorld,
+  shouldUseProjectedTableView,
+} from './renderers/tableViewProjection'
 
 interface AlignmentReference {
   axis: 'horizontal' | 'vertical'
@@ -201,6 +207,9 @@ export function SchemaStage({
   }>({
     suppressNextEmptyClickReset: false,
   })
+  const highlightDragRef = useRef<{
+    startMm?: Vector2Mm
+  }>({})
   const scene = useEditorStore((state) => state.scene)
   const primaryBreadboard = useMemo(() => getWorkspacePrimaryBreadboard(scene), [scene])
   const opticalTable = useMemo(() => getOpticalTable(scene), [scene])
@@ -296,6 +305,10 @@ export function SchemaStage({
 
   const getStagePointerWorldMm = (
     event?: KonvaEventObject<MouseEvent | TouchEvent>,
+    options?: {
+      preferredElevationMm?: number
+      preferredSurfaceId?: string
+    },
   ) => {
     const pointerPosition =
       event?.target.getStage()?.getPointerPosition() ??
@@ -305,7 +318,7 @@ export function SchemaStage({
       return undefined
     }
 
-    return screenToWorld(pointerPosition, viewport)
+    return resolveScreenPointToWorldMm(pointerPosition, options)
   }
 
   useEffect(() => {
@@ -407,6 +420,74 @@ export function SchemaStage({
 
     return 'crosshair'
   }, [isPanMode, isPointerPanning])
+  const useProjectedTableView = useMemo(
+    () =>
+      shouldUseProjectedTableView(
+        scene,
+        renderMode,
+        interaction.workspaceViewMode,
+      ),
+    [interaction.workspaceViewMode, renderMode, scene],
+  )
+  const resolveScreenPointToWorldMm = useCallback(
+    (
+      pointPx: ScreenPointPx,
+      options?: {
+        preferredElevationMm?: number
+        preferredSurfaceId?: string
+      },
+    ) => {
+      if (!useProjectedTableView) {
+        return screenToWorld(pointPx, viewport)
+      }
+
+      return resolveProjectedScreenPointToWorld(scene, viewport, pointPx, options)
+        .worldPointMm
+    },
+    [scene, useProjectedTableView, viewport],
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    ;(
+      window as Window & {
+        __SCHEMA_LAB_VIEW_TOOLS__?: {
+          screenToWorld: (
+            pointPx: ScreenPointPx,
+            options?: { elevationMm?: number; surfaceId?: string },
+          ) => Vector2Mm
+          usesProjectedTableView: () => boolean
+          worldToStage: (
+            pointMm: Vector2Mm,
+            options?: { elevationMm?: number; surfaceId?: string },
+          ) => ScreenPointPx
+        }
+      }
+    ).__SCHEMA_LAB_VIEW_TOOLS__ = {
+      screenToWorld: (pointPx, options) =>
+        resolveScreenPointToWorldMm(pointPx, {
+          preferredElevationMm: options?.elevationMm,
+          preferredSurfaceId: options?.surfaceId,
+        }),
+      usesProjectedTableView: () => useProjectedTableView,
+      worldToStage: (pointMm, options) => {
+        if (!useProjectedTableView) {
+          return worldToScreen(pointMm, viewport)
+        }
+
+        return projectWorldPointToScreen(
+          pointMm,
+          viewport,
+          options?.elevationMm ??
+            (options?.surfaceId
+              ? getSurfaceMountPlaneOffsetMm(scene, options.surfaceId)
+              : 0),
+        )
+      },
+    }
+  }, [resolveScreenPointToWorldMm, scene, useProjectedTableView, viewport])
   const liveInteraction = useMemo(
     () => ({
       activeTool: interaction.activeTool,
@@ -760,7 +841,7 @@ export function SchemaStage({
       return
     }
 
-    setCursorWorldMm(screenToWorld(pointerPosition, viewport))
+    setCursorWorldMm(resolveScreenPointToWorldMm(pointerPosition))
   }
 
   const isBackgroundPanTarget = (
@@ -806,6 +887,95 @@ export function SchemaStage({
     }
     setPointerPanning(false)
   }
+
+  const resolveClientPointToWorldMm = useCallback(
+    (clientPoint: { x: number; y: number }) => {
+      const stageContainer = stageRef.current?.container()
+
+      if (!stageContainer) {
+        return undefined
+      }
+
+      const stageRect = stageContainer.getBoundingClientRect()
+
+      if (stageRect.width <= 0 || stageRect.height <= 0) {
+        return undefined
+      }
+
+      return resolveScreenPointToWorldMm({
+        x:
+          ((clientPoint.x - stageRect.left) / stageRect.width) *
+          viewport.canvasSizePx.width,
+        y:
+          ((clientPoint.y - stageRect.top) / stageRect.height) *
+          viewport.canvasSizePx.height,
+      })
+    },
+    [resolveScreenPointToWorldMm, viewport.canvasSizePx.height, viewport.canvasSizePx.width],
+  )
+
+  useEffect(() => {
+    if (!isHighlightTool) {
+      return
+    }
+
+    const finalizeHighlightFromClientPoint = (clientPoint?: { x: number; y: number }) => {
+      const activeHighlightStartMm = highlightDragRef.current.startMm
+
+      if (!activeHighlightStartMm) {
+        return
+      }
+
+      const pointerMm = clientPoint
+        ? resolveClientPointToWorldMm(clientPoint) ?? activeHighlightStartMm
+        : activeHighlightStartMm
+
+      highlightGestureRef.current.suppressNextEmptyClickReset = hasMeaningfulHighlightArea(
+        activeHighlightStartMm,
+        pointerMm,
+      )
+      commitHighlightSelectionBounds(activeHighlightStartMm, pointerMm)
+      highlightDragRef.current.startMm = undefined
+      setHighlightDragBoundsMm(undefined)
+      setHighlightDragStartMm(undefined)
+      clearAnnotationGuides()
+    }
+
+    const handleNativeMouseUp = (event: MouseEvent) => {
+      finalizeHighlightFromClientPoint({
+        x: event.clientX,
+        y: event.clientY,
+      })
+    }
+
+    const handleNativeTouchEnd = (event: TouchEvent) => {
+      const touch = event.changedTouches[0]
+
+      finalizeHighlightFromClientPoint(
+        touch
+          ? {
+              x: touch.clientX,
+              y: touch.clientY,
+            }
+          : undefined,
+      )
+    }
+
+    window.addEventListener('mouseup', handleNativeMouseUp, true)
+    window.addEventListener('touchend', handleNativeTouchEnd, true)
+    window.addEventListener('touchcancel', handleNativeTouchEnd, true)
+
+    return () => {
+      window.removeEventListener('mouseup', handleNativeMouseUp, true)
+      window.removeEventListener('touchend', handleNativeTouchEnd, true)
+      window.removeEventListener('touchcancel', handleNativeTouchEnd, true)
+    }
+  }, [
+    clearAnnotationGuides,
+    commitHighlightSelectionBounds,
+    isHighlightTool,
+    resolveClientPointToWorldMm,
+  ])
 
   useEffect(() => {
     const contentElement = containerRef.current?.querySelector('.konvajs-content')
@@ -955,6 +1125,7 @@ export function SchemaStage({
       }
 
       highlightGestureRef.current.suppressNextEmptyClickReset = false
+      highlightDragRef.current.startMm = pointerMm
       event.evt.preventDefault()
       setHighlightDragStartMm(pointerMm)
       setHighlightDragBoundsMm({
@@ -996,9 +1167,11 @@ export function SchemaStage({
 
     if (isHighlightTool) {
       const pointerMm = getStagePointerWorldMm(event)
+      const activeHighlightStartMm =
+        highlightDragRef.current.startMm ?? highlightDragStartMm
 
-      if (pointerMm && highlightDragStartMm) {
-        setHighlightDragBoundsMm(boundsFromPointsMm(highlightDragStartMm, pointerMm))
+      if (pointerMm && activeHighlightStartMm) {
+        setHighlightDragBoundsMm(boundsFromPointsMm(activeHighlightStartMm, pointerMm))
       }
 
       return
@@ -1012,7 +1185,15 @@ export function SchemaStage({
       const pointerPosition = event.target.getStage()?.getPointerPosition()
 
       if (pointerPosition) {
-        const pointerWorldMm = screenToWorld(pointerPosition, viewport)
+        const pointerWorldMm = interaction.pendingBreadboardPlacement
+          ? resolveScreenPointToWorldMm(pointerPosition, {
+              preferredElevationMm:
+                interaction.pendingBreadboardPlacement.model.thicknessMm,
+              preferredSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+            })
+          : resolveScreenPointToWorldMm(pointerPosition, {
+              preferredSurfaceId: interaction.pendingPlacement?.draft.hostSurfaceId,
+            })
 
         if (interaction.pendingBreadboardPlacement) {
           updatePendingBreadboardAnchor(pointerWorldMm)
@@ -1059,13 +1240,17 @@ export function SchemaStage({
       updateCursorFromStage(event)
     }
 
-    if (isHighlightTool && highlightDragStartMm) {
-      const pointerMm = getStagePointerWorldMm(event) ?? highlightDragStartMm
+    const activeHighlightStartMm =
+      highlightDragRef.current.startMm ?? highlightDragStartMm
+
+    if (isHighlightTool && activeHighlightStartMm) {
+      const pointerMm = getStagePointerWorldMm(event) ?? activeHighlightStartMm
       highlightGestureRef.current.suppressNextEmptyClickReset = hasMeaningfulHighlightArea(
-        highlightDragStartMm,
+        activeHighlightStartMm,
         pointerMm,
       )
-      commitHighlightSelectionBounds(highlightDragStartMm, pointerMm)
+      commitHighlightSelectionBounds(activeHighlightStartMm, pointerMm)
+      highlightDragRef.current.startMm = undefined
       setHighlightDragBoundsMm(undefined)
       setHighlightDragStartMm(undefined)
       clearAnnotationGuides()
@@ -1146,13 +1331,22 @@ export function SchemaStage({
 
     if (interaction.pendingBreadboardPlacement) {
       clearBeamInspectionSelection()
-      commitPendingBreadboardPlacement(getStagePointerWorldMm())
+      commitPendingBreadboardPlacement(
+        getStagePointerWorldMm(event, {
+          preferredElevationMm: interaction.pendingBreadboardPlacement.model.thicknessMm,
+          preferredSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+        }),
+      )
       return
     }
 
     if (interaction.pendingPlacement) {
       clearBeamInspectionSelection()
-      commitPendingPlacement(getStagePointerWorldMm())
+      commitPendingPlacement(
+        getStagePointerWorldMm(event, {
+          preferredSurfaceId: interaction.pendingPlacement.draft.hostSurfaceId,
+        }),
+      )
       return
     }
 
@@ -1196,13 +1390,22 @@ export function SchemaStage({
 
     if (interaction.pendingBreadboardPlacement) {
       clearBeamInspectionSelection()
-      commitPendingBreadboardPlacement(getStagePointerWorldMm())
+      commitPendingBreadboardPlacement(
+        getStagePointerWorldMm(event, {
+          preferredElevationMm: interaction.pendingBreadboardPlacement.model.thicknessMm,
+          preferredSurfaceId: OPTICAL_TABLE_SURFACE_ID,
+        }),
+      )
       return
     }
 
     if (interaction.pendingPlacement) {
       clearBeamInspectionSelection()
-      commitPendingPlacement(getStagePointerWorldMm())
+      commitPendingPlacement(
+        getStagePointerWorldMm(event, {
+          preferredSurfaceId: interaction.pendingPlacement.draft.hostSurfaceId,
+        }),
+      )
       return
     }
 
@@ -1241,7 +1444,11 @@ export function SchemaStage({
 
     if (interaction.pendingPlacement) {
       clearBeamInspectionSelection()
-      commitPendingPlacement(getStagePointerWorldMm())
+      commitPendingPlacement(
+        getStagePointerWorldMm(event, {
+          preferredSurfaceId: interaction.pendingPlacement.draft.hostSurfaceId,
+        }),
+      )
       return
     }
 
@@ -1334,6 +1541,7 @@ export function SchemaStage({
   useEffect(() => {
     if (!isHighlightTool) {
       highlightGestureRef.current.suppressNextEmptyClickReset = false
+      highlightDragRef.current.startMm = undefined
       setHighlightDragBoundsMm(undefined)
       setHighlightDragStartMm(undefined)
     }
@@ -1402,11 +1610,25 @@ export function SchemaStage({
             setCursorWorldMm(undefined)
             setHoveredComponentId(undefined)
             setHoveredBeamSegmentId(undefined)
-            setDragPreview(undefined)
-            setBreadboardDragPreview(undefined)
-            highlightGestureRef.current.suppressNextEmptyClickReset = false
-            setHighlightDragBoundsMm(undefined)
-            setHighlightDragStartMm(undefined)
+
+            if (!dragPreview) {
+              setDragPreview(undefined)
+            }
+
+            if (!breadboardDragPreview) {
+              setBreadboardDragPreview(undefined)
+            }
+
+            if (
+              !highlightDragRef.current.startMm &&
+              !dragPreview &&
+              !breadboardDragPreview
+            ) {
+              highlightGestureRef.current.suppressNextEmptyClickReset = false
+              highlightDragRef.current.startMm = undefined
+              setHighlightDragBoundsMm(undefined)
+              setHighlightDragStartMm(undefined)
+            }
           }}
           onMouseMove={handleStagePointerMove}
           onMouseUp={handleStagePointerUp}
@@ -1416,23 +1638,6 @@ export function SchemaStage({
           onWheel={handleWheel}
           width={viewport.canvasSizePx.width}
         >
-          <Layer>
-            <Rect
-              fillRadialGradientStartPoint={{ x: viewport.canvasSizePx.width / 2, y: viewport.canvasSizePx.height / 2 }}
-              fillRadialGradientStartRadius={0}
-              fillRadialGradientEndPoint={{ x: viewport.canvasSizePx.width / 2, y: viewport.canvasSizePx.height / 2 }}
-              fillRadialGradientEndRadius={Math.max(viewport.canvasSizePx.width, viewport.canvasSizePx.height)}
-              fillRadialGradientColorStops={[0, '#111920', 1, '#0b1014']}
-              height={viewport.canvasSizePx.height}
-              name="stage-background-hit"
-              onClick={(event) => handleBackgroundSelect(event)}
-              onTap={(event) => handleBackgroundSelect(event)}
-              width={viewport.canvasSizePx.width}
-              x={0}
-              y={0}
-            />
-          </Layer>
-
           {scene.workspace.kind === 'single-breadboard' ? (
             <BoardFocusRenderer
               annotationGuideLines={annotationGuideLines}
@@ -1445,6 +1650,7 @@ export function SchemaStage({
               highlightedInteractionIds={highlightedInteractionIds}
               highlightedPathIds={highlightedPathIds}
               interaction={liveInteraction}
+              onBackgroundSelect={handleBackgroundSelect}
               onAnnotationToolClick={handleAnnotationToolClick}
               onBeginComponentDrag={handleBeginComponentDrag}
               onCommitComponentDrag={handleCommitComponentDrag}
@@ -1490,6 +1696,7 @@ export function SchemaStage({
               highlightedInteractionIds={highlightedInteractionIds}
               highlightedPathIds={highlightedPathIds}
               interaction={liveInteraction}
+              onBackgroundSelect={handleBackgroundSelect}
               onAnnotationToolClick={handleAnnotationToolClick}
               onBeginBreadboardDrag={handleBeginBreadboardDrag}
               onBeginComponentDrag={handleBeginComponentDrag}

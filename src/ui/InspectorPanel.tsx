@@ -2952,10 +2952,10 @@ export function InspectorPanel({
         </CollapsibleSection>
 
         {isPostMountedType(inspectedComponent.type) ? (
-          <CollapsibleSection title="Post Holder Override">
+          <CollapsibleSection title="Support Hardware Sizing">
             <div className="inspector__grid">
               <NumberField
-                label="Liquid glass post holder diameter"
+                label="Support holder diameter"
                 onChange={(diameterMm) =>
                   updateSelectedPostHolderDiameter(diameterMm)
                 }
@@ -2967,7 +2967,7 @@ export function InspectorPanel({
               />
             </div>
             <p className="inspector__hint">
-              Visible in canvas when simple mode is active and Show Post Holders is enabled from the More menu.
+              Sizes realistic 2.5D support hardware and the simple-mode post-holder overlay.
             </p>
           </CollapsibleSection>
         ) : null}

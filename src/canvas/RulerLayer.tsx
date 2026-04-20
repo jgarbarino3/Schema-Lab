@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { Layer, Line, Rect, Text } from 'react-konva'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
 import type { ViewportState } from '../domain/types'
@@ -29,10 +30,15 @@ function getVisibleStepRange(
 
 interface RulerLayerProps {
   cursorScreenPx?: { x: number; y: number }
+  renderInLayer?: boolean
   viewport: ViewportState
 }
 
-export function RulerLayer({ cursorScreenPx, viewport }: RulerLayerProps) {
+export function RulerLayer({
+  cursorScreenPx,
+  renderInLayer = true,
+  viewport,
+}: RulerLayerProps) {
   const stepMm = pickRulerStepMm(viewport.zoomPxPerMm)
   const visibleLeftMm = screenToWorld({ x: LEFT_RULER_WIDTH_PX, y: 0 }, viewport).x
   const visibleRightMm = screenToWorld(
@@ -46,9 +52,8 @@ export function RulerLayer({ cursorScreenPx, viewport }: RulerLayerProps) {
   ).y
   const tickValuesX = getVisibleStepRange(visibleLeftMm, visibleRightMm, stepMm)
   const tickValuesY = getVisibleStepRange(visibleTopMm, visibleBottomMm, stepMm)
-
-  return (
-    <Layer listening={false}>
+  const content = (
+    <>
       <Rect
         fill="rgba(7, 10, 14, 0.94)"
         height={TOP_RULER_HEIGHT_PX}
@@ -161,7 +166,7 @@ export function RulerLayer({ cursorScreenPx, viewport }: RulerLayerProps) {
       })}
 
       {cursorScreenPx && cursorScreenPx.x >= LEFT_RULER_WIDTH_PX && cursorScreenPx.x <= viewport.canvasSizePx.width ? (
-        <Line 
+        <Line
           points={[cursorScreenPx.x, 0, cursorScreenPx.x, TOP_RULER_HEIGHT_PX]}
           stroke="rgba(141, 201, 220, 0.45)"
           strokeWidth={1}
@@ -169,12 +174,18 @@ export function RulerLayer({ cursorScreenPx, viewport }: RulerLayerProps) {
       ) : null}
 
       {cursorScreenPx && cursorScreenPx.y >= TOP_RULER_HEIGHT_PX && cursorScreenPx.y <= viewport.canvasSizePx.height ? (
-        <Line 
+        <Line
           points={[0, cursorScreenPx.y, LEFT_RULER_WIDTH_PX, cursorScreenPx.y]}
           stroke="rgba(141, 201, 220, 0.45)"
           strokeWidth={1}
         />
       ) : null}
-    </Layer>
+    </>
+  )
+
+  return renderInLayer ? (
+    <Layer listening={false}>{content}</Layer>
+  ) : (
+    <Fragment>{content}</Fragment>
   )
 }

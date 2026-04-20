@@ -1,4 +1,5 @@
 import { getSourcePreset } from './sourcePresets'
+import { roundMm } from './geometry'
 import type {
   BboCrystalConfig,
   BoundsMm,
@@ -28,6 +29,7 @@ import type {
   SourceLane,
   StageFinishId,
   TelescopeConfig,
+  TwoPointFiveDVisualPreset,
   WaveplateConfig,
 } from './types'
 
@@ -118,8 +120,18 @@ function mountSite(
 ): ComponentMountSite {
   // Optic seats need a slightly larger local envelope so 1 in mounts, irises,
   // and compact detectors can actually attach instead of falling back to the board.
-  const seatWidth = role === 'optic-seat' ? Math.max(width, 30) : width
-  const seatHeight = role === 'optic-seat' ? Math.max(height, 30) : height
+  const seatWidth =
+    role === 'optic-seat'
+      ? Math.max(width, 30)
+      : role === 'sample-seat'
+        ? Math.max(width, 18)
+        : width
+  const seatHeight =
+    role === 'optic-seat'
+      ? Math.max(height, 30)
+      : role === 'sample-seat'
+        ? Math.max(height, 16)
+        : height
   const seatX = x - (seatWidth - width) / 2
   const seatY = y - (seatHeight - height) / 2
   const normalizedAllowedChildMountModes =
@@ -296,6 +308,112 @@ function mergeRealisticVisualPreset(
   }
 }
 
+function mergeTwoPointFiveDVisualPreset(
+  base?: TwoPointFiveDVisualPreset,
+  next?: Partial<TwoPointFiveDVisualPreset>,
+): TwoPointFiveDVisualPreset | undefined {
+  if (!base) {
+    if (!next?.profile || typeof next.extrusionMm !== 'number') {
+      return undefined
+    }
+
+    return {
+      profile: next.profile,
+      extrusionMm: next.extrusionMm,
+      labelAnchorMm: next.labelAnchorMm,
+    }
+  }
+
+  if (!next) {
+    return base
+  }
+
+  return {
+    profile: next.profile ?? base.profile,
+    extrusionMm: next.extrusionMm ?? base.extrusionMm,
+    labelAnchorMm: next.labelAnchorMm ?? base.labelAnchorMm,
+  }
+}
+
+function twoPointFiveDVisualPreset(
+  profile: TwoPointFiveDVisualPreset['profile'],
+  extrusionMm: number,
+  labelAnchorMm?: TwoPointFiveDVisualPreset['labelAnchorMm'],
+): TwoPointFiveDVisualPreset {
+  return {
+    profile,
+    extrusionMm,
+    labelAnchorMm,
+  }
+}
+
+function inferTwoPointFiveDVisualPreset(
+  type: ComponentType,
+  footprintBoundsMm: BoundsMm,
+  renderHintValue: ComponentRenderHint,
+): TwoPointFiveDVisualPreset {
+  const labelAnchorMm = {
+    x: roundMm(footprintBoundsMm.x + footprintBoundsMm.width / 2),
+    y: roundMm(footprintBoundsMm.y + footprintBoundsMm.height + 4),
+  }
+
+  switch (type) {
+    case 'laser-source':
+      return twoPointFiveDVisualPreset('body-rounded-rect', 12, labelAnchorMm)
+    case 'mirror':
+    case 'curved-mirror':
+    case 'lens':
+      return twoPointFiveDVisualPreset('optic-disc', 8, labelAnchorMm)
+    case 'beamsplitter':
+    case 'filter':
+      return twoPointFiveDVisualPreset('optic-plate', 8, labelAnchorMm)
+    case 'attenuator':
+    case 'polarizer':
+    case 'waveplate':
+      return twoPointFiveDVisualPreset('optic-ring', 7, labelAnchorMm)
+    case 'iris':
+      return twoPointFiveDVisualPreset('optic-ring', 10, labelAnchorMm)
+    case 'delay-stage':
+    case 'translation-stage':
+      return twoPointFiveDVisualPreset('stage-deck', 11, labelAnchorMm)
+    case 'sample-holder':
+      return twoPointFiveDVisualPreset('body-rect', 9, labelAnchorMm)
+    case 'telescope':
+      return twoPointFiveDVisualPreset('body-capsule', 9, labelAnchorMm)
+    case 'bbo-crystal':
+      return twoPointFiveDVisualPreset('crystal-diamond', 8, labelAnchorMm)
+    case 'detector':
+      return twoPointFiveDVisualPreset('detector-head', 10, labelAnchorMm)
+    case 'beam-dump':
+      return twoPointFiveDVisualPreset('beam-dump', 10, labelAnchorMm)
+    default:
+      switch (renderHintValue.glyph) {
+        case 'telescope':
+        case 'telescope-transmission':
+        case 'telescope-reflective':
+          return twoPointFiveDVisualPreset('body-capsule', 9, labelAnchorMm)
+        case 'beam-dump':
+          return twoPointFiveDVisualPreset('beam-dump', 10, labelAnchorMm)
+        case 'sample-delay-stage':
+        case 'sample-motorized-stage':
+        case 'sample-manual-xyz-stage':
+          return twoPointFiveDVisualPreset('stage-deck', 10, labelAnchorMm)
+        case 'bbo':
+          return twoPointFiveDVisualPreset('crystal-diamond', 8, labelAnchorMm)
+        case 'detector':
+          return twoPointFiveDVisualPreset('detector-head', 10, labelAnchorMm)
+        case 'laser':
+        case 'laser-compact-table':
+        case 'laser-libra':
+        case 'laser-pharos':
+        case 'laser-clark':
+          return twoPointFiveDVisualPreset('body-rounded-rect', 12, labelAnchorMm)
+        default:
+          return twoPointFiveDVisualPreset('body-rect', 8, labelAnchorMm)
+      }
+  }
+}
+
 interface StageFinishAppearance {
   accentFill: string
   accentStroke: string
@@ -461,9 +579,11 @@ const STAGE_OPTIC_CHILD_TYPES: ComponentType[] = [
 
 const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
   'mirror',
+  'curved-mirror',
   'beamsplitter',
   'lens',
   'filter',
+  'attenuator',
   'iris',
   'polarizer',
   'waveplate',
@@ -481,6 +601,7 @@ const POST_MOUNTED_TYPES: ComponentType[] = [
   'beamsplitter',
   'lens',
   'filter',
+  'attenuator',
   'polarizer',
   'waveplate',
   'iris',
@@ -2025,6 +2146,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('circle', '#4d4635', '#efd89b', 'attenuator'),
     mountRenderHint: renderHint('circle', 'rgba(68, 62, 48, 0.84)', '#bca875', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('beam-control', 'warm-metal', 'kinematic-round', {
+      accentFill: '#7d6953',
+      accentStroke: '#e9dfd1',
+      glassTint: '#aba49c',
+    }),
     physics: attenuatorPhysics({
       transmissionPercent: 50,
       minNm: 350,
@@ -2104,6 +2230,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('circle', '#3a4034', '#d7f0a4', 'polarizer'),
     mountRenderHint: renderHint('circle', 'rgba(55, 61, 46, 0.86)', '#aebd83', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('beam-control', 'graphite', 'kinematic-round', {
+      accentFill: '#80936f',
+      accentStroke: '#e3ead7',
+      glassTint: '#9daf93',
+    }),
     physics: polarizerPhysics(86, 1000, 25.4),
     recommendedHardware: {
       mount: 'Rotation-compatible polarizer mount',
@@ -2137,6 +2268,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ],
     renderHint: renderHint('circle', '#3f3653', '#d4c4ff', 'waveplate'),
     mountRenderHint: renderHint('circle', 'rgba(54, 45, 71, 0.86)', '#aa9ccf', 'mount'),
+    realisticVisualPreset: realisticVisualPreset('beam-control', 'rose-metal', 'kinematic-round', {
+      accentFill: '#b3a9db',
+      accentStroke: '#edf2ff',
+      glassTint: '#bac5eb',
+    }),
     physics: waveplatePhysics(180, 98, 25.4),
     recommendedHardware: {
       mount: 'RSP1/M or equivalent rotation mount',
@@ -3168,6 +3304,7 @@ export function getResolvedComponentSpec(
   const variant = getComponentVariant(type, variantId ?? definition.defaultVariantId)
   const footprintBoundsMm = variant.footprintBoundsMm ?? definition.footprintBoundsMm
   const defaultMountVisual = getDefaultMountVisual(type, footprintBoundsMm)
+  const resolvedRenderHint = mergeRenderHint(definition.renderHint, variant.renderHint)
 
   return {
     type: definition.type,
@@ -3197,7 +3334,7 @@ export function getResolvedComponentSpec(
     mount: variant.mount ?? definition.mount,
     opticalCenterMm: variant.opticalCenterMm ?? definition.opticalCenterMm,
     ports: variant.ports ?? definition.ports,
-    renderHint: mergeRenderHint(definition.renderHint, variant.renderHint),
+    renderHint: resolvedRenderHint,
     mountRenderHint:
       definition.mountRenderHint && variant.mountRenderHint
         ? mergeRenderHint(definition.mountRenderHint, variant.mountRenderHint)
@@ -3212,6 +3349,11 @@ export function getResolvedComponentSpec(
       definition.realisticVisualPreset,
       variant.realisticVisualPreset,
     ),
+    twoPointFiveDVisualPreset:
+      mergeTwoPointFiveDVisualPreset(
+        definition.twoPointFiveDVisualPreset,
+        variant.twoPointFiveDVisualPreset,
+      ) ?? inferTwoPointFiveDVisualPreset(type, footprintBoundsMm, resolvedRenderHint),
     physics: mergePhysics(definition.physics, variant.physics),
     recommendedHardware:
       variant.recommendedHardware ?? definition.recommendedHardware,
@@ -3309,6 +3451,24 @@ export function getResolvedComponentSpecForInstance(
         y: mountSite.defaultLocalAnchorMm.y * scaleY,
       },
     })),
+    twoPointFiveDVisualPreset: appearanceAdjustedSpec.twoPointFiveDVisualPreset
+      ? {
+          ...appearanceAdjustedSpec.twoPointFiveDVisualPreset,
+          extrusionMm:
+            appearanceAdjustedSpec.twoPointFiveDVisualPreset.extrusionMm *
+            Math.max(scaleX, scaleY),
+          labelAnchorMm: appearanceAdjustedSpec.twoPointFiveDVisualPreset.labelAnchorMm
+            ? {
+                x:
+                  appearanceAdjustedSpec.twoPointFiveDVisualPreset.labelAnchorMm.x *
+                  scaleX,
+                y:
+                  appearanceAdjustedSpec.twoPointFiveDVisualPreset.labelAnchorMm.y *
+                  scaleY,
+              }
+            : undefined,
+        }
+      : undefined,
   }
 }
 

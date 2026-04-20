@@ -1,13 +1,15 @@
 import { memo, useMemo } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { Circle, Layer, Rect } from 'react-konva'
+import { Circle, Layer, Line, Rect } from 'react-konva'
 import {
   annotateScenePlacementOccupancy,
+  inspectSceneComponentPlacement,
   resolveScenePlacement,
 } from '../domain/placement'
 import { screenToWorld, worldToScreen } from '../domain/geometry'
 import {
   getDefaultSurfaceId,
+  getSurfaceMountPlaneOffsetMm,
   getSurfaceSupportCompensationMm,
   resolveTopmostSurfaceIdAtWorldPoint,
 } from '../domain/workspace'
@@ -21,6 +23,13 @@ import type {
   ViewportState,
 } from '../domain/types'
 import { ComponentNode, type SimpleGlyphAppearance } from './ComponentNode'
+import { ProjectedComponentNode } from './ProjectedComponentNode'
+import {
+  getProjectedBoundsAabb,
+  getProjectedBoundsLinePoints,
+  projectWorldPointToScreen,
+  resolveProjectedScreenPointToWorld,
+} from './renderers/tableViewProjection'
 
 interface DragPreviewState {
   componentId: string
@@ -40,6 +49,7 @@ interface ComponentsLayerProps {
   dragPreview?: DragPreviewState
   hoveredComponentId?: string
   highlightedComponentIds?: string[]
+  isHighlightTool?: boolean
   isLineTool?: boolean
   isPanMode: boolean
   showLabels?: boolean
@@ -70,8 +80,9 @@ interface ComponentsLayerProps {
   renderMode: RenderMode
   scene: SceneDocument
   selectedComponentId?: string
-  snapMode: SnapMode
   simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
+  snapMode: SnapMode
+  useProjectedTableView?: boolean
   viewport: ViewportState
 }
 
@@ -109,6 +120,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   dragPreview,
   hoveredComponentId,
   highlightedComponentIds,
+  isHighlightTool = false,
   isLineTool = false,
   isPanMode,
   showLabels = true,
@@ -125,8 +137,9 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   renderMode,
   scene,
   selectedComponentId,
-  snapMode,
   simpleGlyphAppearances,
+  snapMode,
+  useProjectedTableView = false,
   viewport,
 }: ComponentsLayerProps) {
   const previewedComponent = dragPreview
@@ -136,8 +149,8 @@ export const ComponentsLayer = memo(function ComponentsLayer({
     () => new Map(components.map((component) => [component.id, component] as const)),
     [components],
   )
-  const orderedComponents = useMemo(() => {
-    const getDepth = (component: ComponentInstance) => {
+  const getDepth = useMemo(
+    () => (component: ComponentInstance) => {
       let depth = 0
       let current = component
       const visited = new Set<string>()
@@ -155,10 +168,9 @@ export const ComponentsLayer = memo(function ComponentsLayer({
       }
 
       return depth
-    }
-
-    return [...components].sort((left, right) => getDepth(left) - getDepth(right))
-  }, [componentById, components])
+    },
+    [componentById],
+  )
   const draggedComponentIds =
     dragPreview?.componentIds?.length ? dragPreview.componentIds : undefined
   const interactiveComponentIdSet = useMemo(
@@ -255,108 +267,223 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   const pendingPreviewAccent = pendingPlacementResult
     ? getPreviewAccent(pendingPlacementResult.status)
     : undefined
-  const isDraggedSubtreeMember = (componentId: string) => {
-    if (!draggedComponentIdSet) {
-      return false
-    }
-
-    let current = componentById.get(componentId)
-
-    while (current) {
-      if (draggedComponentIdSet.has(current.id)) {
-        return true
+  const isDraggedSubtreeMember = useMemo(
+    () => (componentId: string) => {
+      if (!draggedComponentIdSet) {
+        return false
       }
 
-      current = current.attachment?.parentComponentId
-        ? componentById.get(current.attachment.parentComponentId)
-        : undefined
+      let current = componentById.get(componentId)
+
+      while (current) {
+        if (draggedComponentIdSet.has(current.id)) {
+          return true
+        }
+
+        current = current.attachment?.parentComponentId
+          ? componentById.get(current.attachment.parentComponentId)
+          : undefined
+      }
+
+      return false
+    },
+    [componentById, draggedComponentIdSet],
+  )
+  const displayedComponents = useMemo(
+    () =>
+      components.map((component) => {
+        const breadboardShiftedComponent =
+          breadboardDragDeltaMm &&
+          component.hostSurfaceId === breadboardDragPreview?.breadboardId
+            ? {
+                ...component,
+                anchorMm: {
+                  x: component.anchorMm.x + breadboardDragDeltaMm.x,
+                  y: component.anchorMm.y + breadboardDragDeltaMm.y,
+                },
+              }
+            : component
+
+        if (
+          !dragPreview ||
+          !previewedComponent ||
+          !previewDragDeltaMm ||
+          !isDraggedSubtreeMember(component.id)
+        ) {
+          return breadboardShiftedComponent
+        }
+
+        if (component.id === dragPreview.componentId) {
+          return {
+            ...breadboardShiftedComponent,
+            anchorMm: dragPreview.candidateAnchorMm,
+            hostSurfaceId:
+              previewHostSurfaceId ?? breadboardShiftedComponent.hostSurfaceId,
+          }
+        }
+
+        return {
+          ...breadboardShiftedComponent,
+          anchorMm: {
+            x: breadboardShiftedComponent.anchorMm.x + previewDragDeltaMm.x,
+            y: breadboardShiftedComponent.anchorMm.y + previewDragDeltaMm.y,
+          },
+        }
+      }),
+    [
+      breadboardDragDeltaMm,
+      breadboardDragPreview?.breadboardId,
+      components,
+      dragPreview,
+      isDraggedSubtreeMember,
+      previewDragDeltaMm,
+      previewHostSurfaceId,
+      previewedComponent,
+    ],
+  )
+  const orderedComponents = useMemo(() => {
+    if (!useProjectedTableView) {
+      return [...displayedComponents].sort(
+        (left, right) => getDepth(left) - getDepth(right),
+      )
     }
 
-    return false
-  }
+    return [...displayedComponents].sort((left, right) => {
+      const leftElevationMm = getSurfaceMountPlaneOffsetMm(scene, left.hostSurfaceId)
+      const rightElevationMm = getSurfaceMountPlaneOffsetMm(scene, right.hostSurfaceId)
+
+      if (leftElevationMm !== rightElevationMm) {
+        return leftElevationMm - rightElevationMm
+      }
+
+      const leftSupportBoundsMm = inspectSceneComponentPlacement(scene, left).supportBoundsMm
+      const rightSupportBoundsMm = inspectSceneComponentPlacement(scene, right).supportBoundsMm
+      const leftAabb = getProjectedBoundsAabb(
+        leftSupportBoundsMm,
+        viewport,
+        leftElevationMm,
+      )
+      const rightAabb = getProjectedBoundsAabb(
+        rightSupportBoundsMm,
+        viewport,
+        rightElevationMm,
+      )
+      const leftBottomPx = leftAabb.y + leftAabb.height
+      const rightBottomPx = rightAabb.y + rightAabb.height
+
+      if (leftBottomPx !== rightBottomPx) {
+        return leftBottomPx - rightBottomPx
+      }
+
+      return getDepth(left) - getDepth(right)
+    })
+  }, [displayedComponents, getDepth, scene, useProjectedTableView, viewport])
+
+  const resolveAnchorFromScreenPoint = useMemo(
+    () =>
+      (
+        screenPointPx: ScreenPointPx,
+        options?: {
+          preferredElevationMm?: number
+          preferredSurfaceId?: string
+        },
+      ) => {
+        if (!useProjectedTableView) {
+          return screenToWorld(screenPointPx, viewport)
+        }
+
+        return resolveProjectedScreenPointToWorld(scene, viewport, screenPointPx, options)
+          .worldPointMm
+      },
+    [scene, useProjectedTableView, viewport],
+  )
+
+  const projectAnchorToScreenPoint = useMemo(
+    () =>
+      (anchorMm: { x: number; y: number }, elevationMm = 0) =>
+        useProjectedTableView
+          ? projectWorldPointToScreen(anchorMm, viewport, elevationMm)
+          : worldToScreen(anchorMm, viewport),
+    [useProjectedTableView, viewport],
+  )
+
+  const renderPreviewSupportBounds = (
+    boundsMm: { x: number; y: number; width: number; height: number },
+    stroke: string | undefined,
+    elevationMm: number,
+  ) =>
+    useProjectedTableView ? (
+      <Line
+        closed
+        dash={[5, 3]}
+        fill="rgba(0, 0, 0, 0)"
+        listening={false}
+        points={getProjectedBoundsLinePoints(boundsMm, viewport, elevationMm)}
+        stroke={stroke}
+        strokeWidth={1}
+      />
+    ) : (
+      <Rect
+        dash={[5, 3]}
+        fill="rgba(0, 0, 0, 0)"
+        height={boundsMm.height * viewport.zoomPxPerMm}
+        listening={false}
+        stroke={stroke}
+        strokeWidth={1}
+        width={boundsMm.width * viewport.zoomPxPerMm}
+        x={worldToScreen({ x: boundsMm.x, y: boundsMm.y }, viewport).x}
+        y={worldToScreen({ x: boundsMm.x, y: boundsMm.y }, viewport).y}
+      />
+    )
 
   return (
     <Layer>
-      {orderedComponents.map((component) => (
-        <ComponentNode
-          isHighlighted={highlightedComponentIds?.includes(component.id)}
-          instance={(() => {
-            const breadboardShiftedComponent =
-              breadboardDragDeltaMm &&
-              component.hostSurfaceId === breadboardDragPreview?.breadboardId
-                ? {
-                    ...component,
-                    anchorMm: {
-                      x: component.anchorMm.x + breadboardDragDeltaMm.x,
-                      y: component.anchorMm.y + breadboardDragDeltaMm.y,
-                    },
-                  }
-                : component
-
-            if (
-              !dragPreview ||
-              !previewedComponent ||
-              !previewDragDeltaMm ||
-              !isDraggedSubtreeMember(component.id)
-            ) {
-              return breadboardShiftedComponent
-            }
-
-            if (component.id === dragPreview.componentId) {
-              return {
-                ...breadboardShiftedComponent,
-                anchorMm: dragPreview.candidateAnchorMm,
-              }
-            }
-
-            return {
-              ...breadboardShiftedComponent,
-              anchorMm: {
-                x: breadboardShiftedComponent.anchorMm.x + previewDragDeltaMm.x,
-                y: breadboardShiftedComponent.anchorMm.y + previewDragDeltaMm.y,
-              },
-            }
-          })()}
-          isDragEnabled={
+      {orderedComponents.map((component) => {
+        const baseProps = {
+          instance: component,
+          isDragEnabled:
             !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
-              ? !isPanMode && !isLineTool
-              : false
-          }
-          isHovered={component.id === hoveredComponentId}
-          isSelected={component.id === selectedComponentId}
-          showLabels={showLabels}
-          showPostHolders={showPostHolders}
-          key={component.id}
-          onDragEnd={
+              ? !isPanMode && !isLineTool && !isHighlightTool
+              : false,
+          isHighlighted: highlightedComponentIds?.includes(component.id),
+          isHovered: component.id === hoveredComponentId,
+          isSelected: component.id === selectedComponentId,
+          onDragEnd:
             !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
-              ? (componentId, screenPointPx) => {
-                  onCommitComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
+              ? (componentId: string, screenPointPx: ScreenPointPx) => {
+                  onCommitComponentDrag(
+                    componentId,
+                    resolveAnchorFromScreenPoint(screenPointPx, {
+                      preferredSurfaceId: component.hostSurfaceId,
+                    }),
+                  )
                 }
-              : undefined
-          }
-          onDragMove={
+              : undefined,
+          onDragMove:
             !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
-              ? (componentId, screenPointPx) => {
-                  onUpdateComponentDrag(componentId, screenToWorld(screenPointPx, viewport))
+              ? (componentId: string, screenPointPx: ScreenPointPx) => {
+                  onUpdateComponentDrag(
+                    componentId,
+                    resolveAnchorFromScreenPoint(screenPointPx, {
+                      preferredSurfaceId: component.hostSurfaceId,
+                    }),
+                  )
                 }
-              : undefined
-          }
-          onDragStart={
+              : undefined,
+          onDragStart:
             !interactiveComponentIdSet || interactiveComponentIdSet.has(component.id)
               ? onBeginComponentDrag
-              : undefined
-          }
-          onHoverChange={
+              : undefined,
+          onHoverChange:
             isPanMode ||
             (interactiveComponentIdSet !== undefined &&
               !interactiveComponentIdSet.has(component.id))
               ? undefined
-              : onHoverComponent
-          }
-          onOpenContextMenu={
+              : onHoverComponent,
+          onOpenContextMenu:
             onOpenComponentContextMenu &&
             (!interactiveComponentIdSet || interactiveComponentIdSet.has(component.id))
-              ? (componentId, event) => {
+              ? (componentId: string, event: KonvaEventObject<MouseEvent | TouchEvent>) => {
                   if (!('clientX' in event.evt) || !('clientY' in event.evt)) {
                     return
                   }
@@ -366,41 +493,38 @@ export const ComponentsLayer = memo(function ComponentsLayer({
                     y: event.evt.clientY,
                   })
                 }
-              : undefined
-          }
-          onResize={
+              : undefined,
+          onResize:
             isPanMode ||
             isLineTool ||
+            isHighlightTool ||
             (interactiveComponentIdSet !== undefined &&
               !interactiveComponentIdSet.has(component.id))
               ? undefined
-              : onResizeComponent
-          }
-          onSelect={
+              : onResizeComponent,
+          onSelect:
             isPanMode
               ? undefined
+              : isHighlightTool
+                ? undefined
               : isLineTool
-                ? (_componentId, event) => onLineToolClick?.(event)
+                ? (_componentId: string, event?: KonvaEventObject<MouseEvent | TouchEvent>) =>
+                    onLineToolClick?.(event)
                 : interactiveComponentIdSet !== undefined &&
                     !interactiveComponentIdSet.has(component.id)
                   ? undefined
-                  : onSelectComponent
-          }
-          placementStatus={
+                  : onSelectComponent,
+          placementStatus:
             dragPreview?.componentId === component.id
               ? previewPlacement?.status
-              : undefined
-          }
-          renderMode={renderMode}
-          simpleGlyphAppearance={simpleGlyphAppearances?.[component.id]}
-          surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
-            scene,
-            component.hostSurfaceId,
-          )}
-          resolveDragPositionPx={
+              : undefined,
+          renderMode,
+          resolveDragPositionPx:
             snapMode === 'always'
               ? (screenPointPx: ScreenPointPx) => {
-                  const candidateAnchorMm = screenToWorld(screenPointPx, viewport)
+                  const candidateAnchorMm = resolveAnchorFromScreenPoint(screenPointPx, {
+                    preferredSurfaceId: component.hostSurfaceId,
+                  })
                   const candidateComponent = {
                     ...component,
                     hostSurfaceId: resolvePreviewHostSurfaceId(
@@ -417,34 +541,83 @@ export const ComponentsLayer = memo(function ComponentsLayer({
                     snapMode,
                   })
 
-                  return worldToScreen(placement.resolvedAnchorMm, viewport)
+                  return projectAnchorToScreenPoint(
+                    placement.resolvedAnchorMm,
+                    getSurfaceMountPlaneOffsetMm(
+                      scene,
+                      candidateComponent.hostSurfaceId,
+                    ),
+                  )
                 }
-              : undefined
-          }
-          viewport={viewport}
-        />
-      ))}
+              : undefined,
+          showLabels,
+          showPostHolders,
+          surfaceSupportCompensationMm: getSurfaceSupportCompensationMm(
+            scene,
+            component.hostSurfaceId,
+          ),
+          viewport,
+        }
+
+        return useProjectedTableView ? (
+          <ProjectedComponentNode
+            key={component.id}
+            {...baseProps}
+            surfaceElevationMm={getSurfaceMountPlaneOffsetMm(scene, component.hostSurfaceId)}
+          />
+        ) : (
+          <ComponentNode
+            key={component.id}
+            {...baseProps}
+            simpleGlyphAppearance={simpleGlyphAppearances?.[component.id]}
+          />
+        )
+      })}
 
       {pendingPlacement && pendingPlacementResult ? (
         <>
-        <ComponentNode
-            instance={{
-              ...pendingPlacement.draft,
-              anchorMm: pendingPlacementResult.resolvedAnchorMm,
-              rotationQuarterTurns: pendingPlacement.draft.rotationQuarterTurns,
-            }}
-            isPreview
-            isSelected={false}
-            placementStatus={pendingPlacementResult.status}
-            renderMode={renderMode}
-            simpleGlyphAppearance={simpleGlyphAppearances?.[pendingPlacement.draft.id]}
-            showLabels={showLabels}
-            surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
-              scene,
-              pendingPlacement.draft.hostSurfaceId,
-            )}
-            viewport={viewport}
-          />
+          {useProjectedTableView ? (
+            <ProjectedComponentNode
+              instance={{
+                ...pendingPlacement.draft,
+                anchorMm: pendingPlacementResult.resolvedAnchorMm,
+                rotationQuarterTurns: pendingPlacement.draft.rotationQuarterTurns,
+              }}
+              isPreview
+              isSelected={false}
+              placementStatus={pendingPlacementResult.status}
+              renderMode={renderMode}
+              showLabels={showLabels}
+              surfaceElevationMm={getSurfaceMountPlaneOffsetMm(
+                scene,
+                pendingPlacement.draft.hostSurfaceId,
+              )}
+              surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
+                scene,
+                pendingPlacement.draft.hostSurfaceId,
+              )}
+              viewport={viewport}
+            />
+          ) : (
+            <ComponentNode
+              instance={{
+                ...pendingPlacement.draft,
+                anchorMm: pendingPlacementResult.resolvedAnchorMm,
+                rotationQuarterTurns: pendingPlacement.draft.rotationQuarterTurns,
+              }}
+              isPreview
+              isSelected={false}
+              placementStatus={pendingPlacementResult.status}
+              renderMode={renderMode}
+              showLabels={showLabels}
+              simpleGlyphAppearance={simpleGlyphAppearances?.[pendingPlacement.draft.id]}
+              surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
+                scene,
+                pendingPlacement.draft.hostSurfaceId,
+              )}
+              viewport={viewport}
+            />
+          )}
 
           {pendingPreviewHoleMm ? (
             <Circle
@@ -453,52 +626,73 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               radius={7}
               stroke={pendingPreviewAccent}
               strokeWidth={1.2}
-              x={worldToScreen(pendingPreviewHoleMm, viewport).x}
-              y={worldToScreen(pendingPreviewHoleMm, viewport).y}
+              x={
+                projectAnchorToScreenPoint(
+                  pendingPreviewHoleMm,
+                  getSurfaceMountPlaneOffsetMm(
+                    scene,
+                    pendingPlacement.draft.hostSurfaceId,
+                  ),
+                ).x
+              }
+              y={
+                projectAnchorToScreenPoint(
+                  pendingPreviewHoleMm,
+                  getSurfaceMountPlaneOffsetMm(
+                    scene,
+                    pendingPlacement.draft.hostSurfaceId,
+                  ),
+                ).y
+              }
             />
           ) : null}
 
-          <Rect
-            dash={[5, 3]}
-            fill="rgba(0, 0, 0, 0)"
-            height={pendingPlacementResult.supportBoundsMm.height * viewport.zoomPxPerMm}
-            listening={false}
-            stroke={pendingPreviewAccent}
-            strokeWidth={1}
-            width={pendingPlacementResult.supportBoundsMm.width * viewport.zoomPxPerMm}
-            x={worldToScreen(
-              {
-                x: pendingPlacementResult.supportBoundsMm.x,
-                y: pendingPlacementResult.supportBoundsMm.y,
-              },
-              viewport,
-            ).x}
-            y={worldToScreen(
-              {
-                x: pendingPlacementResult.supportBoundsMm.x,
-                y: pendingPlacementResult.supportBoundsMm.y,
-              },
-              viewport,
-            ).y}
-          />
+          {renderPreviewSupportBounds(
+            pendingPlacementResult.supportBoundsMm,
+            pendingPreviewAccent,
+            getSurfaceMountPlaneOffsetMm(scene, pendingPlacement.draft.hostSurfaceId),
+          )}
         </>
       ) : null}
 
       {previewedComponent && previewPlacement ? (
         <>
-        <ComponentNode
-            instance={{
-              ...previewedComponent,
-              anchorMm: previewPlacement.resolvedAnchorMm,
-            }}
-            isPreview
-            isSelected={false}
-            placementStatus={previewPlacement.status}
-            renderMode={renderMode}
-            simpleGlyphAppearance={simpleGlyphAppearances?.[previewedComponent.id]}
-            showLabels={showLabels}
-            viewport={viewport}
-          />
+          {useProjectedTableView ? (
+            <ProjectedComponentNode
+              instance={{
+                ...previewedComponent,
+                anchorMm: previewPlacement.resolvedAnchorMm,
+                hostSurfaceId:
+                  previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+              }}
+              isPreview
+              isSelected={false}
+              placementStatus={previewPlacement.status}
+              renderMode={renderMode}
+              showLabels={showLabels}
+              surfaceElevationMm={getSurfaceMountPlaneOffsetMm(
+                scene,
+                previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+              )}
+              viewport={viewport}
+            />
+          ) : (
+            <ComponentNode
+              instance={{
+                ...previewedComponent,
+                anchorMm: previewPlacement.resolvedAnchorMm,
+                hostSurfaceId:
+                  previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+              }}
+              isPreview
+              isSelected={false}
+              placementStatus={previewPlacement.status}
+              renderMode={renderMode}
+              showLabels={showLabels}
+              simpleGlyphAppearance={simpleGlyphAppearances?.[previewedComponent.id]}
+              viewport={viewport}
+            />
+          )}
 
           {previewHoleMm ? (
             <Circle
@@ -507,34 +701,35 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               radius={6}
               stroke={previewAccent}
               strokeWidth={1.2}
-              x={worldToScreen(previewHoleMm, viewport).x}
-              y={worldToScreen(previewHoleMm, viewport).y}
+              x={
+                projectAnchorToScreenPoint(
+                  previewHoleMm,
+                  getSurfaceMountPlaneOffsetMm(
+                    scene,
+                    previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+                  ),
+                ).x
+              }
+              y={
+                projectAnchorToScreenPoint(
+                  previewHoleMm,
+                  getSurfaceMountPlaneOffsetMm(
+                    scene,
+                    previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+                  ),
+                ).y
+              }
             />
           ) : null}
 
-          <Rect
-            dash={[5, 3]}
-            fill="rgba(0, 0, 0, 0)"
-            height={previewPlacement.supportBoundsMm.height * viewport.zoomPxPerMm}
-            listening={false}
-            stroke={previewAccent}
-            strokeWidth={1}
-            width={previewPlacement.supportBoundsMm.width * viewport.zoomPxPerMm}
-            x={worldToScreen(
-              {
-                x: previewPlacement.supportBoundsMm.x,
-                y: previewPlacement.supportBoundsMm.y,
-              },
-              viewport,
-            ).x}
-            y={worldToScreen(
-              {
-                x: previewPlacement.supportBoundsMm.x,
-                y: previewPlacement.supportBoundsMm.y,
-              },
-              viewport,
-            ).y}
-          />
+          {renderPreviewSupportBounds(
+            previewPlacement.supportBoundsMm,
+            previewAccent,
+            getSurfaceMountPlaneOffsetMm(
+              scene,
+              previewComponent?.hostSurfaceId ?? previewedComponent.hostSurfaceId,
+            ),
+          )}
         </>
       ) : null}
     </Layer>

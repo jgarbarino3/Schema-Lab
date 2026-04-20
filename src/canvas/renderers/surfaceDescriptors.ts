@@ -33,6 +33,7 @@ export interface LiveSurfaceDescriptor {
   label: string
   palette: LiveSurfacePalette
   rotationQuarterTurns: QuarterTurn
+  thicknessMm: number
   widthMm: number
   heightMm: number
   edgeMarginMm: number
@@ -151,6 +152,7 @@ export function createLiveBreadboardSurfaceDescriptor(args: {
         (breadboard.finish === 'black-anodized' ? '#d5e2ec' : '#16202a'),
     },
     rotationQuarterTurns: args.rotationQuarterTurns ?? 0,
+    thicknessMm: breadboard.thicknessMm,
     widthMm: breadboard.widthMm,
     heightMm: breadboard.heightMm,
   }
@@ -176,6 +178,7 @@ export function createLiveOpticalTableSurfaceDescriptor(
       labelColor: '#16202a',
     },
     rotationQuarterTurns: 0,
+    thicknessMm: table.thicknessMm,
     widthMm: table.widthMm,
     heightMm: table.heightMm,
   }

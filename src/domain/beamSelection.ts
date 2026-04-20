@@ -117,6 +117,12 @@ export function getNearestBeamSegmentHit(
   viewport: ViewportState,
   pointPx: ScreenPointPx,
   hitSlopPx = 18,
+  projectPointToScreen: (pointMm: {
+    x: number
+    y: number
+  }, segment: BeamSegment, endpoint: 'start' | 'end') => ScreenPointPx = (
+    worldPointMm,
+  ) => worldToScreen(worldPointMm, viewport),
 ): BeamSegmentHit | undefined {
   let bestHit: BeamSegmentHit | undefined
   const maxDistanceSquared = hitSlopPx * hitSlopPx
@@ -124,8 +130,8 @@ export function getNearestBeamSegmentHit(
   for (const segment of trace.segments) {
     const distanceSquared = getSquaredDistanceToSegmentPx(
       pointPx,
-      worldToScreen(segment.startMm, viewport),
-      worldToScreen(segment.endMm, viewport),
+      projectPointToScreen(segment.startMm, segment, 'start'),
+      projectPointToScreen(segment.endMm, segment, 'end'),
     )
 
     if (distanceSquared > maxDistanceSquared) {

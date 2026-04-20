@@ -439,6 +439,7 @@ export interface ComponentRenderHint {
 export type RealisticVisualFamily =
   | 'mirror'
   | 'beamsplitter'
+  | 'beam-control'
   | 'lens'
   | 'filter'
   | 'iris'
@@ -468,6 +469,24 @@ export interface RealisticVisualPreset {
   glassTint?: string
   accentFill?: string
   accentStroke?: string
+}
+
+export type TwoPointFiveDVisualProfile =
+  | 'optic-disc'
+  | 'optic-ring'
+  | 'optic-plate'
+  | 'body-capsule'
+  | 'body-rounded-rect'
+  | 'body-rect'
+  | 'stage-deck'
+  | 'crystal-diamond'
+  | 'detector-head'
+  | 'beam-dump'
+
+export interface TwoPointFiveDVisualPreset {
+  profile: TwoPointFiveDVisualProfile
+  extrusionMm: number
+  labelAnchorMm?: Vector2Mm
 }
 
 export interface ComponentRecommendedHardware {
@@ -702,6 +721,7 @@ export interface ComponentVariant {
   renderHint?: Partial<ComponentRenderHint>
   mountRenderHint?: Partial<ComponentRenderHint>
   realisticVisualPreset?: Partial<RealisticVisualPreset>
+  twoPointFiveDVisualPreset?: Partial<TwoPointFiveDVisualPreset>
   physics?: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
   mountSites?: ComponentMountSite[]
@@ -723,6 +743,7 @@ export interface ComponentDefinition {
   renderHint: ComponentRenderHint
   mountRenderHint?: ComponentRenderHint
   realisticVisualPreset?: RealisticVisualPreset
+  twoPointFiveDVisualPreset?: TwoPointFiveDVisualPreset
   physics: ComponentBeamPhysics
   variants: ComponentVariant[]
   recommendedHardware?: ComponentRecommendedHardware
@@ -949,6 +970,7 @@ export interface ResolvedComponentSpec {
   renderHint: ComponentRenderHint
   mountRenderHint?: ComponentRenderHint
   realisticVisualPreset?: RealisticVisualPreset
+  twoPointFiveDVisualPreset?: TwoPointFiveDVisualPreset
   physics: ComponentBeamPhysics
   recommendedHardware?: ComponentRecommendedHardware
   mountSites: ComponentMountSite[]

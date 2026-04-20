@@ -21,6 +21,7 @@ import type {
 import { ComponentGlyph } from './ComponentGlyph'
 import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
+import { resolveSupportHardwareDetail } from './supportHardwareDetail'
 import { useEditorStore } from '../state/editorStore'
 
 export interface SimpleGlyphAppearance {
@@ -173,10 +174,14 @@ export function ComponentNodeView({
         : '#6e8794'
   const labelWidth = Math.max(supportBoundsMm.width, mountBoundsMm.width, 38)
   const postHolderDiameterMm = instance.config.postHolderDiameterMm ?? DEFAULT_POST_HOLDER_DIAMETER_MM
+  const supportHardwareDetail = resolveSupportHardwareDetail({
+    renderMode,
+    showPostHolders,
+    type: instance.type,
+    zoomPxPerMm: viewport.zoomPxPerMm,
+  })
   const showPostHolderCircle =
-    showPostHolders &&
-    renderMode === 'simple' &&
-    isPostMountedType(instance.type)
+    renderMode === 'simple' && supportHardwareDetail !== 'none'
   const showSupportCompensation =
     surfaceSupportCompensationMm > 0.1 && isPostMountedType(instance.type)
   const mountCenterX = mountBoundsMm.x + mountBoundsMm.width / 2

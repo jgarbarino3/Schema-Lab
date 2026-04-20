@@ -1,4 +1,4 @@
-import { Circle, Line, Rect } from 'react-konva'
+import { Circle, Ellipse, Line, Rect } from 'react-konva'
 import type { BoundsMm } from '../domain/types'
 
 export interface RealisticPalette {
@@ -15,6 +15,152 @@ export interface RealisticPalette {
   mountBase: string
   mountHighlight: string
   mountShadow: string
+}
+
+interface ProjectedSupportShadowProps {
+  centerX: number
+  centerY: number
+  radiusX: number
+  radiusY: number
+}
+
+export function ProjectedSupportShadow({
+  centerX,
+  centerY,
+  radiusX,
+  radiusY,
+}: ProjectedSupportShadowProps) {
+  return (
+    <Ellipse
+      fill="rgba(3, 6, 10, 0.5)"
+      listening={false}
+      radiusX={radiusX}
+      radiusY={radiusY}
+      shadowBlur={14}
+      shadowColor="#000000"
+      shadowOpacity={0.22}
+      x={centerX}
+      y={centerY}
+    />
+  )
+}
+
+interface ProjectedSupportFootProps {
+  centerX: number
+  centerY: number
+  radiusX: number
+  radiusY: number
+}
+
+export function ProjectedSupportFoot({
+  centerX,
+  centerY,
+  radiusX,
+  radiusY,
+}: ProjectedSupportFootProps) {
+  return (
+    <>
+      <Ellipse
+        fill="rgba(123, 156, 176, 0.18)"
+        listening={false}
+        radiusX={radiusX}
+        radiusY={radiusY}
+        stroke="rgba(199, 223, 238, 0.38)"
+        strokeWidth={0.75}
+        x={centerX}
+        y={centerY}
+      />
+      <Ellipse
+        fill="rgba(232, 242, 247, 0.12)"
+        listening={false}
+        radiusX={radiusX * 0.48}
+        radiusY={radiusY * 0.34}
+        x={centerX - radiusX * 0.18}
+        y={centerY - radiusY * 0.18}
+      />
+    </>
+  )
+}
+
+interface ProjectedSupportHolderBlockProps {
+  height: number
+  width: number
+  x: number
+  y: number
+}
+
+export function ProjectedSupportHolderBlock({
+  height,
+  width,
+  x,
+  y,
+}: ProjectedSupportHolderBlockProps) {
+  return (
+    <>
+      <Rect
+        cornerRadius={Math.max(3, width * 0.14)}
+        fill="rgba(72, 88, 100, 0.95)"
+        height={height}
+        listening={false}
+        shadowBlur={8}
+        shadowColor="rgba(0, 0, 0, 0.42)"
+        shadowOpacity={0.18}
+        stroke="rgba(198, 216, 229, 0.28)"
+        strokeWidth={0.7}
+        width={width}
+        x={x}
+        y={y}
+      />
+      <Rect
+        cornerRadius={Math.max(2.4, width * 0.1)}
+        fill="rgba(238, 246, 250, 0.18)"
+        height={Math.max(2.8, height * 0.28)}
+        listening={false}
+        width={width * 0.7}
+        x={x + width * 0.12}
+        y={y + height * 0.12}
+      />
+    </>
+  )
+}
+
+interface ProjectedSupportPostShaftProps {
+  bottomY: number
+  centerX: number
+  topY: number
+  width: number
+}
+
+export function ProjectedSupportPostShaft({
+  bottomY,
+  centerX,
+  topY,
+  width,
+}: ProjectedSupportPostShaftProps) {
+  return (
+    <>
+      <Line
+        lineCap="round"
+        listening={false}
+        points={[centerX, topY, centerX, bottomY]}
+        stroke="rgba(45, 56, 66, 0.96)"
+        strokeWidth={width}
+      />
+      <Line
+        lineCap="round"
+        listening={false}
+        opacity={0.34}
+        points={[
+          centerX - Math.max(0.7, width * 0.18),
+          topY + 1,
+          centerX - Math.max(0.7, width * 0.18),
+          bottomY - 1,
+        ]}
+        stroke="rgba(240, 247, 251, 0.5)"
+        strokeWidth={Math.max(0.5, width * 0.22)}
+      />
+    </>
+  )
 }
 
 interface KnurledKnobProps {

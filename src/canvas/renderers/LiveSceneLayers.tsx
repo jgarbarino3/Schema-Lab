@@ -7,6 +7,9 @@ import { ComponentsLayer } from '../ComponentsLayer'
 import { GaussianEnvelopeLayer } from '../GaussianEnvelopeLayer'
 import { RulerLayer } from '../RulerLayer'
 import { worldToScreen } from '../../domain/geometry'
+import {
+  getSurfaceMountPlaneOffsetMm,
+} from '../../domain/workspace'
 import type {
   SelectionState,
 } from '../../state/editorStore'
@@ -27,6 +30,10 @@ import type {
   ViewportState,
 } from '../../domain/types'
 import type { SimpleGlyphAppearance } from '../ComponentNode'
+import {
+  getProjectedBoundsLinePoints,
+  projectWorldPointToScreen,
+} from './tableViewProjection'
 
 export interface LiveSceneBreadboardDragPreviewState {
   breadboardId: string
@@ -120,10 +127,13 @@ export interface LiveSceneLayersProps {
     | {
         alignmentAxis?: 'horizontal' | 'vertical'
         sourcePointMm: Vector2Mm
+        sourceSurfaceId?: string
         targetPointMm: Vector2Mm
+        targetSurfaceId?: string
       }
     | undefined
   snapMode: SnapMode
+  useProjectedTableView?: boolean
   viewport: ViewportState
   belowBandAnnotations: SceneAnnotation[]
 }
@@ -167,6 +177,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
   simpleGlyphAppearances,
   sourceGuide,
   snapMode,
+  useProjectedTableView = false,
   viewport,
   belowBandAnnotations,
 }: LiveSceneLayersProps) {
@@ -177,6 +188,34 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
   const isTextTool = interaction.activeTool === 'text' && !interaction.isSpacePanning
   const isShapeTool = interaction.activeTool === 'shape' && !interaction.isSpacePanning
   const isAnnotationPlacementTool = isLineTool || isTextTool || isShapeTool
+  const belowBandLineAnnotations = belowBandAnnotations.filter(
+    (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
+      annotation.kind === 'line',
+  )
+  const aboveBandLineAnnotations = aboveBandAnnotations.filter(
+    (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
+      annotation.kind === 'line',
+  )
+  const projectScenePoint = (
+    pointMm: Vector2Mm,
+    options?: {
+      elevationMm?: number
+      surfaceId?: string
+    },
+  ) => {
+    if (!useProjectedTableView) {
+      return worldToScreen(pointMm, viewport)
+    }
+
+    return projectWorldPointToScreen(
+      pointMm,
+      viewport,
+      options?.elevationMm ??
+        (options?.surfaceId
+          ? getSurfaceMountPlaneOffsetMm(scene, options.surfaceId)
+          : 0),
+    )
+  }
 
   return (
     <>
@@ -185,7 +224,9 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
           beamTrace={beamTrace}
           gaussianTrace={gaussianTrace}
           hoveredSegmentId={interaction.hoveredBeamSegmentId}
+          scene={scene}
           selectedPathId={interaction.selectedBeamPathId}
+          useProjectedTableView={useProjectedTableView}
           viewport={viewport}
         />
       ) : null}
@@ -201,21 +242,17 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         selectedInteractionId={interaction.selectedBeamInteractionId}
         selectedPathId={interaction.selectedBeamPathId}
         selectedSegmentId={interaction.selectedBeamSegmentId}
+        scene={scene}
         showDetails={interaction.showBeamDetails}
+        useProjectedTableView={useProjectedTableView}
         viewport={viewport}
       />
 
-      {belowBandAnnotations.some((annotation) => annotation.kind === 'line') ||
-      interaction.lineDrawStartMm ? (
+      {belowBandLineAnnotations.length > 0 ? (
         <Layer>
-          {belowBandAnnotations
-            .filter(
-              (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
-                annotation.kind === 'line',
-            )
-            .map((line) => {
-              const startPx = worldToScreen(line.startMm, viewport)
-              const endPx = worldToScreen(line.endMm, viewport)
+          {belowBandLineAnnotations.map((line) => {
+              const startPx = projectScenePoint(line.startMm)
+              const endPx = projectScenePoint(line.endMm)
               const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
               const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
               const isSelected =
@@ -278,67 +315,6 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
                 </Fragment>
               )
             })}
-          {interaction.lineDrawStartMm && interaction.cursorWorldMm ? (() => {
-            const startPx = worldToScreen(interaction.lineDrawStartMm, viewport)
-            const endPx = worldToScreen(interaction.cursorWorldMm, viewport)
-
-            return (
-              <Line
-                dash={[6, 4]}
-                lineCap="round"
-                listening={false}
-                points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                shadowBlur={4}
-                shadowColor={interaction.lineColor}
-                shadowOpacity={0.3}
-                stroke={interaction.lineColor}
-                strokeWidth={Math.max(1.5, 0.8 * viewport.zoomPxPerMm)}
-              />
-            )
-          })() : null}
-        </Layer>
-      ) : null}
-
-      {sourceGuide ? (
-        <Layer listening={false}>
-          <Line
-            dash={sourceGuide.alignmentAxis ? [10, 5] : [7, 6]}
-            lineCap="round"
-            points={[
-              worldToScreen(sourceGuide.sourcePointMm, viewport).x,
-              worldToScreen(sourceGuide.sourcePointMm, viewport).y,
-              worldToScreen(sourceGuide.targetPointMm, viewport).x,
-              worldToScreen(sourceGuide.targetPointMm, viewport).y,
-            ]}
-            shadowBlur={sourceGuide.alignmentAxis ? 12 : 7}
-            shadowColor={sourceGuide.alignmentAxis ? '#7ad2ff' : '#61b8df'}
-            shadowOpacity={0.32}
-            stroke={sourceGuide.alignmentAxis ? '#8fe3ff' : '#5eb4da'}
-            strokeWidth={sourceGuide.alignmentAxis ? 2.6 : 1.8}
-          />
-        </Layer>
-      ) : null}
-
-      {annotationGuideLines.length > 0 ? (
-        <Layer listening={false}>
-          {annotationGuideLines.map((guide, index) => {
-            const startPx = worldToScreen(guide.fromMm, viewport)
-            const endPx = worldToScreen(guide.toMm, viewport)
-
-            return (
-              <Line
-                dash={[9, 5]}
-                key={`${guide.fromMm.x}-${guide.fromMm.y}-${guide.toMm.x}-${guide.toMm.y}-${index}`}
-                lineCap="round"
-                points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                shadowBlur={10}
-                shadowColor="#7ad2ff"
-                shadowOpacity={0.26}
-                stroke="#8fe3ff"
-                strokeWidth={1.8}
-              />
-            )
-          })}
         </Layer>
       ) : null}
 
@@ -348,6 +324,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         dragPreview={interaction.dragPreview}
         hoveredComponentId={interaction.hoveredComponentId}
         highlightedComponentIds={highlightedComponentIds}
+        isHighlightTool={isHighlightTool}
         isLineTool={isAnnotationPlacementTool}
         isPanMode={isPanMode}
         onBeginComponentDrag={onBeginComponentDrag}
@@ -373,6 +350,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         snapMode={snapMode}
         simpleGlyphAppearances={simpleGlyphAppearances}
         viewport={viewport}
+        useProjectedTableView={useProjectedTableView}
       />
 
       <AnnotationsLayer
@@ -400,16 +378,11 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         viewport={viewport}
       />
 
-      {aboveBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
+      {aboveBandLineAnnotations.length > 0 ? (
         <Layer>
-          {aboveBandAnnotations
-            .filter(
-              (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
-                annotation.kind === 'line',
-            )
-            .map((line) => {
-              const startPx = worldToScreen(line.startMm, viewport)
-              const endPx = worldToScreen(line.endMm, viewport)
+          {aboveBandLineAnnotations.map((line) => {
+              const startPx = projectScenePoint(line.startMm)
+              const endPx = projectScenePoint(line.endMm)
               const linePoints = [startPx.x, startPx.y, endPx.x, endPx.y]
               const strokeWidth = Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)
               const isSelected =
@@ -501,74 +474,172 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         viewport={viewport}
       />
 
-      {isHighlightTool ||
-      interaction.highlightDragBoundsMm ||
-      interaction.highlightSelection ? (
-        <Layer>
-          {interaction.highlightSelection ? (() => {
-            const selectionTopLeftPx = worldToScreen(
-              {
-                x: interaction.highlightSelection.boundsMm.x,
-                y: interaction.highlightSelection.boundsMm.y,
-              },
-              viewport,
-            )
+      <Layer listening={false}>
+        {sourceGuide ? (
+          <Line
+            dash={sourceGuide.alignmentAxis ? [10, 5] : [7, 6]}
+            lineCap="round"
+            points={[
+              projectScenePoint(sourceGuide.sourcePointMm, {
+                surfaceId: sourceGuide.sourceSurfaceId,
+              }).x,
+              projectScenePoint(sourceGuide.sourcePointMm, {
+                surfaceId: sourceGuide.sourceSurfaceId,
+              }).y,
+              projectScenePoint(sourceGuide.targetPointMm, {
+                surfaceId: sourceGuide.targetSurfaceId,
+              }).x,
+              projectScenePoint(sourceGuide.targetPointMm, {
+                surfaceId: sourceGuide.targetSurfaceId,
+              }).y,
+            ]}
+            shadowBlur={sourceGuide.alignmentAxis ? 12 : 7}
+            shadowColor={sourceGuide.alignmentAxis ? '#7ad2ff' : '#61b8df'}
+            shadowOpacity={0.32}
+            stroke={sourceGuide.alignmentAxis ? '#8fe3ff' : '#5eb4da'}
+            strokeWidth={sourceGuide.alignmentAxis ? 2.6 : 1.8}
+          />
+        ) : null}
 
-            return (
-              <Rect
-                dash={[10, 6]}
-                fill="rgba(240, 202, 138, 0.08)"
-                height={interaction.highlightSelection.boundsMm.height * viewport.zoomPxPerMm}
-                listening={false}
-                shadowBlur={10}
-                shadowColor="#f0cb87"
-                shadowOpacity={0.14}
-                stroke="#f0cb87"
-                strokeWidth={1.5}
-                width={interaction.highlightSelection.boundsMm.width * viewport.zoomPxPerMm}
-                x={selectionTopLeftPx.x}
-                y={selectionTopLeftPx.y}
-              />
-            )
-          })() : null}
+        {annotationGuideLines.map((guide, index) => {
+          const startPx = projectScenePoint(guide.fromMm)
+          const endPx = projectScenePoint(guide.toMm)
 
-          {interaction.highlightDragBoundsMm ? (() => {
-            const dragTopLeftPx = worldToScreen(
-              {
-                x: interaction.highlightDragBoundsMm.x,
-                y: interaction.highlightDragBoundsMm.y,
-              },
-              viewport,
-            )
+          return (
+            <Line
+              dash={[9, 5]}
+              key={`${guide.fromMm.x}-${guide.fromMm.y}-${guide.toMm.x}-${guide.toMm.y}-${index}`}
+              lineCap="round"
+              points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+              shadowBlur={10}
+              shadowColor="#7ad2ff"
+              shadowOpacity={0.26}
+              stroke="#8fe3ff"
+              strokeWidth={1.8}
+            />
+          )
+        })}
 
-            return (
-              <Rect
-                dash={[8, 5]}
-                fill="rgba(125, 200, 228, 0.08)"
-                height={interaction.highlightDragBoundsMm.height * viewport.zoomPxPerMm}
-                listening={false}
-                shadowBlur={10}
-                shadowColor="#7dc8e4"
-                shadowOpacity={0.16}
-                stroke="#9adcf0"
-                strokeWidth={1.25}
-                width={interaction.highlightDragBoundsMm.width * viewport.zoomPxPerMm}
-                x={dragTopLeftPx.x}
-                y={dragTopLeftPx.y}
-              />
-            )
-          })() : null}
-        </Layer>
-      ) : null}
+        {interaction.lineDrawStartMm && interaction.cursorWorldMm ? (() => {
+          const startPx = projectScenePoint(interaction.lineDrawStartMm)
+          const endPx = projectScenePoint(interaction.cursorWorldMm)
 
-      <RulerLayer
-        cursorScreenPx={
-          interaction.cursorWorldMm
-            ? worldToScreen(interaction.cursorWorldMm, viewport)
-            : undefined
-        }
-        viewport={viewport}
-      />
+          return (
+            <Line
+              dash={[6, 4]}
+              lineCap="round"
+              points={[startPx.x, startPx.y, endPx.x, endPx.y]}
+              shadowBlur={4}
+              shadowColor={interaction.lineColor}
+              shadowOpacity={0.3}
+              stroke={interaction.lineColor}
+              strokeWidth={Math.max(1.5, 0.8 * viewport.zoomPxPerMm)}
+            />
+          )
+        })() : null}
+
+        {interaction.highlightSelection ? (() => {
+          return useProjectedTableView ? (
+            <Line
+              closed
+              dash={[10, 6]}
+              fill="rgba(240, 202, 138, 0.08)"
+              points={getProjectedBoundsLinePoints(
+                interaction.highlightSelection.boundsMm,
+                viewport,
+                0,
+              )}
+              shadowBlur={10}
+              shadowColor="#f0cb87"
+              shadowOpacity={0.14}
+              stroke="#f0cb87"
+              strokeWidth={1.5}
+            />
+          ) : (
+            <Rect
+              dash={[10, 6]}
+              fill="rgba(240, 202, 138, 0.08)"
+              height={interaction.highlightSelection.boundsMm.height * viewport.zoomPxPerMm}
+              shadowBlur={10}
+              shadowColor="#f0cb87"
+              shadowOpacity={0.14}
+              stroke="#f0cb87"
+              strokeWidth={1.5}
+              width={interaction.highlightSelection.boundsMm.width * viewport.zoomPxPerMm}
+              x={worldToScreen(
+                {
+                  x: interaction.highlightSelection.boundsMm.x,
+                  y: interaction.highlightSelection.boundsMm.y,
+                },
+                viewport,
+              ).x}
+              y={worldToScreen(
+                {
+                  x: interaction.highlightSelection.boundsMm.x,
+                  y: interaction.highlightSelection.boundsMm.y,
+                },
+                viewport,
+              ).y}
+            />
+          )
+        })() : null}
+
+        {interaction.highlightDragBoundsMm ? (() => {
+          return useProjectedTableView ? (
+            <Line
+              closed
+              dash={[8, 5]}
+              fill="rgba(125, 200, 228, 0.08)"
+              points={getProjectedBoundsLinePoints(
+                interaction.highlightDragBoundsMm,
+                viewport,
+                0,
+              )}
+              shadowBlur={10}
+              shadowColor="#7dc8e4"
+              shadowOpacity={0.16}
+              stroke="#9adcf0"
+              strokeWidth={1.25}
+            />
+          ) : (
+            <Rect
+              dash={[8, 5]}
+              fill="rgba(125, 200, 228, 0.08)"
+              height={interaction.highlightDragBoundsMm.height * viewport.zoomPxPerMm}
+              shadowBlur={10}
+              shadowColor="#7dc8e4"
+              shadowOpacity={0.16}
+              stroke="#9adcf0"
+              strokeWidth={1.25}
+              width={interaction.highlightDragBoundsMm.width * viewport.zoomPxPerMm}
+              x={worldToScreen(
+                {
+                  x: interaction.highlightDragBoundsMm.x,
+                  y: interaction.highlightDragBoundsMm.y,
+                },
+                viewport,
+              ).x}
+              y={worldToScreen(
+                {
+                  x: interaction.highlightDragBoundsMm.x,
+                  y: interaction.highlightDragBoundsMm.y,
+                },
+                viewport,
+              ).y}
+            />
+          )
+        })() : null}
+
+        <RulerLayer
+          cursorScreenPx={
+            interaction.cursorWorldMm
+              ? projectScenePoint(interaction.cursorWorldMm)
+              : undefined
+          }
+          renderInLayer={false}
+          viewport={viewport}
+        />
+      </Layer>
     </>
   )
 })

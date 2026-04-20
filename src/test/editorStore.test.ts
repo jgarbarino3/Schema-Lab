@@ -213,6 +213,36 @@ describe('editor store scene history', () => {
   })
 })
 
+describe('editor store post-mounted configuration', () => {
+  beforeEach(() => {
+    useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('updates post holder diameter for attenuators', () => {
+    const store = useEditorStore.getState()
+
+    store.addComponent('attenuator', 'variable-nd-vertical')
+    store.commitPendingPlacement({ x: 112.5, y: 112.5 })
+
+    const attenuator = useEditorStore.getState().scene.components[0]
+    expect(attenuator?.type).toBe('attenuator')
+    expect(attenuator?.config.postHolderDiameterMm).toBeUndefined()
+
+    if (!attenuator) {
+      throw new Error('expected attenuator to be placed')
+    }
+
+    store.selectComponent(attenuator.id)
+    store.updateSelectedPostHolderDiameter(26)
+
+    expect(useEditorStore.getState().scene.components[0]?.config.postHolderDiameterMm).toBe(26)
+  })
+})
+
 describe('editor store single breadboard viewport', () => {
   beforeEach(() => {
     useEditorStore.getState().loadScene(createEmptyScene(), { history: 'reset' })

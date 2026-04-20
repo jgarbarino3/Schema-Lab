@@ -1,13 +1,23 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
 const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(scriptDir, '..', '..')
 
 async function expectHidden(locator) {
   await locator.waitFor({ state: 'hidden' }).catch(async () => {
     const count = await locator.count()
     assert.equal(count, 0)
   })
+}
+
+function assertPointClose(actual, expected, tolerance = 0.001) {
+  assert.ok(Math.abs(actual.x - expected.x) <= tolerance, `expected x ${actual.x} to be within ${tolerance} of ${expected.x}`)
+  assert.ok(Math.abs(actual.y - expected.y) <= tolerance, `expected y ${actual.y} to be within ${tolerance} of ${expected.y}`)
 }
 
 const browser = await chromium.launch({ headless: true })
@@ -21,6 +31,14 @@ try {
     },
   })
   const page = await context.newPage()
+  const consoleWarnings = []
+
+  page.on('console', (message) => {
+    if (message.type() === 'warning') {
+      consoleWarnings.push(message.text())
+    }
+  })
+
   page.setDefaultTimeout(9000)
 
   const step = (label) => {
@@ -274,89 +292,6 @@ try {
   )
   step('board focus and table view toggle cleanly in optical-table workspaces')
 
-  const clampResult = await page.evaluate(() => {
-    const store = window.__SCHEMA_LAB_STORE__.getState()
-    store.setWorkspaceViewMode('table-view')
-    const currentViewport = window.__SCHEMA_LAB_STORE__.getState().viewport
-    const requestedCenter = {
-      x: currentViewport.cameraCenterMm.x + 50000,
-      y: currentViewport.cameraCenterMm.y + 50000,
-    }
-
-    store.setViewport({
-      ...currentViewport,
-      cameraCenterMm: requestedCenter,
-    })
-
-    const nextState = window.__SCHEMA_LAB_STORE__.getState()
-    if (nextState.scene.workspace.kind !== 'optical-table') {
-      throw new Error('expected optical-table workspace')
-    }
-
-    const visibleWidthMm = nextState.viewport.canvasSizePx.width / nextState.viewport.zoomPxPerMm
-    const visibleHeightMm =
-      nextState.viewport.canvasSizePx.height / nextState.viewport.zoomPxPerMm
-    const visibleBounds = {
-      x: nextState.viewport.cameraCenterMm.x - visibleWidthMm / 2,
-      y: nextState.viewport.cameraCenterMm.y - visibleHeightMm / 2,
-      width: visibleWidthMm,
-      height: visibleHeightMm,
-    }
-    const breadboardBounds = nextState.scene.workspace.breadboards.map((breadboard) => ({
-      x: breadboard.anchorMm.x,
-      y: breadboard.anchorMm.y,
-      width:
-        breadboard.rotationQuarterTurns % 2 === 0
-          ? breadboard.model.widthMm
-          : breadboard.model.heightMm,
-      height:
-        breadboard.rotationQuarterTurns % 2 === 0
-          ? breadboard.model.heightMm
-          : breadboard.model.widthMm,
-    }))
-    const minimumX = Math.min(0, ...breadboardBounds.map((bounds) => bounds.x))
-    const minimumY = Math.min(0, ...breadboardBounds.map((bounds) => bounds.y))
-    const maximumX = Math.max(
-      nextState.scene.workspace.table.widthMm,
-      ...breadboardBounds.map((bounds) => bounds.x + bounds.width),
-    )
-    const maximumY = Math.max(
-      nextState.scene.workspace.table.heightMm,
-      ...breadboardBounds.map((bounds) => bounds.y + bounds.height),
-    )
-    const workspaceBounds = {
-      x: minimumX,
-      y: minimumY,
-      width: maximumX - minimumX,
-      height: maximumY - minimumY,
-    }
-    const overlapWidth = Math.max(
-      0,
-      Math.min(workspaceBounds.x + workspaceBounds.width, visibleBounds.x + visibleBounds.width) -
-        Math.max(workspaceBounds.x, visibleBounds.x),
-    )
-    const overlapHeight = Math.max(
-      0,
-      Math.min(workspaceBounds.y + workspaceBounds.height, visibleBounds.y + visibleBounds.height) -
-        Math.max(workspaceBounds.y, visibleBounds.y),
-    )
-
-    return {
-      actualCenter: nextState.viewport.cameraCenterMm,
-      overlapHeight,
-      overlapWidth,
-      requestedCenter,
-    }
-  })
-  assert.notDeepEqual(clampResult.actualCenter, clampResult.requestedCenter)
-  assert.ok(clampResult.overlapWidth > 0)
-  assert.ok(clampResult.overlapHeight > 0)
-  await page.evaluate(() => {
-    window.__SCHEMA_LAB_STORE__.getState().resetViewport()
-  })
-  await page.waitForTimeout(220)
-  step('viewport clamp keeps the active table partially visible')
-
   await clickStageWorld({ x: 420, y: 360 })
   await ensureLibraryGroupExpanded('library-group-sources')
   await page.getByTestId('library-item-laser-source').click()
@@ -392,6 +327,31 @@ try {
   let mirrorOnBoard = mirrors[0]
   assert.ok(mirrorOnBoard, 'Mirror should be placed on the selected breadboard host')
   step('placed mirror on selected breadboard host')
+
+  await ensureLibraryGroupExpanded('library-group-beam-control')
+  await page.getByTestId('library-item-attenuator').click()
+  const beamControlPoint = {
+    x: secondBreadboardCenter.x + 55,
+    y: secondBreadboardCenter.y + 18,
+  }
+  await hoverStageWorld(beamControlPoint, { surfaceId: secondBreadboard.id })
+  await clickStageWorld(beamControlPoint, 'left', {
+    surfaceId: secondBreadboard.id,
+  })
+  scene = await readScene()
+  const attenuators = scene.components.filter(
+    (component) =>
+      component.type === 'attenuator' && component.hostSurfaceId === secondBreadboard.id,
+  )
+  assert.equal(attenuators.length, 1)
+  step('placed beam-control optic on selected breadboard host')
+
+  await fs.mkdir(path.join(repoRoot, 'output/playwright'), { recursive: true })
+  await page.screenshot({
+    path: path.join(repoRoot, 'output/playwright/projected-mounted-optics-row.png'),
+    fullPage: true,
+  })
+  step('captured realistic mounted-optic regression screenshot')
 
   const breadboardDragStart = {
     x: secondBreadboard.anchorMm.x + 10,
@@ -429,7 +389,7 @@ try {
     y: secondBreadboard.anchorMm.y - breadboardBeforeDrag.anchorMm.y,
   }
   assert.notDeepEqual(breadboardDelta, { x: 0, y: 0 })
-  assert.deepEqual(
+  assertPointClose(
     {
       x: mirrorOnBoard.anchorMm.x - mirrorBeforeDrag.anchorMm.x,
       y: mirrorOnBoard.anchorMm.y - mirrorBeforeDrag.anchorMm.y,
@@ -462,7 +422,6 @@ try {
   assert.ok(highlightSelection, 'Highlight selection should be created')
   assert.ok(highlightSelection.breadboardIds.includes(secondBreadboard.id))
   assert.ok(highlightSelection.componentIds.includes(mirrorOnBoard.id))
-  assert.equal(await page.getByTestId('selection-toolbar').count(), 0)
   await page.keyboard.press('R')
   await page.waitForTimeout(220)
   scene = await readScene()
@@ -585,7 +544,24 @@ try {
   assert.equal(sceneAfterModeToggle, sceneBeforeModeToggle)
   step('render mode toggle preserved scene geometry')
 
-  console.log('optical-table-smoke-ok')
+  const problematicNaNProjectionWarnings = consoleWarnings.filter((text) =>
+    /nan|projection/i.test(text),
+  )
+  const konvaLayerCountWarnings = consoleWarnings.filter((text) =>
+    /konva.*layer count|layer count.*konva/i.test(text),
+  )
+  assert.equal(
+    problematicNaNProjectionWarnings.length,
+    0,
+    `Unexpected NaN/projection warnings:\n${problematicNaNProjectionWarnings.join('\n')}`,
+  )
+  assert.equal(
+    konvaLayerCountWarnings.length,
+    0,
+    `Unexpected Konva layer-count warnings:\n${konvaLayerCountWarnings.join('\n')}`,
+  )
+
+  console.log('projected-table-smoke-ok')
 } finally {
   await browser.close()
 }

@@ -177,6 +177,7 @@ export function ExportStage({
           <GaussianEnvelopeLayer
             beamTrace={beamTrace}
             gaussianTrace={gaussianTrace}
+            scene={scene}
             viewport={viewport}
           />
         ) : null}
@@ -186,6 +187,7 @@ export function ExportStage({
           gaussianTrace={gaussianTrace}
           onHoverSegment={() => undefined}
           onSelectSegment={() => undefined}
+          scene={scene}
           showDetails={false}
           viewport={viewport}
         />

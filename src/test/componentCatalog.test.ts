@@ -4,6 +4,7 @@ import {
   createDefaultComponentConfig,
   getResolvedComponentSpec,
   getResolvedComponentSpecForInstance,
+  isPostMountedType,
 } from '../domain/componentCatalog'
 
 describe('component catalog variants', () => {
@@ -125,6 +126,9 @@ describe('component catalog variants', () => {
     const iris = getResolvedComponentSpec('iris', 'id12-m')
     const libra = getResolvedComponentSpec('laser-source', 'libra')
     const detector = getResolvedComponentSpec('detector', 'detector-generic')
+    const attenuator = getResolvedComponentSpec('attenuator', 'variable-nd-vertical')
+    const polarizer = getResolvedComponentSpec('polarizer', 'lpvis100')
+    const waveplate = getResolvedComponentSpec('waveplate', 'quarter-wave')
 
     expect(mirror.realisticVisualPreset).toMatchObject({
       family: 'mirror',
@@ -159,6 +163,50 @@ describe('component catalog variants', () => {
     expect(detector.realisticVisualPreset).toMatchObject({
       family: 'detector',
       mountVisual: 'sensor-disc',
+    })
+    expect(attenuator.realisticVisualPreset).toMatchObject({
+      family: 'beam-control',
+      mountVisual: 'kinematic-round',
+    })
+    expect(polarizer.realisticVisualPreset).toMatchObject({
+      family: 'beam-control',
+      mountVisual: 'kinematic-round',
+    })
+    expect(waveplate.realisticVisualPreset).toMatchObject({
+      family: 'beam-control',
+      mountVisual: 'kinematic-round',
+    })
+  })
+
+  it('treats attenuators as post-mounted support hardware components', () => {
+    expect(isPostMountedType('attenuator')).toBe(true)
+    expect(isPostMountedType('polarizer')).toBe(true)
+    expect(isPostMountedType('waveplate')).toBe(true)
+  })
+
+  it('resolves 2.5D visual presets for projected realistic table view', () => {
+    const laser = getResolvedComponentSpec('laser-source', 'compact-table-source')
+    const mirror = getResolvedComponentSpec('mirror', 'bb1-e02')
+    const stage = getResolvedComponentSpec('delay-stage', 'pi-m-112-1dg1')
+    const detector = getResolvedComponentSpec('detector', 'detector-generic')
+    const beamDump = getResolvedComponentSpec('beam-dump', 'beam-dump-generic')
+
+    expect(laser.twoPointFiveDVisualPreset).toMatchObject({
+      profile: 'body-rounded-rect',
+      extrusionMm: 12,
+    })
+    expect(mirror.twoPointFiveDVisualPreset).toMatchObject({
+      profile: 'optic-disc',
+      extrusionMm: 8,
+    })
+    expect(stage.twoPointFiveDVisualPreset).toMatchObject({
+      profile: 'stage-deck',
+    })
+    expect(detector.twoPointFiveDVisualPreset).toMatchObject({
+      profile: 'detector-head',
+    })
+    expect(beamDump.twoPointFiveDVisualPreset).toMatchObject({
+      profile: 'beam-dump',
     })
   })
 
@@ -265,6 +313,30 @@ describe('component catalog variants', () => {
     expect(sampleSpec.realisticVisualPreset?.accentFill).toBeDefined()
     expect(sampleSpec.renderHint.fill).not.toBe(
       getResolvedComponentSpec('sample', 'tin-substrate').renderHint.fill,
+    )
+  })
+
+  it('scales 2.5D label anchors and extrusion with geometry overrides', () => {
+    const baseSpec = getResolvedComponentSpec('detector', 'detector-generic')
+    const scaledSpec = getResolvedComponentSpecForInstance({
+      id: 'detector-1',
+      type: 'detector',
+      label: 'Detector',
+      variantId: 'detector-generic',
+      anchorMm: { x: 0, y: 0 },
+      rotationQuarterTurns: 0,
+      geometryOverride: {
+        widthMm: baseSpec.footprintBoundsMm.width * 1.5,
+        heightMm: baseSpec.footprintBoundsMm.height * 1.25,
+      },
+      config: createDefaultComponentConfig('detector', 'detector-generic'),
+    })
+
+    expect(scaledSpec.twoPointFiveDVisualPreset?.extrusionMm).toBeGreaterThan(
+      baseSpec.twoPointFiveDVisualPreset?.extrusionMm ?? 0,
+    )
+    expect(scaledSpec.twoPointFiveDVisualPreset?.labelAnchorMm?.y).toBeGreaterThan(
+      baseSpec.twoPointFiveDVisualPreset?.labelAnchorMm?.y ?? 0,
     )
   })
 })

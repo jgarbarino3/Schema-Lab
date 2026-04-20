@@ -909,15 +909,21 @@ export function Toolbar({
                 <div className="toolbar__menu-header">
                   <strong>Canvas tools</strong>
                 </div>
-                <button
-                  onClick={() => {
-                    setOpenToolbarMenu(undefined)
-                    onTogglePostHolders()
-                  }}
-                  type="button"
-                >
-                  {showPostHolders ? 'Hide Post Holders' : 'Show Post Holders'}
-                </button>
+                {renderMode === 'simple' ? (
+                  <button
+                    onClick={() => {
+                      setOpenToolbarMenu(undefined)
+                      onTogglePostHolders()
+                    }}
+                    type="button"
+                  >
+                    {showPostHolders ? 'Hide Post Holders' : 'Show Post Holders'}
+                  </button>
+                ) : (
+                  <div className="toolbar__menu-header">
+                    Supports are automatic in realistic mode.
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     setOpenToolbarMenu(undefined)

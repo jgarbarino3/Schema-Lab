@@ -1045,7 +1045,9 @@ function getSourceOutputPoint(component: ComponentInstance) {
 export interface SourceGuideSnapshot {
   alignmentAxis?: 'horizontal' | 'vertical'
   sourcePointMm: Vector2Mm
+  sourceSurfaceId?: string
   targetPointMm: Vector2Mm
+  targetSurfaceId?: string
 }
 
 export function getSourceGuideSnapshot(args: {
@@ -1089,7 +1091,9 @@ export function getSourceGuideSnapshot(args: {
   return {
     alignmentAxis,
     sourcePointMm,
+    sourceSurfaceId: source.hostSurfaceId,
     targetPointMm,
+    targetSurfaceId: target.hostSurfaceId,
   }
 }
 
