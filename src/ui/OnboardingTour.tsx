@@ -9,8 +9,10 @@ export interface OnboardingStep {
 
 interface OnboardingTourProps {
   currentStep: number
+  finalPrimaryLabel?: string
   isOpen: boolean
   onClose: () => void
+  onFinalPrimary?: () => void
   onNeverShowAgain: () => void
   onNext: () => void
   onPrevious: () => void
@@ -26,8 +28,10 @@ interface SpotlightRect {
 
 export function OnboardingTour({
   currentStep,
+  finalPrimaryLabel,
   isOpen,
   onClose,
+  onFinalPrimary,
   onNeverShowAgain,
   onNext,
   onPrevious,
@@ -187,6 +191,10 @@ export function OnboardingTour({
     return null
   }
 
+  const isFinalStep = currentStep === steps.length - 1
+  const primaryLabel = isFinalStep ? finalPrimaryLabel ?? 'Finish' : 'Next'
+  const handlePrimaryAction = isFinalStep && onFinalPrimary ? onFinalPrimary : onNext
+
   return createPortal(
     <div className="tour-overlay" role="dialog" aria-modal="true" aria-label="Schema-Lab onboarding">
       {spotlightRect ? (
@@ -235,8 +243,8 @@ export function OnboardingTour({
             <button disabled={currentStep === 0} onClick={onPrevious} type="button">
               Back
             </button>
-            <button className="tour-card__primary" onClick={onNext} type="button">
-              {currentStep === steps.length - 1 ? 'Finish' : 'Next'}
+            <button className="tour-card__primary" onClick={handlePrimaryAction} type="button">
+              {primaryLabel}
             </button>
           </div>
         </div>
