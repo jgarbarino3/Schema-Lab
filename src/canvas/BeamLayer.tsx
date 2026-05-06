@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { Circle, Layer, Line, Text } from 'react-konva'
+import { Circle, Layer, Line, Rect, Text } from 'react-konva'
 import { getBeamColor } from '../domain/beamTracing'
 import { getNearestBeamSegmentHit } from '../domain/beamSelection'
 import { worldToScreen } from '../domain/geometry'
@@ -9,10 +9,18 @@ import type {
   BeamInteractionEvent,
   BeamTraceResult,
   GaussianTraceResult,
+  RenderMode,
   SceneDocument,
   ViewportState,
 } from '../domain/types'
 import { projectWorldPointToScreen } from './renderers/tableViewProjection'
+import {
+  expandBoundsPx,
+  getBeamSegmentScreenObstacles,
+  getComponentLabelPlacements,
+  getComponentSupportScreenBounds,
+  layoutFloatingLabels,
+} from './labelLayout'
 
 interface BeamLayerProps {
   beamTrace: BeamTraceResult
@@ -30,7 +38,9 @@ interface BeamLayerProps {
   selectedPathId?: string
   selectedSegmentId?: string
   scene: SceneDocument
+  renderMode?: RenderMode
   showDetails: boolean
+  showComponentLabels?: boolean
   useProjectedTableView?: boolean
   viewport: ViewportState
 }
@@ -75,6 +85,53 @@ function getInteractionBadge(
   return undefined
 }
 
+function formatPowerMw(value: number) {
+  return value >= 100 ? value.toFixed(0) : value.toFixed(1)
+}
+
+function getBeamDetailLines(args: {
+  event: BeamInteractionEvent
+  badge?: string
+  includePathId: boolean
+  showComponentLabel: boolean
+}) {
+  const lines: string[] = []
+
+  if (args.showComponentLabel) {
+    lines.push(args.event.componentLabel)
+  }
+
+  lines.push(
+    args.includePathId
+      ? `${args.event.pathId} / ${formatPowerMw(args.event.incomingPowerMw)} mW`
+      : `${formatPowerMw(args.event.incomingPowerMw)} mW`,
+  )
+
+  const stateParts: string[] = []
+
+  if (args.badge) {
+    stateParts.push(args.badge)
+  }
+
+  if (args.event.generatedPowerMw) {
+    stateParts.push(`SHG ${formatPowerMw(args.event.generatedPowerMw)} mW`)
+  }
+
+  if (args.event.wasClipped) {
+    stateParts.push('clipped')
+  }
+
+  if (args.event.outcomeClass === 'blocked') {
+    stateParts.push('blocked')
+  }
+
+  if (stateParts.length) {
+    lines.push(stateParts.join(' / '))
+  }
+
+  return lines
+}
+
 export function BeamLayer({
   beamTrace,
   gaussianTrace,
@@ -87,7 +144,9 @@ export function BeamLayer({
   selectedPathId,
   selectedSegmentId,
   scene,
+  renderMode = 'simple',
   showDetails,
+  showComponentLabels = true,
   useProjectedTableView = false,
   viewport,
 }: BeamLayerProps) {
@@ -140,6 +199,68 @@ export function BeamLayer({
       hit.segment.parentInteractionId,
     )
   }
+  const visibleDetailEvents = beamTrace.events.filter(
+    (event) =>
+      showDetails ||
+      event.pathId === selectedPathId ||
+      event.id === selectedInteractionId ||
+      event.pathId === hoveredPathId,
+  )
+  const beamSegmentObstacles = useProjectedTableView
+    ? []
+    : getBeamSegmentScreenObstacles(beamTrace, viewport)
+  const componentLabelObstacles =
+    showComponentLabels && !useProjectedTableView
+      ? getComponentLabelPlacements({
+          additionalObstacles: beamSegmentObstacles,
+          components: scene.components,
+          renderMode,
+          selectedComponentId: undefined,
+          viewport,
+        }).map((label) => expandBoundsPx(label.bounds, 7))
+      : []
+  const componentSupportObstacles =
+    useProjectedTableView
+      ? []
+      : scene.components.map((component) =>
+          expandBoundsPx(getComponentSupportScreenBounds(component, viewport), 5),
+        )
+  const beamDetailPlacements = layoutFloatingLabels({
+    labels: visibleDetailEvents.map((event) => {
+      const hitPx = projectPointForSurface(
+        event.hitPointMm,
+        componentById.get(event.componentId)?.hostSurfaceId,
+      )
+      const badge =
+        selectedPathId && event.pathId === selectedPathId
+          ? getInteractionBadge(event, gaussianTrace)
+          : undefined
+
+      return {
+        anchorPx: hitPx,
+        fontSizePx: 7.6,
+        id: event.id,
+        lineHeightPx: 8.8,
+        lines: getBeamDetailLines({
+          badge,
+          event,
+          includePathId: event.pathId === selectedPathId,
+          showComponentLabel: !showComponentLabels,
+        }),
+        maxWidthPx: 120,
+        minWidthPx: 40,
+      }
+    }),
+    obstacles: [
+      ...beamSegmentObstacles,
+      ...componentSupportObstacles,
+      ...componentLabelObstacles,
+    ],
+    viewport,
+  })
+  const beamDetailPlacementById = new Map(
+    beamDetailPlacements.map((placement) => [placement.id, placement] as const),
+  )
 
   return (
     <Layer>
@@ -299,60 +420,53 @@ export function BeamLayer({
         )
       })}
 
-      {beamTrace.events
-        .filter(
-          (event) =>
-            showDetails ||
-            event.pathId === selectedPathId ||
-            event.id === selectedInteractionId ||
-            event.pathId === hoveredPathId,
-        )
-        .map((event) => {
-          const hitPx = projectPointForSurface(
-            event.hitPointMm,
-            componentById.get(event.componentId)?.hostSurfaceId,
-          )
-          const badge = selectedPathId && event.pathId === selectedPathId
-            ? getInteractionBadge(event, gaussianTrace)
-            : undefined
-          const labelParts = [
-            event.componentLabel,
-            event.pathId,
-            `${event.incomingPowerMw.toFixed(1)} mW`,
-          ]
+      {visibleDetailEvents.map((event) => {
+          const label = beamDetailPlacementById.get(event.id)
 
-          if (event.generatedPowerMw) {
-            labelParts.push(`SHG ${event.generatedPowerMw.toFixed(1)} mW`)
-          }
-
-          if (event.wasClipped) {
-            labelParts.push('clipped')
-          }
-
-          if (event.outcomeClass === 'blocked') {
-            labelParts.push('blocked')
+          if (!label) {
+            return null
           }
 
           return (
             <Fragment key={`${event.id}-annotations`}>
-              <Text
-                fill="rgba(227, 238, 244, 0.86)"
-                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                fontSize={9}
-                text={labelParts.join(' • ')}
-                x={hitPx.x + 6}
-                y={hitPx.y - 10}
+              <Line
+                dash={[3, 3]}
+                listening={false}
+                opacity={0.48}
+                points={[
+                  label.leaderStartPx.x,
+                  label.leaderStartPx.y,
+                  label.leaderEndPx.x,
+                  label.leaderEndPx.y,
+                ]}
+                stroke="rgba(219, 235, 244, 0.78)"
+                strokeWidth={1}
               />
-              {badge ? (
-                <Text
-                  fill="#f7e8c2"
-                  fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
-                  fontSize={8.4}
-                  text={badge}
-                  x={hitPx.x + 6}
-                  y={hitPx.y + 2}
-                />
-              ) : null}
+              <Rect
+                cornerRadius={4}
+                fill="rgba(8, 12, 17, 0.82)"
+                height={label.bounds.height}
+                listening={false}
+                shadowBlur={6}
+                shadowColor="#05080c"
+                shadowOpacity={0.64}
+                stroke="rgba(191, 221, 234, 0.28)"
+                strokeWidth={1}
+                width={label.bounds.width}
+                x={label.bounds.x}
+                y={label.bounds.y}
+              />
+              <Text
+                fill="rgba(227, 238, 244, 0.9)"
+                fontFamily="IBM Plex Mono, SFMono-Regular, monospace"
+                fontSize={label.fontSizePx}
+                lineHeight={label.lineHeightPx / label.fontSizePx}
+                listening={false}
+                text={label.lines.join('\n')}
+                width={label.bounds.width - 10}
+                x={label.bounds.x + 5}
+                y={label.bounds.y + 4}
+              />
             </Fragment>
           )
         })}

@@ -9,7 +9,13 @@ import {
   supportsSimpleGlyphAppearance,
   shouldIncludeDefaultMount,
 } from '../domain/componentCatalog'
-import { quarterTurnsToDegrees, worldToScreen } from '../domain/geometry'
+import {
+  normalizeQuarterTurns,
+  quarterTurnsToDegrees,
+  rotateBoundsQuarterTurns,
+  rotatePointQuarterTurns,
+  worldToScreen,
+} from '../domain/geometry'
 import type {
   ComponentInstance,
   PlacementStatus,
@@ -173,6 +179,19 @@ export function ComponentNodeView({
         ? '#f5d28c'
         : '#6e8794'
   const labelWidth = Math.max(supportBoundsMm.width, mountBoundsMm.width, 38)
+  const componentRotationDegrees = quarterTurnsToDegrees(instance.rotationQuarterTurns)
+  const labelScreenBoundsMm = rotateBoundsQuarterTurns(
+    supportBoundsMm,
+    instance.rotationQuarterTurns,
+  )
+  const labelScreenTopLeftMm = {
+    x: labelScreenBoundsMm.x + labelScreenBoundsMm.width / 2 - labelWidth / 2,
+    y: labelScreenBoundsMm.y + labelScreenBoundsMm.height + 2.6,
+  }
+  const labelLocalTopLeftMm = rotatePointQuarterTurns(
+    labelScreenTopLeftMm,
+    normalizeQuarterTurns(-instance.rotationQuarterTurns),
+  )
   const postHolderDiameterMm = instance.config.postHolderDiameterMm ?? DEFAULT_POST_HOLDER_DIAMETER_MM
   const supportHardwareDetail = resolveSupportHardwareDetail({
     renderMode,
@@ -341,7 +360,7 @@ export function ComponentNodeView({
           event.cancelBubble = true
         }
       }}
-      rotation={quarterTurnsToDegrees(instance.rotationQuarterTurns)}
+      rotation={componentRotationDegrees}
       scaleX={viewport.zoomPxPerMm}
       scaleY={viewport.zoomPxPerMm}
       x={screenAnchorPx.x}
@@ -691,10 +710,11 @@ export function ComponentNodeView({
           fontSize={isSelected || isHighlighted ? 6.05 : renderMode === 'simple' ? 5.8 : 5.35}
           fontStyle={renderMode === 'simple' || isSelected || isHighlighted ? 'bold' : 'normal'}
           listening={false}
+          rotation={-componentRotationDegrees}
           text={instance.label}
           width={labelWidth}
-          x={-labelWidth / 2}
-          y={supportBoundsMm.y + supportBoundsMm.height + 2.6}
+          x={labelLocalTopLeftMm.x}
+          y={labelLocalTopLeftMm.y}
         />
       ) : null}
     </Group>

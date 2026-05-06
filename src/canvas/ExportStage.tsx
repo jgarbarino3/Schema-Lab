@@ -16,6 +16,7 @@ import { BeamLayer } from './BeamLayer'
 import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
 import { GaussianEnvelopeLayer } from './GaussianEnvelopeLayer'
+import { getBeamSegmentScreenObstacles } from './labelLayout'
 import {
   getBreadboardInstance,
   getBreadboardInstances,
@@ -81,6 +82,7 @@ export function ExportStage({
   const aboveBandAnnotations = visibleAnnotations.filter(
     (annotation) => annotation.layerBand === 'above-components',
   )
+  const componentLabelObstacles = getBeamSegmentScreenObstacles(beamTrace, viewport)
   const opticalTableBoard =
     opticalTable
       ? {
@@ -230,6 +232,7 @@ export function ExportStage({
           onResizeComponent={() => undefined}
           onSelectComponent={() => undefined}
           onUpdateComponentDrag={() => undefined}
+          labelObstacles={componentLabelObstacles}
           renderMode={renderMode}
           scene={scene}
           showLabels={showLabels}
