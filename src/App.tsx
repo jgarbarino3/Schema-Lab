@@ -461,6 +461,7 @@ function App() {
   const setShowGaussianEnvelope = useEditorStore(
     (state) => state.setShowGaussianEnvelope,
   )
+  const setShowBeamDetails = useEditorStore((state) => state.setShowBeamDetails)
   const finishTextAnnotationEditing = useEditorStore(
     (state) => state.finishTextAnnotationEditing,
   )
@@ -747,11 +748,11 @@ function App() {
         ),
       },
       {
-        title: 'Help',
+        title: 'Start With a Setup',
         selector: '[data-tour=\"toolbar-help\"]',
         body: (
           <>
-            <p>Use the question-mark control to reopen this guide, review shortcuts, open the appendix, or jump into the tutorial without leaving the editor.</p>
+            <p>Load the folded tutorial setup when you want a real scene on the board immediately: a conditioned 800 nm beam, monitor pickoff, steering mirrors, sample holder, and detectors.</p>
           </>
         ),
       },
@@ -761,20 +762,20 @@ function App() {
   const tutorialSteps = useMemo<OnboardingStep[]>(
     () => [
       {
-        title: 'Tutorial Scene Loaded',
+        title: 'Folded Sample Line',
         selector: '[data-tour=\"canvas-panel\"]',
         body: (
           <>
-            <p>This scene combines steering optics and an inline branch so you can inspect multiple optics families in one working layout.</p>
+            <p>The tutorial routes one 800 nm source through power and polarization controls, samples a small diagnostic pickoff, then steps the main beam up to the sample rail with two steering mirrors.</p>
           </>
         ),
       },
       {
-        title: 'Selected Delay Stage',
+        title: 'Selected Sample Holder',
         selector: '[data-tour=\"inspector\"]',
         body: (
           <>
-            <p>The inspector is focused on the delay stage so you can adjust timing-related controls immediately.</p>
+            <p>The inspector starts on the sample holder so you can see the mounted sample context before tuning individual optics.</p>
           </>
         ),
       },
@@ -1330,12 +1331,20 @@ function App() {
     setIsTutorialModalOpen(true)
   }
 
+  const handleOpenTutorialFromGuide = () => {
+    markOnboardingSeen()
+    setIsOnboardingOpen(false)
+    setIsTutorialModalOpen(true)
+  }
+
   const handleLoadTutorial = () => {
     const tutorialScene = createTutorialScene()
 
+    setRenderMode('simple')
     loadScene(tutorialScene, { history: 'record' })
     selectComponent(TUTORIAL_FOCUS_COMPONENT_ID)
-    setShowGaussianEnvelope(true)
+    setShowGaussianEnvelope(false)
+    setShowBeamDetails(false)
     setTourMode('tutorial')
     setOnboardingStep(0)
     setIsTutorialModalOpen(false)
@@ -2937,8 +2946,10 @@ function App() {
       {!isOgMode ? (
         <OnboardingTour
           currentStep={onboardingStep}
+          finalPrimaryLabel={tourMode === 'guide' ? 'Load tutorial setup' : undefined}
           isOpen={isOnboardingOpen}
           onClose={handleCloseOnboarding}
+          onFinalPrimary={tourMode === 'guide' ? handleOpenTutorialFromGuide : undefined}
           onNeverShowAgain={handleNeverShowOnboarding}
           onNext={handleAdvanceOnboarding}
           onPrevious={handleRetreatOnboarding}
