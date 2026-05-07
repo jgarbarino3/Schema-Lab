@@ -219,8 +219,11 @@ try {
   let scene = await readScene()
   assert.equal(scene.workspace.kind, 'optical-table')
   assert.equal(scene.workspace.breadboards.length, 1)
-  await page.getByRole('button', { name: 'Realistic' }).click()
   await page.waitForTimeout(220)
+  assert.equal(
+    await page.evaluate(() => window.__SCHEMA_LAB_STORE__.getState().renderMode),
+    'realistic',
+  )
   assert.equal(
     await page.evaluate(() => window.__SCHEMA_LAB_VIEW_TOOLS__.usesProjectedTableView()),
     true,

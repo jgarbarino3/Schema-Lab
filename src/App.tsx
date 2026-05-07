@@ -140,7 +140,7 @@ interface SvgImportPendingOptionsState {
   workspaceConfig: SvgImportWorkspaceConfig
 }
 
-interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {}
+type SvgImportPendingCalibrationState = SvgImportPendingOptionsState
 
 type WorkspaceModalState =
   {
@@ -463,6 +463,7 @@ function App() {
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
+  const [isTutorialTableNudgeOpen, setIsTutorialTableNudgeOpen] = useState(false)
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
   const [isFullLibraryOpen, setIsFullLibraryOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
@@ -653,7 +654,7 @@ function App() {
     () => [
       {
         title: 'Keyboard Shortcuts',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Open the shortcuts overlay any time to see the core canvas controls without covering the workspace in instructions.</p>
@@ -662,7 +663,7 @@ function App() {
       },
       {
         title: 'Workspace Modes',
-        selector: '[data-tour=\"workspace-modes\"]',
+        selector: '[data-tour="workspace-modes"]',
         body: (
           <>
             <p>Switch between Board Focus for detail work and Table View for the broader optical-table layout without losing your place.</p>
@@ -671,7 +672,7 @@ function App() {
       },
       {
         title: 'Component Library',
-        selector: '[data-tour=\"component-library\"]',
+        selector: '[data-tour="component-library"]',
         body: (
           <>
             <p>Search the library, click a family to arm placement, then place it directly on the active surface.</p>
@@ -680,7 +681,7 @@ function App() {
       },
       {
         title: 'Panel Collapse',
-        selector: '[data-tour=\"panel-library-toggle\"]',
+        selector: '[data-tour="panel-library-toggle"]',
         body: (
           <>
             <p>Collapse either side panel from its own header when you want more canvas space without leaving the current workflow.</p>
@@ -689,7 +690,7 @@ function App() {
       },
       {
         title: 'Inspector Context',
-        selector: '[data-tour=\"inspector\"]',
+        selector: '[data-tour="inspector"]',
         body: (
           <>
             <p>The inspector changes with the current selection so you can tune board settings, component variants, or annotation details in one place.</p>
@@ -698,7 +699,7 @@ function App() {
       },
       {
         title: 'Canvas Flow',
-        selector: '[data-tour=\"canvas-panel\"]',
+        selector: '[data-tour="canvas-panel"]',
         body: (
           <>
             <p>The canvas stays visually quiet until you select or place something, then the relevant placement, selection, and source-target cues appear in context.</p>
@@ -707,7 +708,7 @@ function App() {
       },
       {
         title: 'Warnings',
-        selector: '[data-tour=\"toolbar-controls\"]',
+        selector: '[data-tour="toolbar-controls"]',
         body: (
           <>
             <p>Review warnings from the top bar when the scene needs attention, then dismiss or restore them without leaving the editor.</p>
@@ -716,7 +717,7 @@ function App() {
       },
       {
         title: 'Files',
-        selector: '[data-tour=\"toolbar-export\"]',
+        selector: '[data-tour="toolbar-export"]',
         body: (
           <>
             <p>Use Files for imports, exports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
@@ -725,7 +726,7 @@ function App() {
       },
       {
         title: 'Start With a Setup',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Load the folded tutorial setup when you want a real scene on the board immediately: a conditioned 800 nm beam, monitor pickoff, steering mirrors, sample holder, and detectors.</p>
@@ -739,7 +740,7 @@ function App() {
     () => [
       {
         title: 'Folded Sample Line',
-        selector: '[data-tour=\"canvas-panel\"]',
+        selector: '[data-tour="canvas-panel"]',
         body: (
           <>
             <p>The tutorial routes one 800 nm source through power and polarization controls, samples a small diagnostic pickoff, then steps the main beam up to the sample rail with two steering mirrors.</p>
@@ -748,7 +749,7 @@ function App() {
       },
       {
         title: 'Selected Sample Holder',
-        selector: '[data-tour=\"inspector\"]',
+        selector: '[data-tour="inspector"]',
         body: (
           <>
             <p>The inspector starts on the sample holder so you can see the mounted sample context before tuning individual optics.</p>
@@ -757,7 +758,7 @@ function App() {
       },
       {
         title: 'Shortcuts and Context',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Open the shortcuts overlay whenever you want a quick reminder of canvas navigation, edit commands, and placement controls.</p>
@@ -766,7 +767,7 @@ function App() {
       },
       {
         title: 'Files Review',
-        selector: '[data-tour=\"toolbar-export\"]',
+        selector: '[data-tour="toolbar-export"]',
         body: (
           <>
             <p>Open Files once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
@@ -777,6 +778,10 @@ function App() {
     [],
   )
   const onboardingSteps = tourMode === 'tutorial' ? tutorialSteps : guideSteps
+  const isTutorialSceneLoaded = useMemo(
+    () => scene.components.some((component) => component.id === TUTORIAL_FOCUS_COMPONENT_ID),
+    [scene.components],
+  )
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -955,6 +960,7 @@ function App() {
 
   const handleRequestBoardFocus = () => {
     if (scene.workspace.kind === 'single-breadboard') {
+      setRenderMode('simple')
       return
     }
 
@@ -962,10 +968,13 @@ function App() {
       return
     }
 
+    setRenderMode('simple')
     setWorkspaceViewMode('board-focus')
   }
 
   const handleRequestTableView = () => {
+    setRenderMode('realistic')
+
     if (scene.workspace.kind === 'optical-table') {
       setWorkspaceViewMode('table-view')
       return
@@ -978,6 +987,7 @@ function App() {
 
   const handleConvertCurrentToOpticalTable = () => {
     dispatchClearLibraryRecents()
+    setRenderMode('realistic')
     convertWorkspaceToOpticalTable()
     setWorkspaceModalState(undefined)
   }
@@ -994,6 +1004,7 @@ function App() {
     const restoredScene = parseSceneDocument(snapshot)
 
     startTransition(() => {
+      setRenderMode('realistic')
       loadScene(restoredScene, { history: 'record' })
     })
 
@@ -1002,6 +1013,7 @@ function App() {
 
   const handleStartFreshTable = () => {
     dispatchClearLibraryRecents()
+    setRenderMode('realistic')
     createFreshOpticalTable()
     setWorkspaceModalState(undefined)
   }
@@ -1044,6 +1056,7 @@ function App() {
       breadboardId: args.breadboardId,
       createFresh: args.createFresh,
     })
+    setRenderMode('simple')
     setWorkspaceModalState(undefined)
   }
 
@@ -1259,8 +1272,60 @@ function App() {
     setTourMode('tutorial')
     setOnboardingStep(0)
     setIsTutorialModalOpen(false)
+    setIsTutorialTableNudgeOpen(true)
     setIsOnboardingOpen(true)
   }
+
+  const handleShowTutorialTableView = useCallback(() => {
+    if (!isTutorialSceneLoaded) {
+      setIsTutorialTableNudgeOpen(false)
+      return
+    }
+
+    setRenderMode('realistic')
+
+    if (scene.workspace.kind === 'optical-table') {
+      setWorkspaceViewMode('table-view')
+    } else {
+      convertWorkspaceToOpticalTable()
+    }
+
+    selectOpticalTable()
+    setIsTutorialTableNudgeOpen(false)
+    setNotice('Tutorial is showing in realistic Table View.')
+  }, [
+    convertWorkspaceToOpticalTable,
+    isTutorialSceneLoaded,
+    scene.workspace.kind,
+    selectOpticalTable,
+    setNotice,
+    setRenderMode,
+    setWorkspaceViewMode,
+  ])
+
+  useEffect(() => {
+    if (isTutorialTableNudgeOpen && !isTutorialSceneLoaded) {
+      setIsTutorialTableNudgeOpen(false)
+    }
+  }, [isTutorialSceneLoaded, isTutorialTableNudgeOpen])
+
+  useEffect(() => {
+    if (
+      isTutorialTableNudgeOpen &&
+      isTutorialSceneLoaded &&
+      scene.workspace.kind === 'optical-table' &&
+      workspaceViewMode === 'table-view' &&
+      renderMode === 'realistic'
+    ) {
+      setIsTutorialTableNudgeOpen(false)
+    }
+  }, [
+    isTutorialSceneLoaded,
+    isTutorialTableNudgeOpen,
+    renderMode,
+    scene.workspace.kind,
+    workspaceViewMode,
+  ])
 
   const handleClearCanvasSelection = useCallback(() => {
     if (scene.workspace.kind === 'optical-table') {
@@ -2549,6 +2614,37 @@ function App() {
               showLabels={showComponentLabels}
               showPostHolders={showPostHolders}
             />
+
+            {isTutorialTableNudgeOpen && isTutorialSceneLoaded ? (
+              <aside
+                aria-label="Tutorial table view suggestion"
+                className="tutorial-table-nudge"
+                data-testid="tutorial-table-view-nudge"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <span className="tutorial-table-nudge__copy">
+                  See the tutorial in realistic 2.5D
+                </span>
+                <div className="tutorial-table-nudge__actions">
+                  <button
+                    className="tutorial-table-nudge__primary"
+                    data-testid="tutorial-table-view-nudge-action"
+                    onClick={handleShowTutorialTableView}
+                    type="button"
+                  >
+                    Table View
+                  </button>
+                  <button
+                    aria-label="Dismiss tutorial table view suggestion"
+                    className="tutorial-table-nudge__dismiss"
+                    onClick={() => setIsTutorialTableNudgeOpen(false)}
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </aside>
+            ) : null}
 
             {selectionToolbarStyle ? (
               <SelectionToolbar

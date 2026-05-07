@@ -30,7 +30,10 @@ import {
   projectWorldPointToScreen,
   resolveProjectedScreenPointToWorld,
 } from './renderers/tableViewProjection'
-import { getComponentLabelPlacements } from './labelLayout'
+import {
+  getComponentLabelPlacements,
+  getProjectedComponentLabelPlacements,
+} from './labelLayout'
 import type { BoundsPx } from './labelLayout'
 
 interface DragPreviewState {
@@ -384,21 +387,31 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   }, [displayedComponents, getDepth, scene, useProjectedTableView, viewport])
   const componentLabelPlacements = useMemo(
     () =>
-      showLabels && !useProjectedTableView
-        ? getComponentLabelPlacements({
-            additionalObstacles: labelObstacles,
-            components: orderedComponents,
-            highlightedComponentIds,
-            renderMode,
-            selectedComponentId,
-            viewport,
-          })
+      showLabels
+        ? useProjectedTableView
+          ? getProjectedComponentLabelPlacements({
+              additionalObstacles: labelObstacles,
+              components: orderedComponents,
+              highlightedComponentIds,
+              scene,
+              selectedComponentId,
+              viewport,
+            })
+          : getComponentLabelPlacements({
+              additionalObstacles: labelObstacles,
+              components: orderedComponents,
+              highlightedComponentIds,
+              renderMode,
+              selectedComponentId,
+              viewport,
+            })
         : [],
     [
       highlightedComponentIds,
       labelObstacles,
       orderedComponents,
       renderMode,
+      scene,
       selectedComponentId,
       showLabels,
       useProjectedTableView,
@@ -577,7 +590,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
                   )
                 }
               : undefined,
-          showLabels: useProjectedTableView ? showLabels : false,
+          showLabels: false,
           showPostHolders,
           surfaceSupportCompensationMm: getSurfaceSupportCompensationMm(
             scene,
