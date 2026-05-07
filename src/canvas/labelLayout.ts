@@ -3,6 +3,9 @@ import {
   getResolvedComponentSpecForInstance,
 } from '../domain/componentCatalog'
 import {
+  inspectSceneComponentPlacement,
+} from '../domain/placement'
+import {
   rotateBoundsQuarterTurns,
   worldToScreen,
 } from '../domain/geometry'
@@ -11,9 +14,12 @@ import type {
   BoundsMm,
   ComponentInstance,
   RenderMode,
+  SceneDocument,
   ScreenPointPx,
   ViewportState,
 } from '../domain/types'
+import { getSurfaceMountPlaneOffsetMm } from '../domain/workspace'
+import { getProjectedBoundsAabb } from './renderers/tableViewProjection'
 
 export interface BoundsPx {
   height: number
@@ -519,6 +525,54 @@ export function getComponentLabelPlacements(args: {
   })
 }
 
+export function getProjectedComponentLabelPlacements(args: {
+  additionalObstacles?: BoundsPx[]
+  components: ComponentInstance[]
+  highlightedComponentIds?: string[]
+  scene: SceneDocument
+  selectedComponentId?: string
+  viewport: ViewportState
+}) {
+  const highlightedIds = new Set(args.highlightedComponentIds ?? [])
+  const projectedBounds = args.components.map((component) => {
+    const supportBoundsMm = inspectSceneComponentPlacement(
+      args.scene,
+      component,
+    ).supportBoundsMm
+    const elevationMm = getSurfaceMountPlaneOffsetMm(
+      args.scene,
+      component.hostSurfaceId,
+    )
+
+    return {
+      bounds: getProjectedBoundsAabb(supportBoundsMm, args.viewport, elevationMm),
+      component,
+    }
+  })
+  const occupiedBounds = [...(args.additionalObstacles ?? [])]
+
+  return layoutFloatingLabels({
+    labels: projectedBounds.map(({ bounds, component }) => {
+      const isEmphasized =
+        highlightedIds.has(component.id) || args.selectedComponentId === component.id
+      const fontSizePx = isEmphasized ? 10.4 : 9.4
+      const minimumWidthPx = Math.max(44, Math.min(74, bounds.width + 12))
+
+      return {
+        anchorPx: getBoundsCenterPx(bounds),
+        fontSizePx,
+        id: component.id,
+        lineHeightPx: fontSizePx * 1.12,
+        lines: [component.label],
+        maxWidthPx: 96,
+        minWidthPx: minimumWidthPx,
+      }
+    }),
+    obstacles: occupiedBounds,
+    viewport: args.viewport,
+  })
+}
+
 function getFloatingLabelCandidates(args: {
   anchorPx: ScreenPointPx
   height: number
@@ -528,6 +582,7 @@ function getFloatingLabelCandidates(args: {
   const offsetPx = 12 + (args.index % 3) * 5
   const wideOffsetPx = offsetPx + 8
   const farOffsetPx = offsetPx + 26
+  const escapeOffsetPx = farOffsetPx + 34
   const verticalStepPx = (Math.floor(args.index / 3) % 3) * 7
 
   return [
@@ -562,6 +617,19 @@ function getFloatingLabelCandidates(args: {
         height: args.height,
         width: args.width,
         x: args.anchorPx.x + offsetPx,
+        y: args.anchorPx.y + escapeOffsetPx + verticalStepPx,
+      },
+      leaderEndPx: {
+        x: args.anchorPx.x + offsetPx,
+        y: args.anchorPx.y + escapeOffsetPx,
+      },
+      side: 'below-right',
+    },
+    {
+      bounds: {
+        height: args.height,
+        width: args.width,
+        x: args.anchorPx.x + offsetPx,
         y: args.anchorPx.y + offsetPx + verticalStepPx,
       },
       leaderEndPx: {
@@ -582,6 +650,19 @@ function getFloatingLabelCandidates(args: {
         y: args.anchorPx.y + farOffsetPx,
       },
       side: 'below-right',
+    },
+    {
+      bounds: {
+        height: args.height,
+        width: args.width,
+        x: args.anchorPx.x - args.width - offsetPx,
+        y: args.anchorPx.y - args.height - escapeOffsetPx - verticalStepPx,
+      },
+      leaderEndPx: {
+        x: args.anchorPx.x - offsetPx,
+        y: args.anchorPx.y - escapeOffsetPx,
+      },
+      side: 'above-left',
     },
     {
       bounds: {
@@ -640,6 +721,19 @@ function getFloatingLabelCandidates(args: {
         height: args.height,
         width: args.width,
         x: args.anchorPx.x - args.width / 2,
+        y: args.anchorPx.y - args.height - escapeOffsetPx - verticalStepPx,
+      },
+      leaderEndPx: {
+        x: args.anchorPx.x,
+        y: args.anchorPx.y - escapeOffsetPx,
+      },
+      side: 'above',
+    },
+    {
+      bounds: {
+        height: args.height,
+        width: args.width,
+        x: args.anchorPx.x - args.width / 2,
         y: args.anchorPx.y - args.height - wideOffsetPx - verticalStepPx,
       },
       leaderEndPx: {
@@ -647,6 +741,19 @@ function getFloatingLabelCandidates(args: {
         y: args.anchorPx.y - wideOffsetPx,
       },
       side: 'above',
+    },
+    {
+      bounds: {
+        height: args.height,
+        width: args.width,
+        x: args.anchorPx.x - args.width / 2,
+        y: args.anchorPx.y + escapeOffsetPx + verticalStepPx,
+      },
+      leaderEndPx: {
+        x: args.anchorPx.x,
+        y: args.anchorPx.y + escapeOffsetPx,
+      },
+      side: 'below',
     },
     {
       bounds: {

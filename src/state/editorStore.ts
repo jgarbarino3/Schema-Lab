@@ -483,10 +483,8 @@ function writeLocalStorageValue(key: string, value: string) {
   window.localStorage.setItem(key, value)
 }
 
-function readRenderMode() {
-  const value = readLocalStorageValue(RENDER_MODE_STORAGE_KEY)
-
-  return value === 'realistic' ? 'realistic' : 'simple'
+function readRenderMode(): RenderMode {
+  return 'simple'
 }
 
 function readSimpleIconStyle(): SimpleIconStyle {
@@ -6308,6 +6306,13 @@ export const useEditorStore = create<EditorStore>((set) => ({
         state.scene,
         workspaceViewMode,
       )
+      const nextRenderMode =
+        state.scene.workspace.kind === 'optical-table' &&
+        nextWorkspaceViewMode === 'table-view'
+          ? 'realistic'
+          : nextWorkspaceViewMode === 'board-focus'
+            ? 'simple'
+            : state.renderMode
       const focusedBreadboardId = resolveFocusedBreadboardIdForScene(state.scene, {
         activeHostSurfaceId: state.interaction.activeHostSurfaceId,
         focusedBreadboardId: state.interaction.focusedBreadboardId,
@@ -6320,7 +6325,10 @@ export const useEditorStore = create<EditorStore>((set) => ({
           ? focusedBreadboardId
           : state.interaction.activeHostSurfaceId
 
+      writeLocalStorageValue(RENDER_MODE_STORAGE_KEY, nextRenderMode)
+
       return {
+        renderMode: nextRenderMode,
         viewport: createViewportForScene(state.scene, state.viewport.canvasSizePx, {
           focusedBreadboardId,
           workspaceViewMode: nextWorkspaceViewMode,

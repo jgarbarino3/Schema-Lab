@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   boundsIntersectPx,
   getComponentLabelPlacements,
+  getProjectedComponentLabelPlacements,
   layoutFloatingLabels,
 } from '../canvas/labelLayout'
 import { createTutorialScene } from '../domain/tutorialScene'
+import { convertSceneToOpticalTable } from '../domain/workspace'
 import type { ViewportState } from '../domain/types'
 
 const tutorialViewport: ViewportState = {
@@ -68,5 +70,45 @@ describe('canvas label layout', () => {
     expect(boundsIntersectPx(labels[0].bounds, labels[1].bounds, 1)).toBe(false)
     expect(boundsIntersectPx(labels[0].bounds, { x: 248, y: 150, width: 110, height: 28 }, 1)).toBe(false)
     expect(boundsIntersectPx(labels[1].bounds, { x: 248, y: 150, width: 110, height: 28 }, 1)).toBe(false)
+  })
+
+  it('keeps projected realistic tutorial labels from colliding', () => {
+    const scene = convertSceneToOpticalTable(createTutorialScene())
+    const projectedViewports: ViewportState[] = [
+      {
+        cameraCenterMm: { x: 1800, y: 750 },
+        canvasSizePx: { width: 1600, height: 980 },
+        zoomPxPerMm: 0.44,
+      },
+      {
+        cameraCenterMm: { x: 1800, y: 750 },
+        canvasSizePx: { width: 1087, height: 762 },
+        zoomPxPerMm: 0.93,
+      },
+    ]
+
+    for (const projectedViewport of projectedViewports) {
+      const labels = getProjectedComponentLabelPlacements({
+        components: scene.components,
+        scene,
+        selectedComponentId: 'tutorial-sample-holder',
+        viewport: projectedViewport,
+      })
+
+      expect(labels).toHaveLength(scene.components.length)
+
+      for (let leftIndex = 0; leftIndex < labels.length; leftIndex += 1) {
+        for (
+          let rightIndex = leftIndex + 1;
+          rightIndex < labels.length;
+          rightIndex += 1
+        ) {
+          expect(
+            boundsIntersectPx(labels[leftIndex].bounds, labels[rightIndex].bounds, 1),
+            `${labels[leftIndex].id} ${JSON.stringify(labels[leftIndex].bounds)} overlaps ${labels[rightIndex].id} ${JSON.stringify(labels[rightIndex].bounds)}`,
+          ).toBe(false)
+        }
+      }
+    }
   })
 })

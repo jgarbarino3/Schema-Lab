@@ -2603,6 +2603,63 @@ textarea {
   color: #f4fbff;
 }
 
+.tutorial-table-nudge {
+  position: absolute;
+  top: clamp(2.85rem, 7vh, 4.15rem);
+  right: clamp(0.9rem, 2.2vw, 1.65rem);
+  z-index: 6;
+  display: flex;
+  max-width: min(410px, calc(100% - 1.8rem));
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.34rem 0.38rem 0.34rem 0.72rem;
+  border: 1px solid rgba(145, 202, 222, 0.28);
+  border-radius: 999px;
+  background: rgba(7, 12, 16, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 32px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px) saturate(132%);
+}
+
+.tutorial-table-nudge__copy {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(226, 239, 246, 0.86);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tutorial-table-nudge__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.tutorial-table-nudge__actions button {
+  min-height: 1.66rem;
+  padding: 0.28rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.tutorial-table-nudge__primary {
+  border-color: rgba(102, 173, 230, 0.42);
+  background: rgba(42, 101, 148, 0.82);
+  color: #f4fbff;
+}
+
+.tutorial-table-nudge__dismiss {
+  border-color: rgba(145, 168, 182, 0.14);
+  background: rgba(18, 27, 34, 0.46);
+  color: rgba(195, 210, 220, 0.78);
+}
+
 @media (max-width: 1220px) {
   .workspace {
     grid-template-columns: 228px minmax(0, 1fr) 318px;
