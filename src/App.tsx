@@ -67,7 +67,11 @@ import {
   rescaleRasterImportCandidates,
 } from './domain/rasterImportRecognition'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
-import { createOgScene, OG_SELECTED_COMPONENT_ID } from './domain/ogScene'
+import {
+  createOgScene,
+  createOgTutorialScene,
+  OG_SELECTED_COMPONENT_ID,
+} from './domain/ogScene'
 import { getOgSceneVariant, isOgModeSearch } from './domain/ogMode'
 import {
   getBreadboardInstance,
@@ -837,7 +841,7 @@ function App() {
     const nextState = useEditorStore.getState()
 
     nextState.loadScene(
-      ogSceneVariant === 'tutorial' ? createTutorialScene() : createOgScene(),
+      ogSceneVariant === 'tutorial' ? createOgTutorialScene() : createOgScene(),
       { history: 'reset' },
     )
     nextState.setRenderMode('simple')
@@ -852,7 +856,6 @@ function App() {
 
     setIsOnboardingOpen(false)
     setIsTutorialModalOpen(false)
-    setIsTutorialTableNudgeOpen(false)
     setIsVersionHistoryOpen(false)
     setIsFullLibraryOpen(false)
     setPendingExportRequest(undefined)
