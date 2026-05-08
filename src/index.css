@@ -120,6 +120,19 @@ textarea {
   overflow: hidden;
 }
 
+.app-shell--og .toolbar {
+  gap: 0.46rem;
+  padding: 0.68rem 0.84rem 0.74rem;
+}
+
+.app-shell--og .toolbar__brand strong {
+  font-size: 1.04rem;
+}
+
+.app-shell--og .toolbar__controls {
+  gap: 0.36rem;
+}
+
 .toolbar {
   display: grid;
   gap: 0.55rem;
@@ -563,6 +576,22 @@ textarea {
 
 .workspace.is-library-collapsed.is-inspector-collapsed .workspace__canvas {
   grid-column: 1;
+}
+
+.app-shell--og .workspace {
+  grid-template-columns: 220px minmax(0, 1fr) 292px;
+  gap: 0.72rem;
+  padding: 0.72rem;
+}
+
+.app-shell--og .panel__header,
+.app-shell--og .canvas-panel__header {
+  padding: 0.82rem 0.82rem 0.7rem;
+}
+
+.app-shell--og .component-library__groups,
+.app-shell--og .inspector__content {
+  padding: 0.56rem;
 }
 
 .panel,

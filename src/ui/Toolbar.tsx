@@ -27,6 +27,7 @@ interface ToolbarProps {
   beamTrace: BeamTraceResult
   dismissedWarningCount: number
   isBoardFocusAvailable: boolean
+  isOgMode?: boolean
   isWarningPulse: boolean
   onClearBreadboard: () => void
   onClearTable: () => void
@@ -219,6 +220,7 @@ export function Toolbar({
   beamTrace: _beamTrace,
   dismissedWarningCount,
   isBoardFocusAvailable,
+  isOgMode = false,
   isWarningPulse,
   onClearBreadboard,
   onClearTable,
@@ -351,6 +353,10 @@ export function Toolbar({
     label: string,
     element: HTMLButtonElement | null,
   ) => {
+    if (isOgMode) {
+      return
+    }
+
     if (
       !element ||
       isHelpOpen ||
@@ -526,7 +532,7 @@ export function Toolbar({
     }
   }, [])
 
-  const helpModal = isHelpOpen
+  const helpModal = !isOgMode && isHelpOpen
     ? createPortal(
         <div
           aria-label="Keyboard shortcuts"
@@ -613,7 +619,7 @@ export function Toolbar({
       )
     : null
 
-  const appendixModal = isAppendixOpen
+  const appendixModal = !isOgMode && isAppendixOpen
     ? createPortal(
         <div aria-label="Schema-Lab appendix" className="toolbar__shortcuts-shell" role="dialog">
           <div className="toolbar__shortcuts-backdrop" onClick={() => setIsAppendixOpen(false)} />
@@ -651,7 +657,7 @@ export function Toolbar({
     : null
 
   const warningPopover =
-    isWarningsOpen && warningStyle
+    !isOgMode && isWarningsOpen && warningStyle
       ? createPortal(
           <div
             aria-label="Scene warnings"
@@ -757,7 +763,7 @@ export function Toolbar({
       : null
 
   const menuPopover =
-    openToolbarMenu && activeMenuStyle
+    !isOgMode && openToolbarMenu && activeMenuStyle
       ? createPortal(
         <div
             className="toolbar__menu-popover"
@@ -951,8 +957,8 @@ export function Toolbar({
         )
       : null
 
-  const tooltipPortal = <FloatingToolbarTooltip target={tooltipTarget} />
-  const suggestionsModal = (
+  const tooltipPortal = isOgMode ? null : <FloatingToolbarTooltip target={tooltipTarget} />
+  const suggestionsModal = isOgMode ? null : (
     <SuggestionBoxModal
       isOpen={isSuggestionsOpen}
       onClose={() => {
@@ -1114,81 +1120,87 @@ export function Toolbar({
               </svg>
             </button>
 
-            <button
-              aria-label="Suggestions"
-              className="toolbar__icon-button toolbar__icon-button--primary toolbar__icon-button--suggestions"
-              data-testid="toolbar-suggestions"
-              {...suggestionsTooltip}
-              onClick={() => {
-                setHelpOpen(false)
-                setWarningsOpen(false)
-                setOpenToolbarMenu(undefined)
-                setIsAppendixOpen(false)
-                setIsSuggestionsOpen(true)
-                setTooltipTarget(null)
-              }}
-              type="button"
-            >
-              <svg fill="none" viewBox="0 0 24 24">
-                <path
-                  d="M4.5 6.8c0-1.21.98-2.2 2.2-2.2h10.6c1.21 0 2.2.99 2.2 2.2v7.15c0 1.22-.99 2.2-2.2 2.2H10.1l-3.95 2.7v-2.7H6.7c-1.21 0-2.2-.98-2.2-2.2V6.8Z"
-                  stroke="currentColor"
-                  strokeLinejoin="round"
-                  strokeWidth="1.7"
-                />
-                <path
-                  d="M7.2 8.5h9.6"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeWidth="1.7"
-                />
-                <path
-                  d="M7.2 11.7h6.2"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeWidth="1.7"
-                />
-              </svg>
-            </button>
+            {!isOgMode ? (
+              <button
+                aria-label="Suggestions"
+                className="toolbar__icon-button toolbar__icon-button--primary toolbar__icon-button--suggestions"
+                data-testid="toolbar-suggestions"
+                {...suggestionsTooltip}
+                onClick={() => {
+                  setHelpOpen(false)
+                  setWarningsOpen(false)
+                  setOpenToolbarMenu(undefined)
+                  setIsAppendixOpen(false)
+                  setIsSuggestionsOpen(true)
+                  setTooltipTarget(null)
+                }}
+                type="button"
+              >
+                <svg fill="none" viewBox="0 0 24 24">
+                  <path
+                    d="M4.5 6.8c0-1.21.98-2.2 2.2-2.2h10.6c1.21 0 2.2.99 2.2 2.2v7.15c0 1.22-.99 2.2-2.2 2.2H10.1l-3.95 2.7v-2.7H6.7c-1.21 0-2.2-.98-2.2-2.2V6.8Z"
+                    stroke="currentColor"
+                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M7.2 8.5h9.6"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M7.2 11.7h6.2"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeWidth="1.7"
+                  />
+                </svg>
+              </button>
+            ) : null}
 
-            <button
-              aria-expanded={isWarningsOpen}
-              aria-haspopup="dialog"
-              className={`toolbar__warning-toggle${warningCount === 0 ? ' is-quiet' : ''}${isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
-              data-testid="toolbar-warnings"
-              onClick={() => {
-                const nextIsOpen = !isWarningsOpen
+            {!isOgMode ? (
+              <button
+                aria-expanded={isWarningsOpen}
+                aria-haspopup="dialog"
+                className={`toolbar__warning-toggle${warningCount === 0 ? ' is-quiet' : ''}${isWarningsOpen ? ' is-active-tool' : ''}${isWarningPulse ? ' is-pulsing' : ''}`}
+                data-testid="toolbar-warnings"
+                onClick={() => {
+                  const nextIsOpen = !isWarningsOpen
 
-                setHelpOpen(false)
-                setOpenToolbarMenu(undefined)
-                setWarningsOpen(nextIsOpen)
+                  setHelpOpen(false)
+                  setOpenToolbarMenu(undefined)
+                  setWarningsOpen(nextIsOpen)
 
-                if (nextIsOpen && !selectedWarningId) {
-                  setSelectedWarningId(filteredWarnings[0]?.id ?? warnings[0]?.id)
-                }
-              }}
-              ref={warningButtonRef}
-              type="button"
-            >
-              Warnings {warningCount}
-            </button>
+                  if (nextIsOpen && !selectedWarningId) {
+                    setSelectedWarningId(filteredWarnings[0]?.id ?? warnings[0]?.id)
+                  }
+                }}
+                ref={warningButtonRef}
+                type="button"
+              >
+                Warnings {warningCount}
+              </button>
+            ) : null}
 
-            <button
-              aria-expanded={isHelpOpen}
-              aria-haspopup="dialog"
-              className={`toolbar__help-button${isHelpOpen ? ' is-active-tool' : ''}`}
-              data-testid="toolbar-shortcuts"
-              data-tour="toolbar-help"
-              onClick={() => {
-                setWarningsOpen(false)
-                setOpenToolbarMenu(undefined)
-                setHelpOpen(!isHelpOpen)
-              }}
-              ref={helpButtonRef}
-              type="button"
-            >
-              ?
-            </button>
+            {!isOgMode ? (
+              <button
+                aria-expanded={isHelpOpen}
+                aria-haspopup="dialog"
+                className={`toolbar__help-button${isHelpOpen ? ' is-active-tool' : ''}`}
+                data-testid="toolbar-shortcuts"
+                data-tour="toolbar-help"
+                onClick={() => {
+                  setWarningsOpen(false)
+                  setOpenToolbarMenu(undefined)
+                  setHelpOpen(!isHelpOpen)
+                }}
+                ref={helpButtonRef}
+                type="button"
+              >
+                ?
+              </button>
+            ) : null}
           </div>
         </div>
 

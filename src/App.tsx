@@ -67,6 +67,8 @@ import {
   rescaleRasterImportCandidates,
 } from './domain/rasterImportRecognition'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from './domain/tutorialScene'
+import { createOgScene, OG_SELECTED_COMPONENT_ID } from './domain/ogScene'
+import { getOgSceneVariant, isOgModeSearch } from './domain/ogMode'
 import {
   getBreadboardInstance,
   getBreadboardInstances,
@@ -121,6 +123,12 @@ const DEFAULT_SVG_PRESET: SvgExportPreset = 'engineering'
 const CENTER_FRAME_SIDE_PADDING_PX = 88
 const CENTER_FRAME_TOP_PADDING_PX = 28
 const CENTER_FRAME_BOTTOM_PADDING_PX = 156
+const OG_CENTER_FRAME_SIDE_PADDING_PX = 80
+const OG_CENTER_FRAME_TOP_PADDING_PX = 34
+const OG_CENTER_FRAME_BOTTOM_PADDING_PX = 82
+const OG_SOLO_BOARD_SIDE_PADDING_PX = 26
+const OG_SOLO_BOARD_TOP_PADDING_PX = 10
+const OG_SOLO_BOARD_BOTTOM_PADDING_PX = 16
 
 interface ExportRequestState {
   format: ExportFormat
@@ -322,13 +330,21 @@ function clamp(value: number, minimum: number, maximum: number) {
 function createTopBiasedViewportForBounds(
   bounds: { x: number; y: number; width: number; height: number },
   viewport: { canvasSizePx: { width: number; height: number }; zoomPxPerMm: number },
+  options?: {
+    bottomPaddingPx?: number
+    sidePaddingPx?: number
+    topPaddingPx?: number
+  },
 ) {
   const canvasWidth = Math.max(1, viewport.canvasSizePx.width)
   const canvasHeight = Math.max(1, viewport.canvasSizePx.height)
-  const availableWidthPx = Math.max(1, canvasWidth - CENTER_FRAME_SIDE_PADDING_PX * 2)
+  const sidePaddingPx = options?.sidePaddingPx ?? CENTER_FRAME_SIDE_PADDING_PX
+  const topPaddingPx = options?.topPaddingPx ?? CENTER_FRAME_TOP_PADDING_PX
+  const bottomPaddingPx = options?.bottomPaddingPx ?? CENTER_FRAME_BOTTOM_PADDING_PX
+  const availableWidthPx = Math.max(1, canvasWidth - sidePaddingPx * 2)
   const availableHeightPx = Math.max(
     1,
-    canvasHeight - CENTER_FRAME_TOP_PADDING_PX - CENTER_FRAME_BOTTOM_PADDING_PX,
+    canvasHeight - topPaddingPx - bottomPaddingPx,
   )
   const fitZoomPxPerMmForBounds = fitZoomPxPerMm(
     {
@@ -347,12 +363,16 @@ function createTopBiasedViewportForBounds(
     zoomPxPerMm,
     cameraCenterMm: {
       x: roundMm(bounds.x + bounds.width / 2),
-      y: roundMm(bounds.y + (canvasHeight / 2 - CENTER_FRAME_TOP_PADDING_PX) / zoomPxPerMm),
+      y: roundMm(bounds.y + (canvasHeight / 2 - topPaddingPx) / zoomPxPerMm),
     },
   }
 }
 
 function App() {
+  const isOgMode =
+    typeof window !== 'undefined' && isOgModeSearch(window.location.search)
+  const ogSceneVariant =
+    typeof window !== 'undefined' ? getOgSceneVariant(window.location.search) : 'tutorial'
   const scene = useEditorStore((state) => state.scene)
   const selection = useEditorStore((state) => state.selection)
   const {
@@ -465,10 +485,10 @@ function App() {
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
   const [isFullLibraryOpen, setIsFullLibraryOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
-    readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
+    isOgMode ? false : readStoredFlag(LEFT_PANEL_COLLAPSED_KEY),
   )
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(() =>
-    readStoredFlag(RIGHT_PANEL_COLLAPSED_KEY),
+    isOgMode ? false : readStoredFlag(RIGHT_PANEL_COLLAPSED_KEY),
   )
   const [workspaceModalState, setWorkspaceModalState] =
     useState<WorkspaceModalState>()
@@ -776,6 +796,13 @@ function App() {
     [],
   )
   const onboardingSteps = tourMode === 'tutorial' ? tutorialSteps : guideSteps
+  const isOgSceneLoaded = useMemo(
+    () =>
+      ogSceneVariant === 'tutorial'
+        ? scene.metadata.name === 'Tutorial Example Setup'
+        : scene.metadata.name === 'Schema-Lab OG Scene',
+    [ogSceneVariant, scene.metadata.name],
+  )
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -785,6 +812,11 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (isOgMode) {
+      setIsOnboardingOpen(false)
+      return
+    }
+
     if (typeof window === 'undefined') {
       return
     }
@@ -795,7 +827,53 @@ function App() {
     if (!shouldNeverShow && !hasSeen) {
       setIsOnboardingOpen(true)
     }
-  }, [])
+  }, [isOgMode])
+
+  useEffect(() => {
+    if (!isOgMode || isOgSceneLoaded) {
+      return
+    }
+
+    const nextState = useEditorStore.getState()
+
+    nextState.loadScene(
+      ogSceneVariant === 'tutorial' ? createTutorialScene() : createOgScene(),
+      { history: 'reset' },
+    )
+    nextState.setRenderMode('simple')
+    nextState.setWorkspaceViewMode('board-focus')
+    nextState.selectComponent(OG_SELECTED_COMPONENT_ID)
+    nextState.setHelpOpen(false)
+    nextState.setWarningsOpen(false)
+    nextState.setOpenToolbarMenu(undefined)
+    nextState.setShowBeamDetails(true)
+    nextState.setShowGaussianEnvelope(false)
+    nextState.setNotice(undefined)
+
+    setIsOnboardingOpen(false)
+    setIsTutorialModalOpen(false)
+    setIsTutorialTableNudgeOpen(false)
+    setIsVersionHistoryOpen(false)
+    setIsFullLibraryOpen(false)
+    setPendingExportRequest(undefined)
+    setExportOptionsFormat(undefined)
+    setRasterExportRequest(undefined)
+    setWorkspaceModalState(undefined)
+    setClearModalState(undefined)
+    setSvgImportOptionsState(undefined)
+    setSvgCalibrationState(undefined)
+    setContextMenuState(undefined)
+    setIsJsonModalOpen(false)
+    setJsonError(undefined)
+    setJsonSeed('')
+    setSvgImportNotice(undefined)
+    setShowComponentLabels(true)
+    setShowPostHolders(true)
+    setTourMode('guide')
+    setOnboardingStep(0)
+    setIsLibraryCollapsed(false)
+    setIsInspectorCollapsed(false)
+  }, [isOgMode, isOgSceneLoaded, ogSceneVariant])
 
   useEffect(() => {
     if (visibleSceneWarnings.length === 0) {
@@ -1101,6 +1179,10 @@ function App() {
   }
 
   const handleToggleLibrary = () => {
+    if (isOgMode) {
+      return
+    }
+
     setIsLibraryCollapsed((current) => {
       const next = !current
       writeStoredFlag(LEFT_PANEL_COLLAPSED_KEY, next)
@@ -1109,6 +1191,10 @@ function App() {
   }
 
   const handleToggleInspector = () => {
+    if (isOgMode) {
+      return
+    }
+
     setIsInspectorCollapsed((current) => {
       const next = !current
       writeStoredFlag(RIGHT_PANEL_COLLAPSED_KEY, next)
@@ -2325,6 +2411,78 @@ function App() {
     }
   }, [canShowSelectionToolbar, selectionBoundsScreenAabb, viewport])
 
+  useEffect(() => {
+    if (!isOgMode || !isOgSceneLoaded) {
+      return
+    }
+
+    if (
+      viewport.canvasSizePx.width <= 0 ||
+      viewport.canvasSizePx.height <= 0
+    ) {
+      return
+    }
+
+    const breadboardBoundsMm =
+      scene.workspace.kind === 'optical-table'
+        ? (() => {
+            const breadboard = scene.workspace.breadboards[0]
+            return breadboard
+              ? getBreadboardWorldBoundsMm(
+                  breadboard.model,
+                  breadboard.anchorMm,
+                  breadboard.rotationQuarterTurns,
+                )
+              : undefined
+          })()
+        : getBreadboardWorldBoundsMm(scene.workspace.breadboard)
+    if (!breadboardBoundsMm) {
+      return
+    }
+    const focusBoundsMm =
+      scene.workspace.kind === 'single-breadboard'
+        ? {
+            x: roundMm(breadboardBoundsMm.x - 2),
+            y: roundMm(breadboardBoundsMm.y - 3),
+            width: roundMm(breadboardBoundsMm.width + 6),
+            height: roundMm(breadboardBoundsMm.height + 8),
+          }
+        : {
+            x: roundMm(breadboardBoundsMm.x - 24),
+            y: roundMm(breadboardBoundsMm.y - 34),
+            width: roundMm(breadboardBoundsMm.width + 278),
+            height: roundMm(breadboardBoundsMm.height + 58),
+          }
+    const nextViewport = createTopBiasedViewportForBounds(
+      focusBoundsMm,
+      viewport,
+      scene.workspace.kind === 'single-breadboard'
+        ? {
+            bottomPaddingPx: OG_SOLO_BOARD_BOTTOM_PADDING_PX,
+            sidePaddingPx: OG_SOLO_BOARD_SIDE_PADDING_PX,
+            topPaddingPx: OG_SOLO_BOARD_TOP_PADDING_PX,
+          }
+        : {
+            bottomPaddingPx: OG_CENTER_FRAME_BOTTOM_PADDING_PX,
+            sidePaddingPx: OG_CENTER_FRAME_SIDE_PADDING_PX,
+            topPaddingPx: OG_CENTER_FRAME_TOP_PADDING_PX,
+          },
+    )
+
+    if (
+      Math.abs(nextViewport.cameraCenterMm.x - viewport.cameraCenterMm.x) < 0.5 &&
+      Math.abs(nextViewport.cameraCenterMm.y - viewport.cameraCenterMm.y) < 0.5 &&
+      Math.abs(nextViewport.zoomPxPerMm - viewport.zoomPxPerMm) < 0.01
+    ) {
+      return
+    }
+
+    useEditorStore.getState().setViewport({
+      ...viewport,
+      ...nextViewport,
+    })
+  }, [isOgMode, isOgSceneLoaded, scene, viewport])
+
   const statusBoardLabel =
     scene.workspace.kind === 'optical-table'
       ? workspaceViewMode === 'table-view'
@@ -2407,11 +2565,12 @@ function App() {
   ])
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isOgMode ? ' app-shell--og' : ''}`}>
       <Toolbar
         beamTrace={beamTrace}
         dismissedWarningCount={dismissedWarningIds.length}
         isBoardFocusAvailable={boardFocusAvailable}
+        isOgMode={isOgMode}
         isWarningPulse={isWarningReviewOpen}
         onClearBreadboard={handleRequestClearBreadboard}
         onClearTable={handleRequestClearTable}
@@ -2541,7 +2700,7 @@ function App() {
               showPostHolders={showPostHolders}
             />
 
-            {selectionToolbarStyle ? (
+            {!isOgMode && selectionToolbarStyle ? (
               <SelectionToolbar
                 canCenter={canCenterSelection}
                 canDelete={selection.type === 'component'}
@@ -2570,7 +2729,8 @@ function App() {
             ) : null}
           </div>
 
-          <div className="canvas-status" data-testid="canvas-status">
+          {!isOgMode ? (
+            <div className="canvas-status" data-testid="canvas-status">
             <button
               aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
               className="canvas-status__version"
@@ -2591,7 +2751,8 @@ function App() {
             {svgImportNotice ? (
               <span className="canvas-status__warning">{svgImportNotice}</span>
             ) : null}
-          </div>
+            </div>
+          ) : null}
 
           <CanvasContextMenu
             actions={contextMenuActions}
@@ -2713,64 +2874,74 @@ function App() {
         schemaVersion={SCENE_DOCUMENT_VERSION}
       />
 
-      <FullLibraryModal
-        isOpen={isFullLibraryOpen}
-        onArm={(type, variantId) => {
-          setIsFullLibraryOpen(false)
-          addComponent(type, variantId)
-        }}
-        onClose={() => setIsFullLibraryOpen(false)}
-      />
+      {!isOgMode ? (
+        <FullLibraryModal
+          isOpen={isFullLibraryOpen}
+          onArm={(type, variantId) => {
+            setIsFullLibraryOpen(false)
+            addComponent(type, variantId)
+          }}
+          onClose={() => setIsFullLibraryOpen(false)}
+        />
+      ) : null}
 
-      <WarningReviewModal
-        isOpen={isWarningReviewOpen}
-        onCancel={() => setPendingExportRequest(undefined)}
-        onExportAnyway={() => {
-          const nextRequest = pendingExportRequest
+      {!isOgMode ? (
+        <WarningReviewModal
+          isOpen={isWarningReviewOpen}
+          onCancel={() => setPendingExportRequest(undefined)}
+          onExportAnyway={() => {
+            const nextRequest = pendingExportRequest
 
-          setPendingExportRequest(undefined)
+            setPendingExportRequest(undefined)
 
-          if (!nextRequest) {
-            return
+            if (!nextRequest) {
+              return
+            }
+
+            void startExport(nextRequest)
+          }}
+          onReviewWarnings={() => {
+            setPendingExportRequest(undefined)
+            setWarningsOpen(true)
+            setSelectedWarningId(
+              filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
+            )
+          }}
+          exportLabel={
+            pendingExportRequest
+              ? `${pendingExportRequest.scope === 'breadboard-only' ? 'Breadboard' : 'Full Scheme'} ${pendingExportRequest.format === 'svg' && pendingExportRequest.svgPreset === 'presentation' ? 'Presentation ' : pendingExportRequest.format === 'svg' ? 'Engineering ' : ''}${pendingExportRequest.format.toUpperCase()}`
+              : undefined
           }
+          warnings={visibleSceneWarnings}
+        />
+      ) : null}
 
-          void startExport(nextRequest)
-        }}
-        onReviewWarnings={() => {
-          setPendingExportRequest(undefined)
-          setWarningsOpen(true)
-          setSelectedWarningId(
-            filteredSceneWarnings[0]?.id ?? visibleSceneWarnings[0]?.id,
-          )
-        }}
-        exportLabel={
-          pendingExportRequest
-            ? `${pendingExportRequest.scope === 'breadboard-only' ? 'Breadboard' : 'Full Scheme'} ${pendingExportRequest.format === 'svg' && pendingExportRequest.svgPreset === 'presentation' ? 'Presentation ' : pendingExportRequest.format === 'svg' ? 'Engineering ' : ''}${pendingExportRequest.format.toUpperCase()}`
-            : undefined
-        }
-        warnings={visibleSceneWarnings}
-      />
+      {!isOgMode ? (
+        <TutorialModal
+          isOpen={isTutorialModalOpen}
+          onCancel={() => setIsTutorialModalOpen(false)}
+          onConfirm={handleLoadTutorial}
+        />
+      ) : null}
 
-      <TutorialModal
-        isOpen={isTutorialModalOpen}
-        onCancel={() => setIsTutorialModalOpen(false)}
-        onConfirm={handleLoadTutorial}
-      />
+      {!isOgMode ? (
+        <VersionHistoryModal
+          isOpen={isVersionHistoryOpen}
+          onClose={() => setIsVersionHistoryOpen(false)}
+        />
+      ) : null}
 
-      <VersionHistoryModal
-        isOpen={isVersionHistoryOpen}
-        onClose={() => setIsVersionHistoryOpen(false)}
-      />
-
-      <OnboardingTour
-        currentStep={onboardingStep}
-        isOpen={isOnboardingOpen}
-        onClose={handleCloseOnboarding}
-        onNeverShowAgain={handleNeverShowOnboarding}
-        onNext={handleAdvanceOnboarding}
-        onPrevious={handleRetreatOnboarding}
-        steps={onboardingSteps}
-      />
+      {!isOgMode ? (
+        <OnboardingTour
+          currentStep={onboardingStep}
+          isOpen={isOnboardingOpen}
+          onClose={handleCloseOnboarding}
+          onNeverShowAgain={handleNeverShowOnboarding}
+          onNext={handleAdvanceOnboarding}
+          onPrevious={handleRetreatOnboarding}
+          steps={onboardingSteps}
+        />
+      ) : null}
 
       <WorkspaceModeModal
         isOpen={isWorkspaceModalOpen}
