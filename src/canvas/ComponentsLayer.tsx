@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
-import { Circle, Layer, Line, Rect } from 'react-konva'
+import { Circle, Group, Layer, Line, Rect, Text } from 'react-konva'
 import {
   annotateScenePlacementOccupancy,
   inspectSceneComponentPlacement,
@@ -30,6 +30,11 @@ import {
   projectWorldPointToScreen,
   resolveProjectedScreenPointToWorld,
 } from './renderers/tableViewProjection'
+import {
+  getComponentLabelPlacements,
+  getProjectedComponentLabelPlacements,
+} from './labelLayout'
+import type { BoundsPx } from './labelLayout'
 
 interface DragPreviewState {
   componentId: string
@@ -52,6 +57,7 @@ interface ComponentsLayerProps {
   isHighlightTool?: boolean
   isLineTool?: boolean
   isPanMode: boolean
+  labelObstacles?: BoundsPx[]
   showLabels?: boolean
   showPostHolders?: boolean
   onBeginComponentDrag: (componentId: string) => void
@@ -123,6 +129,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   isHighlightTool = false,
   isLineTool = false,
   isPanMode,
+  labelObstacles,
   showLabels = true,
   showPostHolders = false,
   onBeginComponentDrag,
@@ -378,6 +385,39 @@ export const ComponentsLayer = memo(function ComponentsLayer({
       return getDepth(left) - getDepth(right)
     })
   }, [displayedComponents, getDepth, scene, useProjectedTableView, viewport])
+  const componentLabelPlacements = useMemo(
+    () =>
+      showLabels
+        ? useProjectedTableView
+          ? getProjectedComponentLabelPlacements({
+              additionalObstacles: labelObstacles,
+              components: orderedComponents,
+              highlightedComponentIds,
+              scene,
+              selectedComponentId,
+              viewport,
+            })
+          : getComponentLabelPlacements({
+              additionalObstacles: labelObstacles,
+              components: orderedComponents,
+              highlightedComponentIds,
+              renderMode,
+              selectedComponentId,
+              viewport,
+            })
+        : [],
+    [
+      highlightedComponentIds,
+      labelObstacles,
+      orderedComponents,
+      renderMode,
+      scene,
+      selectedComponentId,
+      showLabels,
+      useProjectedTableView,
+      viewport,
+    ],
+  )
 
   const resolveAnchorFromScreenPoint = useMemo(
     () =>
@@ -550,7 +590,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
                   )
                 }
               : undefined,
-          showLabels,
+          showLabels: false,
           showPostHolders,
           surfaceSupportCompensationMm: getSurfaceSupportCompensationMm(
             scene,
@@ -732,6 +772,57 @@ export const ComponentsLayer = memo(function ComponentsLayer({
           )}
         </>
       ) : null}
+
+      {componentLabelPlacements.map((label) => {
+        const isSelected = label.id === selectedComponentId
+        const isHighlighted = highlightedComponentIds?.includes(label.id)
+        const needsLeader = label.side !== 'below'
+
+        return (
+          <Group key={`${label.id}-screen-label`}>
+            {needsLeader ? (
+              <Line
+                dash={[4, 3]}
+                listening={false}
+                opacity={0.42}
+                points={[
+                  label.leaderStartPx.x,
+                  label.leaderStartPx.y,
+                  label.leaderEndPx.x,
+                  label.leaderEndPx.y,
+                ]}
+                stroke={isHighlighted ? '#f5d28c' : '#a8c7d4'}
+                strokeWidth={1}
+              />
+            ) : null}
+            <Text
+              align="center"
+              fill={
+                isSelected
+                  ? 'rgba(244, 251, 255, 0.9)'
+                  : isHighlighted
+                    ? 'rgba(255, 242, 198, 0.88)'
+                    : renderMode === 'simple'
+                      ? 'rgba(236, 242, 247, 0.9)'
+                      : 'rgba(230, 237, 242, 0.78)'
+              }
+              fontFamily="IBM Plex Sans, Avenir Next, Segoe UI, sans-serif"
+              fontSize={label.fontSizePx}
+              fontStyle={renderMode === 'simple' || isSelected || isHighlighted ? 'bold' : 'normal'}
+              height={label.bounds.height}
+              lineHeight={label.lineHeightPx / label.fontSizePx}
+              listening={false}
+              shadowBlur={5}
+              shadowColor="#071016"
+              shadowOpacity={0.82}
+              text={label.lines.join('\n')}
+              width={label.bounds.width}
+              x={label.bounds.x}
+              y={label.bounds.y}
+            />
+          </Group>
+        )
+      })}
     </Layer>
   )
 })

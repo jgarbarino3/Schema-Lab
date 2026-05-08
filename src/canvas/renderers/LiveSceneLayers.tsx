@@ -1,4 +1,4 @@
-import { Fragment, memo } from 'react'
+import { Fragment, memo, useMemo } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { Layer, Line, Rect } from 'react-konva'
 import { AnnotationsLayer } from '../AnnotationsLayer'
@@ -34,6 +34,7 @@ import {
   getProjectedBoundsLinePoints,
   projectWorldPointToScreen,
 } from './tableViewProjection'
+import { getBeamSegmentScreenObstacles } from '../labelLayout'
 
 export interface LiveSceneBreadboardDragPreviewState {
   breadboardId: string
@@ -196,6 +197,13 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
     (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
       annotation.kind === 'line',
   )
+  const componentLabelObstacles = useMemo(
+    () =>
+      useProjectedTableView
+        ? []
+        : getBeamSegmentScreenObstacles(beamTrace, viewport),
+    [beamTrace, useProjectedTableView, viewport],
+  )
   const projectScenePoint = (
     pointMm: Vector2Mm,
     options?: {
@@ -242,8 +250,10 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         selectedInteractionId={interaction.selectedBeamInteractionId}
         selectedPathId={interaction.selectedBeamPathId}
         selectedSegmentId={interaction.selectedBeamSegmentId}
+        renderMode={renderMode}
         scene={scene}
         showDetails={interaction.showBeamDetails}
+        showComponentLabels={showLabels}
         useProjectedTableView={useProjectedTableView}
         viewport={viewport}
       />
@@ -339,6 +349,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         onResizeComponent={(_, update) => onUpdateSelectedGeometryOverride(update)}
         onSelectComponent={onSelectComponent}
         onUpdateComponentDrag={onUpdateComponentDrag}
+        labelObstacles={componentLabelObstacles}
         pendingPlacement={interaction.pendingPlacement}
         renderMode={renderMode}
         scene={scene}

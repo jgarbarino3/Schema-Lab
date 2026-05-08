@@ -212,20 +212,64 @@ describe('export helpers', () => {
     expect(svgMarkup).not.toContain('sources at ±')
   })
 
-  it('creates a deterministic tutorial scene with the expected focus component', () => {
+  it('creates a deterministic folded sample-line tutorial scene', () => {
     const scene = createTutorialScene()
 
     expect(scene.workspace.kind).toBe('single-breadboard')
     if (scene.workspace.kind !== 'single-breadboard') {
       throw new Error('Tutorial scene should stay in single-breadboard mode')
     }
-    expect(scene.workspace.breadboard.widthMm).toBe(425)
-    expect(
-      scene.components.some((component) => component.id === TUTORIAL_FOCUS_COMPONENT_ID),
-    ).toBe(true)
+    expect(scene.workspace.breadboard.widthMm).toBe(650)
+    expect(TUTORIAL_FOCUS_COMPONENT_ID).toBe('tutorial-sample-holder')
+    expect(scene.components.some((component) => component.id === TUTORIAL_FOCUS_COMPONENT_ID)).toBe(true)
     expect(
       scene.components.filter((component) => component.config.source?.isEnabled).length,
-    ).toBe(2)
+    ).toBe(1)
+
+    expect(scene.components.map((component) => component.type)).toEqual([
+      'attenuator',
+      'waveplate',
+      'polarizer',
+      'beamsplitter',
+      'detector',
+      'mirror',
+      'mirror',
+      'lens',
+      'iris',
+      'sample-holder',
+      'sample',
+      'detector',
+      'laser-source',
+    ])
+
+    const trace = traceSceneBeams(scene)
+    const split = trace.events.find((event) => event.componentId === 'tutorial-pickoff')
+    const reflections = trace.events.filter((event) => event.interactionKind === 'reflection')
+    const pickoffCapture = trace.events.find(
+      (event) =>
+        event.componentId === 'tutorial-pickoff-detector' &&
+        event.interactionKind === 'terminal',
+    )
+    const detectorCapture = trace.events.find(
+      (event) =>
+        event.componentId === 'tutorial-detector' && event.interactionKind === 'terminal',
+    )
+
+    expect(split?.interactionKind).toBe('split')
+    expect(pickoffCapture?.capturedPowerMw).toBeGreaterThan(0.2)
+    expect(reflections.map((event) => event.componentId)).toEqual([
+      'tutorial-mirror-lift',
+      'tutorial-mirror-sample-rail',
+    ])
+    expect(detectorCapture?.capturedPowerMw).toBeGreaterThan(1)
+    expect(
+      trace.segments.some(
+        (segment) =>
+          segment.status === 'propagated' &&
+          Math.abs(segment.directionMm.x) < 0.001 &&
+          segment.directionMm.y < -0.99,
+      ),
+    ).toBe(true)
   })
 
   it('packages a raster image into a PPTX blob', async () => {

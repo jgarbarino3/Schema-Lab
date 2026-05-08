@@ -10,8 +10,9 @@ import type {
   SourceConfig,
   Vector2Mm,
 } from './types'
+import { syncAttachedComponentTransforms } from './workspace'
 
-export const TUTORIAL_FOCUS_COMPONENT_ID = 'tutorial-delay-stage'
+export const TUTORIAL_FOCUS_COMPONENT_ID = 'tutorial-sample-holder'
 
 function cloneConfig<T extends ComponentConfig>(config: T): T {
   return JSON.parse(JSON.stringify(config)) as T
@@ -106,48 +107,19 @@ export function createTutorialScene(): SceneDocument {
   }
 
   scene.metadata.name = 'Tutorial Example Setup'
-  scene.workspace.breadboard.label = 'Tutorial Breadboard 425 × 350'
-  scene.workspace.breadboard.widthMm = 425
-  scene.workspace.breadboard.heightMm = 350
-
-  const steeringMirror = createComponent({
-    id: 'tutorial-mirror-steering',
-    type: 'mirror',
-    label: 'Mirror 1',
-    anchorMm: { x: 120, y: 95 },
-  })
-  const curvedMirror = createComponent({
-    id: 'tutorial-curved-mirror',
-    type: 'curved-mirror',
-    variantId: 'concave-1in',
-    label: 'Curved Mirror 1',
-    anchorMm: { x: 120, y: 55 },
-    rotationQuarterTurns: 3,
-    config: {
-      ...createDefaultComponentConfig('mirror', 'concave-1in'),
-      curvedMirror: {
-        radiusOfCurvatureMm: 180,
-        isConvex: false,
-      },
-    },
-  })
-  const steeringDetector = createComponent({
-    id: 'tutorial-steering-detector',
-    type: 'detector',
-    label: 'Detector 1',
-    anchorMm: { x: 52, y: 55 },
-    rotationQuarterTurns: 2,
-  })
+  scene.workspace.breadboard.label = 'Folded Sample-Line Breadboard 650 × 400'
+  scene.workspace.breadboard.widthMm = 650
+  scene.workspace.breadboard.heightMm = 400
 
   const attenuator = createComponent({
     id: 'tutorial-attenuator',
     type: 'attenuator',
-    label: 'Attenuator 1',
-    anchorMm: { x: 82, y: 235 },
+    label: 'Variable ND',
+    anchorMm: { x: 87.5, y: 312.5 },
     config: {
       ...createDefaultComponentConfig('attenuator', 'variable-nd-horizontal'),
       attenuator: {
-        transmissionPercent: 62,
+        transmissionPercent: 68,
         orientation: 'horizontal',
       },
     },
@@ -155,8 +127,8 @@ export function createTutorialScene(): SceneDocument {
   const waveplate = createComponent({
     id: 'tutorial-waveplate',
     type: 'waveplate',
-    label: 'Waveplate 1',
-    anchorMm: { x: 122, y: 235 },
+    label: 'Half-Wave Plate',
+    anchorMm: { x: 162.5, y: 312.5 },
     config: {
       ...createDefaultComponentConfig('waveplate', 'half-wave'),
       waveplate: {
@@ -170,8 +142,8 @@ export function createTutorialScene(): SceneDocument {
   const polarizer = createComponent({
     id: 'tutorial-polarizer',
     type: 'polarizer',
-    label: 'Polarizer 1',
-    anchorMm: { x: 162, y: 235 },
+    label: 'Linear Polarizer',
+    anchorMm: { x: 237.5, y: 312.5 },
     config: {
       ...createDefaultComponentConfig('polarizer'),
       polarizer: {
@@ -181,81 +153,96 @@ export function createTutorialScene(): SceneDocument {
       },
     },
   })
-  const delayStage = createComponent({
-    id: TUTORIAL_FOCUS_COMPONENT_ID,
-    type: 'delay-stage',
-    variantId: 'pi-m-112-1dg1',
-    label: 'Delay Stage 1',
-    anchorMm: { x: 222, y: 235 },
+
+  const pickoff = createComponent({
+    id: 'tutorial-pickoff',
+    type: 'beamsplitter',
+    variantId: 'plate-1in',
+    label: 'Diagnostic Pickoff',
+    anchorMm: { x: 312.5, y: 312.5 },
     config: {
-      ...createDefaultComponentConfig('delay-stage', 'pi-m-112-1dg1'),
-      delayLine: {
-        positionMm: 7.5,
-        travelMm: 25,
-        topology: 'double-pass',
-        zeroDelayOffsetFs: 0,
+      ...createDefaultComponentConfig('beamsplitter', 'plate-1in'),
+      beamSplitter: {
+        reflectPercent: 18,
+        lossPercent: 2,
       },
     },
   })
-  const telescope = createComponent({
-    id: 'tutorial-telescope',
-    type: 'telescope',
-    variantId: 'reflective-compressor-2x',
-    label: 'Telescope 1',
-    anchorMm: { x: 295, y: 235 },
-    config: {
-      ...createDefaultComponentConfig('telescope', 'reflective-compressor-2x'),
-      telescope: {
-        mode: 'reflection',
-        element1Mm: 200,
-        element2Mm: 100,
-        separationMm: 300,
-        clearApertureMm: 25.4,
-      },
-    },
-  })
-  const bbo = createComponent({
-    id: 'tutorial-bbo',
-    type: 'bbo-crystal',
-    label: 'BBO 1',
-    anchorMm: { x: 358, y: 235 },
-    config: {
-      ...createDefaultComponentConfig('bbo-crystal'),
-      bboCrystal: {
-        crystalType: 'type-i',
-        interactionMode: 'advanced',
-        thicknessUm: 300,
-        phaseMatchingAngleDeg: 29.2,
-        polarizationAxisLocalDeg: 0,
-      },
-    },
-  })
-  const mainDetector = createComponent({
-    id: 'tutorial-main-detector',
+  const pickoffDetector = createComponent({
+    id: 'tutorial-pickoff-detector',
     type: 'detector',
-    label: 'Detector 2',
-    anchorMm: { x: 402, y: 235 },
+    label: 'Pickoff Detector',
+    anchorMm: { x: 312.5, y: 212.5 },
+    rotationQuarterTurns: 1,
+  })
+  const liftMirror = createComponent({
+    id: 'tutorial-mirror-lift',
+    type: 'mirror',
+    variantId: 'pf10-03-p01',
+    label: 'Mirror M1',
+    anchorMm: { x: 387.5, y: 312.5 },
+    config: createDefaultComponentConfig('mirror', 'pf10-03-p01'),
+  })
+  const sampleRailMirror = createComponent({
+    id: 'tutorial-mirror-sample-rail',
+    type: 'mirror',
+    variantId: 'pf10-03-p01',
+    label: 'Mirror M2',
+    anchorMm: { x: 387.5, y: 112.5 },
+    config: createDefaultComponentConfig('mirror', 'pf10-03-p01'),
+  })
+  const lens = createComponent({
+    id: 'tutorial-lens',
+    type: 'lens',
+    variantId: 'thin-lens-150mm',
+    label: '150 mm Lens',
+    anchorMm: { x: 462.5, y: 112.5 },
+    config: createDefaultComponentConfig('lens', 'thin-lens-150mm'),
+  })
+  const iris = createComponent({
+    id: 'tutorial-iris',
+    type: 'iris',
+    label: 'Cleanup Iris',
+    anchorMm: { x: 512.5, y: 112.5 },
+    config: {
+      ...createDefaultComponentConfig('iris'),
+      iris: {
+        apertureMm: 8,
+      },
+    },
+  })
+  const sampleHolder = createComponent({
+    id: TUTORIAL_FOCUS_COMPONENT_ID,
+    type: 'sample-holder',
+    variantId: 'thorlabs-km100b-m',
+    label: 'Sample Holder',
+    anchorMm: { x: 562.5, y: 112.5 },
+    config: createDefaultComponentConfig('sample-holder', 'thorlabs-km100b-m'),
+  })
+  const sample = createComponent({
+    id: 'tutorial-sample',
+    type: 'sample',
+    variantId: 'generic-sample-chip',
+    label: 'Sample Chip',
+    anchorMm: { x: 550.5, y: 102.5 },
+    config: createDefaultComponentConfig('sample', 'generic-sample-chip'),
+  })
+  sample.attachment = {
+    parentComponentId: sampleHolder.id,
+    parentMountSiteId: 'sample-seat',
+    localAnchorMm: { x: -4, y: -2 },
+    localRotationQuarterTurns: 0,
+  }
+  const detector = createComponent({
+    id: 'tutorial-detector',
+    type: 'detector',
+    label: 'Detector',
+    anchorMm: { x: 612.5, y: 112.5 },
   })
 
-  const steeringSource = createEnabledSource(
-    'tutorial-source-steering',
-    'Laser Source 1',
-    steeringMirror.id,
-    steeringMirror.anchorMm.y,
-    {
-      lane: 'left',
-      wavelengthNm: 515,
-      bandwidthNm: 4,
-      powerMw: 28,
-      normalizedPowerPercent: 100,
-      beamDiameterMm: 1.2,
-      divergenceMrad: 1.1,
-    },
-  )
-
-  const mainSource = createEnabledSource(
-    'tutorial-source-main',
-    'Laser Source 2',
+  const source = createEnabledSource(
+    'tutorial-source',
+    '800 nm Source',
     attenuator.id,
     attenuator.anchorMm.y,
     {
@@ -270,20 +257,21 @@ export function createTutorialScene(): SceneDocument {
   )
 
   scene.components = [
-    steeringMirror,
-    curvedMirror,
-    steeringDetector,
     attenuator,
     waveplate,
     polarizer,
-    delayStage,
-    telescope,
-    bbo,
-    mainDetector,
+    pickoff,
+    pickoffDetector,
+    liftMirror,
+    sampleRailMirror,
+    lens,
+    iris,
+    sampleHolder,
+    sample,
+    detector,
   ]
 
-  scene.components.push(alignSource(scene, steeringSource))
-  scene.components.push(alignSource(scene, mainSource))
+  scene.components.push(alignSource(scene, source))
 
-  return scene
+  return syncAttachedComponentTransforms(scene)
 }
