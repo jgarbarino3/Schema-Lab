@@ -29,10 +29,6 @@ export function VersionHistoryModal({
     >
         <div className="modal-shell__header">
           <h2 id={titleId}>Schema-Lab Release History</h2>
-          <p>
-            Versions track meaningful milestones instead of every Git push. Most entries stay
-            concise, while major releases can spell out the bigger workflow changes.
-          </p>
         </div>
 
         <div className="version-history">

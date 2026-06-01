@@ -4,9 +4,20 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v2.3'
+export const CURRENT_VERSION = 'v2.5'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v2.5',
+    summary:
+      'Schema-Lab 2.5 improves the tutorial workflow, export reliability, accessibility, and everyday editor polish while keeping the core planning experience familiar.',
+    highlights: [
+      'Refined tutorial setup with clearer layout guidance',
+      'Compact component labels for cleaner optical diagrams',
+      'More reliable breadboard-focused exports and drawing review flows',
+      'Accessibility, modal, touch, and toolbar polish across the editor',
+    ],
+  },
   {
     version: 'v2.3',
     summary:
