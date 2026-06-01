@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { ModalShell } from './ModalShell'
 
 export const SUGGESTION_FORM_NAME = 'schema-lab-suggestions'
 export const SUGGESTION_FORM_ENDPOINT = '/__forms.html'
@@ -64,7 +65,6 @@ export function FloatingToolbarTooltip({ target }: FloatingToolbarTooltipProps) 
 
   useLayoutEffect(() => {
     if (!target || typeof window === 'undefined') {
-      setStyle(undefined)
       return
     }
 
@@ -95,6 +95,7 @@ export function FloatingToolbarTooltip({ target }: FloatingToolbarTooltipProps) 
 }
 
 export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps) {
+  const titleId = useId()
   const [category, setCategory] = useState<SuggestionCategory>('Bug report')
   const [message, setMessage] = useState('')
   const [screenshot, setScreenshot] = useState<File | null>(null)
@@ -126,25 +127,6 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
       window.clearTimeout(timeout)
     }
   }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, onClose])
 
   if (!isOpen) {
     return null
@@ -200,11 +182,14 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
   }
 
   return createPortal(
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Anonymous suggestions">
-      <button className="modal-shell__backdrop" onClick={onClose} type="button" />
-      <div className="modal-shell__card modal-shell__card--suggestions">
+    <ModalShell
+      ariaLabel="Anonymous suggestions"
+      cardClassName="modal-shell__card modal-shell__card--suggestions"
+      onClose={onClose}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>Suggestions</h2>
+          <h2 id={titleId}>Suggestions</h2>
           <p>
             Anonymous feedback only. Send bugs, friction points, or ideas; submissions go to the
             developer through Netlify Forms and optional Netlify email notifications.
@@ -220,7 +205,7 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
         </div>
 
         {status === 'success' ? (
-          <div className="toolbar-suggestions__result">
+          <div className="toolbar-suggestions__result" role="status">
             <strong>Suggestion sent</strong>
             <p>Your anonymous message is ready for the developer in the Netlify Forms dashboard.</p>
           </div>
@@ -307,7 +292,11 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
               ) : null}
             </fieldset>
 
-            {error ? <p className="toolbar-suggestions__error">{error}</p> : null}
+            {error ? (
+              <p className="toolbar-suggestions__error" role="alert">
+                {error}
+              </p>
+            ) : null}
 
             <div className="modal-shell__actions">
               <button onClick={onClose} type="button">
@@ -327,8 +316,7 @@ export function SuggestionBoxModal({ isOpen, onClose }: SuggestionBoxModalProps)
             </button>
           </div>
         ) : null}
-      </div>
-    </div>,
+    </ModalShell>,
     document.body,
   )
 }

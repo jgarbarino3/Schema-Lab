@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { ModalShell } from './ModalShell'
 
 interface BreadboardChoice {
   id: string
@@ -58,6 +59,7 @@ function ToggleButton({
 }) {
   return (
     <button
+      aria-pressed={isActive}
       className={isActive ? 'modal-shell__toggle is-active' : 'modal-shell__toggle'}
       onClick={onClick}
       type="button"
@@ -73,6 +75,7 @@ export function ClearConfirmModal({
   onConfirm,
   state,
 }: ClearConfirmModalProps) {
+  const titleId = useId()
   const [selectedBreadboardId, setSelectedBreadboardId] = useState<string>()
   const [selection, setSelection] = useState<ClearScopeSelection>(DEFAULT_CLEAR_SELECTION)
 
@@ -106,12 +109,9 @@ export function ClearConfirmModal({
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label={state.title}>
-      <div className="modal-shell__backdrop" onClick={onCancel} />
-
-      <div className="modal-shell__card">
+    <ModalShell ariaLabel={state.title} onClose={onCancel} titleId={titleId}>
         <div className="modal-shell__header">
-          <h2>{state.title}</h2>
+          <h2 id={titleId}>{state.title}</h2>
           <p>{state.description}</p>
         </div>
 
@@ -228,7 +228,6 @@ export function ClearConfirmModal({
             {state.confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

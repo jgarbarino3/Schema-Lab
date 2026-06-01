@@ -217,6 +217,7 @@ export function SchemaStage({
   const selection = useEditorStore((state) => state.selection)
   const snapMode = useEditorStore((state) => state.snapMode)
   const renderMode = useEditorStore((state) => state.renderMode)
+  const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
   const simpleGlyphAppearances = useEditorStore(
     (state) => state.simpleGlyphAppearances,
   )
@@ -774,42 +775,45 @@ export function SchemaStage({
     }
   }
 
-  const getTouchPointPx = (touch: Touch, element: HTMLDivElement): ScreenPointPx => {
+  const getTouchPointPx = useCallback((
+    touch: Touch,
+    element: HTMLDivElement,
+  ): ScreenPointPx => {
     const rect = element.getBoundingClientRect()
 
     return {
       x: touch.clientX - rect.left,
       y: touch.clientY - rect.top,
     }
-  }
+  }, [])
 
-  const getPinchSnapshot = (
-    targetTouches: TouchList,
-    element: HTMLDivElement,
-  ) => {
-    if (targetTouches.length < 2) {
-      return undefined
-    }
+  const getPinchSnapshot = useCallback(
+    (targetTouches: TouchList, element: HTMLDivElement) => {
+      if (targetTouches.length < 2) {
+        return undefined
+      }
 
-    const firstPointPx = getTouchPointPx(targetTouches[0]!, element)
-    const secondPointPx = getTouchPointPx(targetTouches[1]!, element)
-    const distancePx = Math.hypot(
-      secondPointPx.x - firstPointPx.x,
-      secondPointPx.y - firstPointPx.y,
-    )
+      const firstPointPx = getTouchPointPx(targetTouches[0]!, element)
+      const secondPointPx = getTouchPointPx(targetTouches[1]!, element)
+      const distancePx = Math.hypot(
+        secondPointPx.x - firstPointPx.x,
+        secondPointPx.y - firstPointPx.y,
+      )
 
-    if (!Number.isFinite(distancePx) || distancePx <= 0) {
-      return undefined
-    }
+      if (!Number.isFinite(distancePx) || distancePx <= 0) {
+        return undefined
+      }
 
-    return {
-      distancePx,
-      midpointPx: {
-        x: (firstPointPx.x + secondPointPx.x) / 2,
-        y: (firstPointPx.y + secondPointPx.y) / 2,
-      },
-    }
-  }
+      return {
+        distancePx,
+        midpointPx: {
+          x: (firstPointPx.x + secondPointPx.x) / 2,
+          y: (firstPointPx.y + secondPointPx.y) / 2,
+        },
+      }
+    },
+    [getTouchPointPx],
+  )
 
   const handleWheel = (event: KonvaEventObject<WheelEvent>) => {
     event.evt.preventDefault()
@@ -1095,6 +1099,7 @@ export function SchemaStage({
   }, [
     applyPinchViewport,
     isPointerPanning,
+    getPinchSnapshot,
     setHoveredBeamSegmentId,
     setHoveredComponentId,
     viewport.canvasSizePx.height,
@@ -1551,19 +1556,19 @@ export function SchemaStage({
       clearAnnotationGuides()
       onOpenAnnotationContextMenu?.(pointPx)
     },
-    [onOpenAnnotationContextMenu],
+    [clearAnnotationGuides, onOpenAnnotationContextMenu],
   )
   const handleRendererComponentContextMenu = useCallback(
     (pointPx: ScreenPointPx) => {
       clearAnnotationGuides()
       onOpenComponentContextMenu?.(pointPx)
     },
-    [onOpenComponentContextMenu],
+    [clearAnnotationGuides, onOpenComponentContextMenu],
   )
   const handleClearRendererInspectionState = useCallback(() => {
     clearBeamInspectionSelection()
     clearAnnotationGuides()
-  }, [clearBeamInspectionSelection])
+  }, [clearAnnotationGuides, clearBeamInspectionSelection])
   const handleRendererTranslateAnnotation = useCallback(
     (annotationId: string, deltaMm: Vector2Mm) => {
       const selectedAnnotationId =
@@ -1679,6 +1684,7 @@ export function SchemaStage({
               showLabels={showLabels}
               showPostHolders={showPostHolders}
               simpleGlyphAppearances={simpleGlyphAppearances}
+              simpleIconStyle={simpleIconStyle}
               sourceGuide={sourceGuide}
               snapMode={snapMode}
               viewport={viewport}
@@ -1729,6 +1735,7 @@ export function SchemaStage({
               showLabels={showLabels}
               showPostHolders={showPostHolders}
               simpleGlyphAppearances={simpleGlyphAppearances}
+              simpleIconStyle={simpleIconStyle}
               sourceGuide={sourceGuide}
               snapMode={snapMode}
               viewport={viewport}

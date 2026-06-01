@@ -26,6 +26,7 @@ function ToggleButton({
   return (
     <button
       aria-label={title ?? label}
+      aria-pressed={isActive}
       className={`annotation-toolbar__toggle${isActive ? ' is-active' : ''}`}
       onClick={onClick}
       title={title}

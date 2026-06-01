@@ -37,6 +37,7 @@ import {
   shouldIncludeDefaultMount,
   supportsMountToggle,
 } from '../domain/componentCatalog'
+import { createAutoNumberedComponentLabel } from '../domain/componentLabels'
 import {
   clamp,
   applyPinchViewportTransform,
@@ -775,9 +776,10 @@ function clampViewportForActiveWorkspace(args: {
     1,
     args.viewport.canvasSizePx.height / args.viewport.zoomPxPerMm,
   )
+  const tableViewMinimumVisibleMm = 24
   const tableViewEdgePaddingMm = {
-    x: roundMm(tableViewViewportWidthMm),
-    y: roundMm(tableViewViewportHeightMm),
+    x: roundMm(Math.max(0, tableViewViewportWidthMm - tableViewMinimumVisibleMm)),
+    y: roundMm(Math.max(0, tableViewViewportHeightMm - tableViewMinimumVisibleMm)),
   }
   const workspaceViewMode = resolveWorkspaceViewModeForScene(
     args.scene,
@@ -1244,36 +1246,12 @@ function reconcileComponentsToScene(
   return nextScene.components
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function createAutoNumberedLabel(
   components: ComponentInstance[],
   type: ComponentType,
   variantId?: string,
 ) {
-  const baseLabel =
-    type === 'mirror' && variantId === 'flip-mirror'
-      ? 'Flip Mirror'
-      : getComponentDefinition(type).defaultLabel
-  const pattern = new RegExp(`^${escapeRegExp(baseLabel)}(?: (\\d+))?$`)
-  let highestIndex = 0
-
-  for (const component of components) {
-    const match = component.label.match(pattern)
-
-    if (!match) {
-      continue
-    }
-
-    highestIndex = Math.max(
-      highestIndex,
-      match[1] ? Number(match[1]) : 1,
-    )
-  }
-
-  return `${baseLabel} ${highestIndex + 1}`
+  return createAutoNumberedComponentLabel(components, type, variantId)
 }
 
 function createAutoNumberedBreadboardLabel(scene: SceneDocument) {
@@ -1547,14 +1525,7 @@ function createComponentDraft(
     type,
     label: createAutoNumberedLabel(scene.components, type, variantId),
     variantId,
-    anchorMm: (() => {
-      const surface = getSurfacePlacementModel(scene, activeHostSurfaceId)
-      const center = getNearestBoardCenterHole(surface.breadboard)
-      return {
-        x: center.x + surface.originMm.x,
-        y: center.y + surface.originMm.y,
-      }
-    })(),
+    anchorMm: getSurfaceCenterAnchorMm(scene, defaultSurfaceId),
     hostSurfaceId: defaultSurfaceId,
     rotationQuarterTurns: 0,
     config: createDefaultComponentConfig(type, variantId),

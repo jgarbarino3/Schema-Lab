@@ -1,3 +1,6 @@
+import { useId } from 'react'
+import { ModalShell } from './ModalShell'
+
 interface TutorialModalProps {
   isOpen: boolean
   onCancel: () => void
@@ -9,17 +12,21 @@ export function TutorialModal({
   onCancel,
   onConfirm,
 }: TutorialModalProps) {
+  const titleId = useId()
+
   if (!isOpen) {
     return null
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Load tutorial scene">
-      <div className="modal-shell__backdrop" onClick={onCancel} />
-
-      <div className="modal-shell__card modal-shell__card--tutorial">
+    <ModalShell
+      ariaLabel="Load tutorial scene"
+      cardClassName="modal-shell__card modal-shell__card--tutorial"
+      onClose={onCancel}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>Load Tutorial Example</h2>
+          <h2 id={titleId}>Load Tutorial Example</h2>
           <p>
             This replaces the current scene with a curated single-breadboard example that
             demonstrates a folded 800 nm sample line with attenuation, polarization control,
@@ -53,7 +60,6 @@ export function TutorialModal({
             Replace with tutorial
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

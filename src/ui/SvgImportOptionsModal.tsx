@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useState,
   type FocusEvent,
@@ -22,6 +23,7 @@ import type {
 } from '../domain/svgImport'
 import { resolveSvgImportScaleMmPerUnit } from '../domain/svgImport'
 import { useEditorStore } from '../state/editorStore'
+import { ModalShell } from './ModalShell'
 import { SvgImportBoardPreview } from './SvgImportBoardPreview'
 import { SvgImportPreview } from './SvgImportPreview'
 import { SvgImportVariantChooser } from './SvgImportVariantChooser'
@@ -408,6 +410,7 @@ function TablePlacementPreview(props: {
 }
 
 export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
+  const titleId = useId()
   const {
     analysis,
     autoCalibrationSuggestion,
@@ -796,15 +799,16 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
     document.sourceKind === 'svg' ? 'Import Drawing' : 'Import Raster Drawing'
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Drawing import">
-      <button className="modal-shell__backdrop" onClick={onCancel} type="button" />
-      <div
-        className="modal-shell__card modal-shell__card--export svg-import-options svg-import-options--preview"
-        data-testid="drawing-import-modal"
-      >
+    <ModalShell
+      ariaLabel="Drawing import"
+      cardClassName="modal-shell__card modal-shell__card--export svg-import-options svg-import-options--preview"
+      onClose={onCancel}
+      testId="drawing-import-modal"
+      titleId={titleId}
+    >
         <header className="modal-shell__header">
           <div>
-            <h2>{sourceTitle}</h2>
+            <h2 id={titleId}>{sourceTitle}</h2>
             <p>{fileName}</p>
           </div>
           <div className="svg-import-header__summary">
@@ -1409,7 +1413,6 @@ export function SvgImportOptionsModal(props: SvgImportOptionsModalProps) {
             </button>
           ) : null}
         </footer>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

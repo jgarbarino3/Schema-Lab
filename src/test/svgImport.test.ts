@@ -220,6 +220,9 @@ describe('svg import analysis', () => {
 
     expect(result.importedComponents).toBeGreaterThanOrEqual(2)
     expect(result.scene.components.some((component) => component.variantId === 'fesh0600')).toBe(true)
+    expect(result.scene.components.map((component) => component.label)).toEqual(
+      expect.arrayContaining(['BS1', 'F1']),
+    )
     expect(result.scene.annotations.length).toBeGreaterThanOrEqual(1)
   })
 
@@ -305,6 +308,7 @@ describe('svg import analysis', () => {
       baseline.scene.components[0].anchorMm.x,
     )
     expect(result.scene.components[0].rotationQuarterTurns).toBe(1)
+    expect(result.scene.components[0].label).toBe('M1')
   })
 
   it('imports raster-style assigned preview candidates without source SVG elements', () => {

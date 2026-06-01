@@ -2,7 +2,30 @@ import assert from 'node:assert/strict'
 import { chromium, devices } from 'playwright'
 
 const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
-const device = devices['iPad Pro 11 landscape']
+const scenarios = [
+  {
+    contextOptions: devices['iPad Pro 11 landscape'],
+    label: 'iPad landscape',
+  },
+  {
+    contextOptions: {
+      deviceScaleFactor: 3,
+      hasTouch: true,
+      isMobile: true,
+      viewport: { width: 390, height: 844 },
+    },
+    label: 'phone portrait',
+  },
+  {
+    contextOptions: {
+      deviceScaleFactor: 3,
+      hasTouch: true,
+      isMobile: true,
+      viewport: { width: 844, height: 390 },
+    },
+    label: 'phone landscape',
+  },
+]
 
 function parseZoom(text) {
   const match = text.match(/([0-9]+(?:\.[0-9]+)?)\s*px\/mm/i)
@@ -113,10 +136,8 @@ async function runSyntheticOneFingerDrag(page, selector, start, end, steps = 10)
   await dispatchSyntheticTouchEvent(page, selector, 'touchend', [lastPoint])
 }
 
-const browser = await chromium.launch({ headless: true })
-
-try {
-  const context = await browser.newContext(device)
+async function runTouchScenario(browser, scenario) {
+  const context = await browser.newContext(scenario.contextOptions)
   const page = await context.newPage()
   page.setDefaultTimeout(10000)
 
@@ -124,84 +145,95 @@ try {
     console.log(`STEP: ${label}`)
   }
 
-  await page.goto(targetUrl, { waitUntil: 'networkidle' })
+  try {
+    await page.goto(targetUrl, { waitUntil: 'networkidle' })
 
-  const tourCard = page.locator('.tour-card')
-  if (await tourCard.isVisible().catch(() => false)) {
-    await page.getByRole('button', { name: 'Exit' }).click()
-    await tourCard.waitFor({ state: 'hidden' })
+    const tourCard = page.locator('.tour-card')
+    if (await tourCard.isVisible().catch(() => false)) {
+      await page.getByRole('button', { name: 'Exit' }).click()
+      await tourCard.waitFor({ state: 'hidden' })
+    }
+
+    await page.evaluate(() => {
+      const store = window.__SCHEMA_LAB_STORE__.getState()
+      store.createFreshOpticalTable()
+      store.setWorkspaceViewMode('table-view')
+    })
+    await page.waitForTimeout(250)
+
+    const stage = page.locator('.konvajs-content').first()
+    const stageBox = await stage.boundingBox()
+    assert.ok(stageBox, 'Stage viewport should be visible')
+
+    const initialZoom = parseZoom(await page.getByTestId('status-zoom').textContent())
+    step(`${scenario.label} viewport loaded in table mode`)
+
+    await runSyntheticPinchGesture(
+      page,
+      '.konvajs-content',
+      {
+        x: stageBox.x + stageBox.width * 0.36,
+        y: stageBox.y + stageBox.height * 0.5,
+      },
+      {
+        x: stageBox.x + stageBox.width * 0.64,
+        y: stageBox.y + stageBox.height * 0.5,
+      },
+      {
+        x: stageBox.x + stageBox.width * 0.28,
+        y: stageBox.y + stageBox.height * 0.5,
+      },
+      {
+        x: stageBox.x + stageBox.width * 0.72,
+        y: stageBox.y + stageBox.height * 0.5,
+      },
+    )
+
+    const zoomAfterPinch = parseZoom(await page.getByTestId('status-zoom').textContent())
+    assert.notEqual(zoomAfterPinch, initialZoom, 'Pinch should change the visible zoom')
+    step(`pinch gesture changes zoom on ${scenario.label} viewport`)
+
+    const viewportBeforeDrag = await page.evaluate(
+      () => window.__SCHEMA_LAB_STORE__.getState().viewport,
+    )
+
+    await runSyntheticOneFingerDrag(
+      page,
+      '.konvajs-content',
+      {
+        x: stageBox.x + stageBox.width * 0.55,
+        y: stageBox.y + stageBox.height * 0.55,
+      },
+      {
+        x: stageBox.x + stageBox.width * 0.38,
+        y: stageBox.y + stageBox.height * 0.42,
+      },
+    )
+
+    const viewportAfterDrag = await page.evaluate(
+      () => window.__SCHEMA_LAB_STORE__.getState().viewport,
+    )
+    assert.notDeepEqual(
+      viewportAfterDrag.cameraCenterMm,
+      viewportBeforeDrag.cameraCenterMm,
+      'One-finger drag should pan the camera in table mode',
+    )
+    step(`one-finger drag pans the camera on ${scenario.label} viewport`)
+
+    const statusBoard = await page.getByTestId('status-board').textContent()
+    assert.match(statusBoard ?? '', /Board:/i)
+    step(`status bar remains readable after ${scenario.label} touch interactions`)
+  } finally {
+    await context.close()
   }
+}
 
-  await page.evaluate(() => {
-    const store = window.__SCHEMA_LAB_STORE__.getState()
-    store.createFreshOpticalTable()
-    store.setWorkspaceViewMode('table-view')
-  })
-  await page.waitForTimeout(250)
+const browser = await chromium.launch({ headless: true })
 
-  const stage = page.locator('.konvajs-content').first()
-  const stageBox = await stage.boundingBox()
-  assert.ok(stageBox, 'Stage viewport should be visible')
-
-  const initialZoom = parseZoom(await page.getByTestId('status-zoom').textContent())
-  step('iPad viewport loaded in table mode')
-
-  await runSyntheticPinchGesture(
-    page,
-    '.konvajs-content',
-    {
-      x: stageBox.x + stageBox.width * 0.36,
-      y: stageBox.y + stageBox.height * 0.5,
-    },
-    {
-      x: stageBox.x + stageBox.width * 0.64,
-      y: stageBox.y + stageBox.height * 0.5,
-    },
-    {
-      x: stageBox.x + stageBox.width * 0.28,
-      y: stageBox.y + stageBox.height * 0.5,
-    },
-    {
-      x: stageBox.x + stageBox.width * 0.72,
-      y: stageBox.y + stageBox.height * 0.5,
-    },
-  )
-
-  const zoomAfterPinch = parseZoom(await page.getByTestId('status-zoom').textContent())
-  assert.notEqual(zoomAfterPinch, initialZoom, 'Pinch should change the visible zoom')
-  step('pinch gesture changes zoom on iPad viewport')
-
-  const viewportBeforeDrag = await page.evaluate(
-    () => window.__SCHEMA_LAB_STORE__.getState().viewport,
-  )
-
-  await runSyntheticOneFingerDrag(
-    page,
-    '.konvajs-content',
-    {
-      x: stageBox.x + stageBox.width * 0.55,
-      y: stageBox.y + stageBox.height * 0.55,
-    },
-    {
-      x: stageBox.x + stageBox.width * 0.38,
-      y: stageBox.y + stageBox.height * 0.42,
-    },
-  )
-
-  const viewportAfterDrag = await page.evaluate(
-    () => window.__SCHEMA_LAB_STORE__.getState().viewport,
-  )
-  assert.notDeepEqual(
-    viewportAfterDrag.cameraCenterMm,
-    viewportBeforeDrag.cameraCenterMm,
-    'One-finger drag should pan the camera in table mode',
-  )
-  step('one-finger drag pans the camera on iPad viewport')
-
-  const statusBoard = await page.getByTestId('status-board').textContent()
-  assert.match(statusBoard ?? '', /Board:/i)
-  step('status bar remains readable after touch interactions')
-
+try {
+  for (const scenario of scenarios) {
+    await runTouchScenario(browser, scenario)
+  }
   console.log('touch-pinch-smoke-ok')
 } finally {
   await browser.close()

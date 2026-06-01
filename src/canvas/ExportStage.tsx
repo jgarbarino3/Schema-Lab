@@ -8,19 +8,21 @@ import type {
   RenderMode,
   SceneAnnotation,
   SceneDocument,
+  SimpleIconStyle,
   ViewportState,
 } from '../domain/types'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { worldToScreen } from '../domain/geometry'
+import { getScopedExportScene } from '../domain/exportScope'
 import { BeamLayer } from './BeamLayer'
 import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
+import type { SimpleGlyphAppearance } from './ComponentNode'
 import { GaussianEnvelopeLayer } from './GaussianEnvelopeLayer'
 import { getBeamSegmentScreenObstacles } from './labelLayout'
 import {
   getBreadboardInstance,
   getBreadboardInstances,
-  getHostSurfaceIdForComponent,
   getOpticalTable,
   getWorkspacePrimaryBreadboard,
 } from '../domain/workspace'
@@ -36,6 +38,8 @@ interface ExportStageProps {
   scope: ExportScope
   showLabels?: boolean
   showGaussianEnvelope: boolean
+  simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
+  simpleIconStyle?: SimpleIconStyle
   viewport: ViewportState
 }
 
@@ -49,16 +53,26 @@ export function ExportStage({
   scope,
   showLabels = true,
   showGaussianEnvelope,
+  simpleGlyphAppearances,
+  simpleIconStyle = 'enhanced',
   viewport,
 }: ExportStageProps) {
   const stageRef = useRef<Konva.Stage | null>(null)
   const primaryBreadboard = getWorkspacePrimaryBreadboard(scene)
   const opticalTable = getOpticalTable(scene)
   const breadboardInstances = getBreadboardInstances(scene)
+  const scopedScene = getScopedExportScene({
+    beamTrace,
+    breadboardSurfaceId,
+    gaussianTrace,
+    scene,
+    scope,
+  })
   const exportBreadboardInstance =
-    scene.workspace.kind === 'optical-table'
+    scopedScene.exportBreadboardInstance ??
+    (scene.workspace.kind === 'optical-table'
       ? getBreadboardInstance(scene, breadboardSurfaceId) ?? breadboardInstances[0]
-      : undefined
+      : undefined)
   const showTableSurface = !(
     scope === 'breadboard-only' && scene.workspace.kind === 'optical-table'
   )
@@ -66,16 +80,8 @@ export function ExportStage({
     scope === 'breadboard-only' && exportBreadboardInstance
       ? [exportBreadboardInstance]
       : breadboardInstances
-  const componentsToRender =
-    scope === 'breadboard-only' && exportBreadboardInstance
-      ? scene.components.filter(
-          (component) =>
-            getHostSurfaceIdForComponent(scene, component) === exportBreadboardInstance.id,
-        )
-      : scene.components
-  const visibleAnnotations = sortAnnotationsByZIndex(
-    scene.annotations.filter((annotation) => !annotation.hidden),
-  )
+  const componentsToRender = scopedScene.components
+  const visibleAnnotations = sortAnnotationsByZIndex(scopedScene.annotations)
   const belowBandAnnotations = visibleAnnotations.filter(
     (annotation) => annotation.layerBand === 'below-components',
   )
@@ -142,7 +148,6 @@ export function ExportStage({
               }}
               renderInLayer={false}
               showLabels={showLabels}
-              showSourceLanes={false}
               viewport={viewport}
             />
           ) : (
@@ -177,16 +182,16 @@ export function ExportStage({
 
         {showGaussianEnvelope ? (
           <GaussianEnvelopeLayer
-            beamTrace={beamTrace}
-            gaussianTrace={gaussianTrace}
+            beamTrace={scopedScene.beamTrace}
+            gaussianTrace={scopedScene.gaussianTrace}
             scene={scene}
             viewport={viewport}
           />
         ) : null}
 
         <BeamLayer
-          beamTrace={beamTrace}
-          gaussianTrace={gaussianTrace}
+          beamTrace={scopedScene.beamTrace}
+          gaussianTrace={scopedScene.gaussianTrace}
           onHoverSegment={() => undefined}
           onSelectSegment={() => undefined}
           scene={scene}
@@ -236,6 +241,8 @@ export function ExportStage({
           renderMode={renderMode}
           scene={scene}
           showLabels={showLabels}
+          simpleGlyphAppearances={simpleGlyphAppearances}
+          simpleIconStyle={simpleIconStyle}
           snapMode="none"
           viewport={viewport}
         />

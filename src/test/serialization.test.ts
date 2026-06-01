@@ -528,9 +528,11 @@ describe('scene serialization', () => {
       ...opticalTableScene,
       workspace: {
         ...opticalTableScene.workspace,
-        breadboards: opticalTableScene.workspace.breadboards.map(
-          ({ mountPlaneOffsetMm: _mountPlaneOffsetMm, ...breadboard }) => breadboard,
-        ),
+        breadboards: opticalTableScene.workspace.breadboards.map((breadboardEntry) => {
+          const { mountPlaneOffsetMm, ...breadboard } = breadboardEntry
+          void mountPlaneOffsetMm
+          return breadboard
+        }),
       },
     })
 

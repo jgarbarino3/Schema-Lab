@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
-const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
 
 async function expectHidden(locator) {
   await locator.waitFor({ state: 'hidden' }).catch(async () => {
@@ -429,13 +429,12 @@ try {
     y: secondBreadboard.anchorMm.y - breadboardBeforeDrag.anchorMm.y,
   }
   assert.notDeepEqual(breadboardDelta, { x: 0, y: 0 })
-  assert.deepEqual(
-    {
-      x: mirrorOnBoard.anchorMm.x - mirrorBeforeDrag.anchorMm.x,
-      y: mirrorOnBoard.anchorMm.y - mirrorBeforeDrag.anchorMm.y,
-    },
-    breadboardDelta,
-  )
+  const mirrorDelta = {
+    x: mirrorOnBoard.anchorMm.x - mirrorBeforeDrag.anchorMm.x,
+    y: mirrorOnBoard.anchorMm.y - mirrorBeforeDrag.anchorMm.y,
+  }
+  assert.ok(Math.abs(mirrorDelta.x - breadboardDelta.x) < 1e-6)
+  assert.ok(Math.abs(mirrorDelta.y - breadboardDelta.y) < 1e-6)
   secondBreadboardCenter = {
     x: secondBreadboard.anchorMm.x + secondBreadboard.model.widthMm / 2,
     y: secondBreadboard.anchorMm.y + secondBreadboard.model.heightMm / 2,

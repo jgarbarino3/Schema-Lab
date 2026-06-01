@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -10,7 +11,11 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { ExportFormat } from '../domain/exportLayout'
-import type { BeamTraceResult, SceneWarning, WorkspaceKind, WorkspaceViewMode } from '../domain/types'
+import {
+  type SceneWarning,
+  type WorkspaceKind,
+  type WorkspaceViewMode,
+} from '../domain/types'
 import { useEditorStore } from '../state/editorStore'
 import {
   useToolbarInteractionState,
@@ -24,7 +29,6 @@ import {
 export type ExportAction = 'scene-json' | ExportFormat
 
 interface ToolbarProps {
-  beamTrace: BeamTraceResult
   dismissedWarningCount: number
   isBoardFocusAvailable: boolean
   isOgMode?: boolean
@@ -217,7 +221,6 @@ function ShortcutKey({ children }: { children: ReactNode }) {
 }
 
 export function Toolbar({
-  beamTrace: _beamTrace,
   dismissedWarningCount,
   isBoardFocusAvailable,
   isOgMode = false,
@@ -409,7 +412,7 @@ export function Toolbar({
   const highlightTooltip = bindToolbarTooltip('Highlight')
   const canvasToolsTooltip = bindToolbarTooltip('Canvas tools')
 
-  const getMenuButtonRef = (menu: NonNullable<typeof openToolbarMenu>) => {
+  const getMenuButtonRef = useCallback((menu: NonNullable<typeof openToolbarMenu>) => {
     switch (menu) {
       case 'export':
         return exportButtonRef
@@ -420,11 +423,10 @@ export function Toolbar({
       default:
         return exportButtonRef
     }
-  }
+  }, [])
 
   const activeMenuStyle = openToolbarMenu
-    ? menuStyle ??
-      getFloatingStyle(getMenuButtonRef(openToolbarMenu)?.current ?? null) ?? {
+    ? menuStyle ?? {
         left: 12,
         maxHeight: Math.max(180, window.innerHeight - 96),
         top: 72,
@@ -468,7 +470,7 @@ export function Toolbar({
       window.removeEventListener('resize', updateMenuPosition)
       window.removeEventListener('scroll', updateMenuPosition, true)
     }
-  }, [openToolbarMenu])
+  }, [getMenuButtonRef, openToolbarMenu])
 
   useEffect(() => {
     if (
@@ -1000,6 +1002,7 @@ export function Toolbar({
               }}
               onMouseEnter={openBoardModeTray}
               onMouseLeave={closeBoardModeTraySoon}
+              onMouseMove={openBoardModeTray}
             >
               <div className="toolbar__tool-group toolbar__tool-group--segmented">
                 <button
@@ -1035,6 +1038,7 @@ export function Toolbar({
                   {boardModePrimaryLabel}
                 </button>
                 <button
+                  aria-pressed={workspaceViewMode === 'table-view'}
                   className={workspaceViewMode === 'table-view' ? 'is-active-tool' : undefined}
                   data-testid="toolbar-table-view"
                   onClick={onRequestTableView}

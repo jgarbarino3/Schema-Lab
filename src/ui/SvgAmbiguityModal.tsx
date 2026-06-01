@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { getComponentDefinition } from '../domain/componentCatalog'
 import type {
   SvgImportDocument,
@@ -7,6 +7,7 @@ import type {
 } from '../domain/svgImport'
 import { SvgImportPreview } from './SvgImportPreview'
 import { SvgImportVariantChooser } from './SvgImportVariantChooser'
+import { ModalShell } from './ModalShell'
 
 interface SvgAmbiguityModalProps {
   document: SvgImportDocument
@@ -38,6 +39,7 @@ function describeReviewItem(item: SvgImportReviewItem) {
 }
 
 export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
+  const titleId = useId()
   const { document, isOpen, onCancel, onConfirm, reviewItems } = props
   const [index, setIndex] = useState(0)
   const [resolutions, setResolutions] = useState<Record<string, ResolutionState>>({})
@@ -101,11 +103,14 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
     currentResolution?.disposition === 'component' ? currentResolution.variantId : undefined
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Resolve SVG import review">
-      <button className="modal-shell__backdrop" onClick={onCancel} type="button" />
-      <div className="modal-shell__card svg-ambiguity-modal">
+    <ModalShell
+      ariaLabel="Resolve SVG import review"
+      cardClassName="modal-shell__card svg-ambiguity-modal"
+      onClose={onCancel}
+      titleId={titleId}
+    >
         <header className="modal-shell__header">
-          <h2>Review SVG Import</h2>
+          <h2 id={titleId}>Review SVG Import</h2>
           <p>
             {index + 1} of {reviewItems.length}: <strong>{describeReviewItem(current)}</strong>
           </p>
@@ -194,6 +199,7 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
                 </button>
               ) : null}
               <button
+                aria-pressed={currentResolution?.disposition === 'skip'}
                 className={currentResolution?.disposition === 'skip' ? 'is-active-tool' : undefined}
                 onClick={() =>
                   setResolution(current.id, {
@@ -309,7 +315,6 @@ export function SvgAmbiguityModal(props: SvgAmbiguityModalProps) {
             </button>
           )}
         </footer>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BREADBOARD_PRESETS } from '../domain/breadboardPresets'
 import { COMPONENT_DEFINITIONS } from '../domain/componentCatalog'
 import { useEditorStore } from '../state/editorStore'
@@ -63,26 +63,28 @@ export function ComponentLibrary({
     return map
   }, [allComponentEntries])
 
-  const armedGroupKey = pendingPlacementType
-    ? getDisplayGroupForCategory(
-        COMPONENT_DEFINITIONS.find((definition) => definition.type === pendingPlacementType)
-          ?.category!,
-      )
+  const pendingPlacementDefinition = pendingPlacementType
+    ? COMPONENT_DEFINITIONS.find((definition) => definition.type === pendingPlacementType)
+    : undefined
+  const armedGroupKey = pendingPlacementDefinition
+    ? getDisplayGroupForCategory(pendingPlacementDefinition.category)
     : undefined
   const normalizedQuery = query.trim().toLowerCase()
   const isSearchActive = normalizedQuery.length > 0
 
-  useEffect(() => {
-    if (armedGroupKey && !expandedGroups.has(armedGroupKey)) {
-      setExpandedGroups((previous) => new Set([...previous, armedGroupKey]))
-    }
-  }, [armedGroupKey, expandedGroups])
+  const effectiveExpandedGroups = useMemo(() => {
+    const next = new Set(expandedGroups)
 
-  useEffect(() => {
-    if (pendingBreadboardPresetId && !expandedGroups.has('__breadboards')) {
-      setExpandedGroups((previous) => new Set([...previous, '__breadboards']))
+    if (armedGroupKey) {
+      next.add(armedGroupKey)
     }
-  }, [expandedGroups, pendingBreadboardPresetId])
+
+    if (pendingBreadboardPresetId) {
+      next.add('__breadboards')
+    }
+
+    return next
+  }, [armedGroupKey, expandedGroups, pendingBreadboardPresetId])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -101,7 +103,7 @@ export function ComponentLibrary({
     }
   }, [])
 
-  const isComponentEntryArmed = (entry: LibraryComponentEntry) => {
+  const isComponentEntryArmed = useCallback((entry: LibraryComponentEntry) => {
     if (pendingPlacementType !== entry.type) {
       return false
     }
@@ -111,7 +113,7 @@ export function ComponentLibrary({
     }
 
     return entry.type !== 'mirror' || pendingPlacementVariantId !== 'flip-mirror'
-  }
+  }, [pendingPlacementType, pendingPlacementVariantId])
 
   const rememberRecent = (entry: RecentEntry) => {
     setRecentEntries((previous) => {
@@ -230,9 +232,8 @@ export function ComponentLibrary({
     allComponentEntries,
     addBreadboardInstance,
     addComponent,
+    isComponentEntryArmed,
     pendingBreadboardPresetId,
-    pendingPlacementType,
-    pendingPlacementVariantId,
     recentEntries,
     simpleIconStyle,
   ])
@@ -333,13 +334,13 @@ export function ComponentLibrary({
               type="button"
             >
               <span className="component-library__chevron">
-                {isSearchActive || expandedGroups.has('__breadboards') ? '\u25BE' : '\u25B8'}
+                {isSearchActive || effectiveExpandedGroups.has('__breadboards') ? '\u25BE' : '\u25B8'}
               </span>
               <h3>Breadboards</h3>
               <span className="component-library__badge">1</span>
             </button>
 
-            {(isSearchActive || expandedGroups.has('__breadboards')) && breadboardCatalogPreset ? (
+            {(isSearchActive || effectiveExpandedGroups.has('__breadboards')) && breadboardCatalogPreset ? (
               <div className="component-library__group-body is-open">
                 {(!isSearchActive ||
                   matchesLibraryQuery(
@@ -396,7 +397,7 @@ export function ComponentLibrary({
             return null
           }
 
-          const isExpanded = isSearchActive || expandedGroups.has(group.key)
+          const isExpanded = isSearchActive || effectiveExpandedGroups.has(group.key)
 
           return (
             <section

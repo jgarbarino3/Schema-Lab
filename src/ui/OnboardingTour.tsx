@@ -40,17 +40,17 @@ export function OnboardingTour({
   const cardRef = useRef<HTMLDivElement | null>(null)
   const [spotlightRect, setSpotlightRect] = useState<SpotlightRect>()
   const [offscreenDir, setOffscreenDir] = useState<'up' | 'down' | null>(null)
-  const cardStyleRef = useRef<Record<string, number> | undefined>(undefined)
   const step = steps[currentStep]
+  const stepSelector = step?.selector
 
   const recalcSpotlight = useCallback(() => {
-    if (!step?.selector) {
+    if (!stepSelector) {
       setSpotlightRect(undefined)
       setOffscreenDir(null)
       return
     }
 
-    const element = document.querySelector(step.selector)
+    const element = document.querySelector(stepSelector)
 
     if (!(element instanceof HTMLElement)) {
       setSpotlightRect(undefined)
@@ -68,15 +68,15 @@ export function OnboardingTour({
       width: rect.width + padding * 2,
     })
     setOffscreenDir(null)
-  }, [step?.selector])
+  }, [stepSelector])
 
   const checkVisibility = useCallback(() => {
-    if (!step?.selector) {
+    if (!stepSelector) {
       setOffscreenDir(null)
       return
     }
 
-    const element = document.querySelector(step.selector)
+    const element = document.querySelector(stepSelector)
 
     if (!(element instanceof HTMLElement)) {
       setOffscreenDir(null)
@@ -103,12 +103,10 @@ export function OnboardingTour({
       }
       setOffscreenDir(null)
     }
-  }, [step?.selector, offscreenDir])
+  }, [offscreenDir, stepSelector])
 
   useLayoutEffect(() => {
     if (!isOpen) {
-      setSpotlightRect(undefined)
-      setOffscreenDir(null)
       return
     }
 
@@ -116,7 +114,7 @@ export function OnboardingTour({
   }, [isOpen, recalcSpotlight])
 
   useEffect(() => {
-    if (!isOpen || !step?.selector) {
+    if (!isOpen || !stepSelector) {
       return
     }
 
@@ -127,17 +125,20 @@ export function OnboardingTour({
       window.removeEventListener('scroll', checkVisibility, { capture: true } as EventListenerOptions)
       window.removeEventListener('resize', recalcSpotlight)
     }
-  }, [isOpen, step?.selector, recalcSpotlight, checkVisibility])
+  }, [checkVisibility, isOpen, recalcSpotlight, stepSelector])
 
   const cardStyle = useMemo(() => {
+    const maxWidth =
+      typeof window === 'undefined' ? 360 : Math.min(360, window.innerWidth - 32)
+
     if (!spotlightRect) {
-      return cardStyleRef.current
+      return { bottom: 20, maxWidth, right: 20 }
     }
 
     const targetCenterX = spotlightRect.left + spotlightRect.width / 2
     const targetCenterY = spotlightRect.top + spotlightRect.height / 2
     const style: Record<string, number> = {
-      maxWidth: Math.min(360, window.innerWidth - 32),
+      maxWidth,
     }
 
     if (targetCenterX > window.innerWidth / 2) {
@@ -152,7 +153,6 @@ export function OnboardingTour({
       style.bottom = 20
     }
 
-    cardStyleRef.current = style
     return style
   }, [spotlightRect])
 

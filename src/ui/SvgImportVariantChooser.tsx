@@ -59,6 +59,7 @@ export function SvgImportVariantChooser(props: SvgImportVariantChooserProps) {
 
                 return (
                   <button
+                    aria-pressed={isActive}
                     className={isActive ? 'is-active-tool' : undefined}
                     key={entry.key}
                     onClick={() =>
