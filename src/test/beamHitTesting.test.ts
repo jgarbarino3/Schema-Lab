@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { getNearestBeamSegmentHit } from '../canvas/beamHitTesting'
 import { createBreadboardFromPreset } from '../domain/breadboardPresets'
-import { getBeamSelectionSnapshot } from '../domain/beamSelection'
 import { traceSceneBeams } from '../domain/beamTracing'
 import {
   createDefaultComponentConfig,
   getComponentDefinition,
 } from '../domain/componentCatalog'
+import { worldToScreen } from '../domain/geometry'
 import { createEmptyScene } from '../domain/serialization'
 import type { ComponentInstance, ComponentType, SceneDocument } from '../domain/types'
 
@@ -40,10 +41,9 @@ function makeScene(components: ComponentInstance[]): SceneDocument {
   return scene
 }
 
-function makeEnabledSource(overrides: Partial<ComponentInstance> = {}) {
+function makeEnabledSource() {
   const source = makeComponent('laser-source', {
     anchorMm: { x: -60, y: 137.5 },
-    ...overrides,
   })
 
   return {
@@ -52,18 +52,18 @@ function makeEnabledSource(overrides: Partial<ComponentInstance> = {}) {
       ...source.config,
       source: {
         ...source.config.source!,
-        isEnabled: true,
-        wavelengthNm: 800,
         bandwidthNm: 10,
-        powerMw: 100,
+        isEnabled: true,
         normalizedPowerPercent: 100,
+        powerMw: 100,
+        wavelengthNm: 800,
       },
     },
   }
 }
 
-describe('beam selection snapshot', () => {
-  it('resolves path and parent interaction from a selected segment id', () => {
+describe('beam hit testing', () => {
+  it('chooses the nearest beam segment from a screen-space hit point', () => {
     const source = makeEnabledSource()
     const beamsplitter = makeComponent('beamsplitter', {
       id: 'bs-1',
@@ -71,8 +71,8 @@ describe('beam selection snapshot', () => {
       config: {
         ...createDefaultComponentConfig('beamsplitter'),
         beamSplitter: {
-          reflectPercent: 50,
           lossPercent: 2,
+          reflectPercent: 50,
         },
       },
     })
@@ -83,51 +83,23 @@ describe('beam selection snapshot', () => {
 
     expect(reflectedSegment).toBeDefined()
 
-    const snapshot = getBeamSelectionSnapshot(trace, {
-      segmentId: reflectedSegment?.id,
-    })
-
-    expect(snapshot.segment?.id).toBe(reflectedSegment?.id)
-    expect(snapshot.path?.pathId).toBe(reflectedSegment?.pathId)
-    expect(snapshot.interaction?.id).toBe(reflectedSegment?.parentInteractionId)
-  })
-
-  it('resolves path context from an interaction id without an explicit path id', () => {
-    const source = makeEnabledSource()
-    const detector = makeComponent('detector', {
-      id: 'detector-1',
-      anchorMm: { x: 180, y: 137.5 },
-    })
-    const trace = traceSceneBeams(makeScene([source, detector]))
-    const captureEvent = trace.events.find(
-      (event) => event.componentId === detector.id,
+    const viewport = {
+      zoomPxPerMm: 2.4,
+      cameraCenterMm: { x: 90, y: 137.5 },
+      canvasSizePx: { width: 1200, height: 900 },
+    }
+    const startPx = worldToScreen(reflectedSegment!.startMm, viewport)
+    const endPx = worldToScreen(reflectedSegment!.endMm, viewport)
+    const hit = getNearestBeamSegmentHit(
+      trace,
+      viewport,
+      {
+        x: (startPx.x + endPx.x) / 2 + 3,
+        y: (startPx.y + endPx.y) / 2 + 2,
+      },
+      18,
     )
 
-    expect(captureEvent).toBeDefined()
-
-    const snapshot = getBeamSelectionSnapshot(trace, {
-      interactionId: captureEvent?.id,
-    })
-
-    expect(snapshot.interaction?.id).toBe(captureEvent?.id)
-    expect(snapshot.path?.pathId).toBe(captureEvent?.pathId)
-    expect(snapshot.segment?.id).toBeUndefined()
+    expect(hit?.segment.id).toBe(reflectedSegment?.id)
   })
-
-  it('returns an empty snapshot for unknown ids', () => {
-    const trace = traceSceneBeams(makeScene([makeEnabledSource()]))
-
-    expect(
-      getBeamSelectionSnapshot(trace, {
-        segmentId: 'missing-segment',
-        interactionId: 'missing-event',
-        pathId: 'missing-path',
-      }),
-    ).toEqual({
-      interaction: undefined,
-      path: undefined,
-      segment: undefined,
-    })
-  })
-
 })

@@ -1,15 +1,17 @@
-import { Circle, Line, Rect } from 'react-konva'
-import type { BoundsMm, ComponentInstance, ResolvedComponentSpec } from '../domain/types'
+import { Circle, Ellipse, Line, Rect } from 'react-konva'
+import type {
+  BoundsMm,
+  ComponentInstance,
+  RealisticSymbolStyle,
+  ResolvedComponentSpec,
+} from '../domain/types'
+import { resolveRealisticMaterialProfile } from '../domain/realisticSymbolDecisions'
 import { ComponentGlyph } from './ComponentGlyph'
 import {
-  BeamsplitterPlate,
   BeveledHousing,
   FilterAssembly,
   KinematicMountTop,
   IrisHardware,
-  LensGlass,
-  MirrorMountTopView,
-  MirrorOpticFace,
   OutputAperture,
   SensorPad,
   type RealisticPalette,
@@ -25,6 +27,7 @@ interface RenderRealisticHardwareArgs {
   opticStroke: string
   showMount: boolean
   spec: ResolvedComponentSpec
+  symbolStyle: RealisticSymbolStyle
 }
 
 function applyAlpha(hexColor: string, alpha: number) {
@@ -166,6 +169,21 @@ function createRealisticPalette({
         mountHighlight: 'rgba(238, 246, 252, 0.16)',
         mountShadow: 'rgba(10, 16, 22, 0.56)',
       }
+  }
+}
+
+function applyCatalogMaterialProfile(palette: RealisticPalette): RealisticPalette {
+  if (resolveRealisticMaterialProfile() !== 'catalog') {
+    return palette
+  }
+
+  return {
+    ...palette,
+    bodyHighlight: 'rgba(255, 255, 255, 0.42)',
+    bodyShadow: 'rgba(7, 11, 15, 0.72)',
+    glassHighlight: 'rgba(255, 255, 255, 0.5)',
+    mountHighlight: 'rgba(255, 255, 255, 0.24)',
+    mountShadow: 'rgba(7, 11, 15, 0.66)',
   }
 }
 
@@ -344,78 +362,268 @@ function renderBeamControlHardware(args: RenderRealisticHardwareArgs, palette: R
   )
 }
 
+function renderSoftMountDisk(args: RenderRealisticHardwareArgs, palette: RealisticPalette) {
+  const { mountBoundsMm, mountStroke, showMount, spec, symbolStyle } = args
+
+  if (
+    !showMount ||
+    spec.realisticVisualPreset?.mountVisual !== 'kinematic-round' ||
+    symbolStyle === 'schematic'
+  ) {
+    return null
+  }
+
+  const centerX = mountBoundsMm.x + mountBoundsMm.width / 2
+  const centerY = mountBoundsMm.y + mountBoundsMm.height / 2
+  const radiusScale =
+    symbolStyle === 'technical' ? 0.58 : symbolStyle === 'reference' ? 0.72 : 0.9
+  const radius = (Math.min(mountBoundsMm.width, mountBoundsMm.height) / 2) * radiusScale
+
+  return (
+    <>
+      <Circle
+        fill={applyAlpha(palette.mountBase, symbolStyle === 'hardware' ? 0.3 : 0.18)}
+        opacity={symbolStyle === 'hardware' ? 0.68 : 0.42}
+        radius={radius}
+        stroke={applyAlpha(mountStroke, 0.42)}
+        strokeWidth={symbolStyle === 'hardware' ? 0.68 : 0.48}
+        x={centerX}
+        y={centerY}
+      />
+      <Circle
+        fill="transparent"
+        opacity={symbolStyle === 'hardware' ? 0.34 : 0.22}
+        radius={Math.max(3, radius - 4)}
+        stroke={applyAlpha('#eef7fb', 0.32)}
+        strokeWidth={0.38}
+        x={centerX}
+        y={centerY}
+      />
+    </>
+  )
+}
+
+function renderSchematicMirrorHardware(
+  args: RenderRealisticHardwareArgs,
+  palette: RealisticPalette,
+) {
+  const { bodyBoundsMm, instance, opticStroke, symbolStyle } = args
+  const lineBounds = {
+    x: bodyBoundsMm.x + bodyBoundsMm.width * (symbolStyle === 'schematic' ? 0.13 : 0.1),
+    y: bodyBoundsMm.y + bodyBoundsMm.height * (symbolStyle === 'schematic' ? 0.13 : 0.1),
+    width: bodyBoundsMm.width * (symbolStyle === 'schematic' ? 0.74 : 0.8),
+    height: bodyBoundsMm.height * (symbolStyle === 'schematic' ? 0.74 : 0.8),
+  }
+  const darkStrokeWidth =
+    symbolStyle === 'hardware' ? 3 : symbolStyle === 'technical' ? 2.25 : 1.9
+  const faceStrokeScale =
+    symbolStyle === 'hardware' ? 1.04 : symbolStyle === 'technical' ? 0.9 : 0.76
+
+  return (
+    <>
+      {renderSoftMountDisk(args, palette)}
+      <Line
+        lineCap="round"
+        opacity={symbolStyle === 'schematic' ? 0.78 : 0.9}
+        points={[
+          lineBounds.x + lineBounds.width,
+          lineBounds.y,
+          lineBounds.x,
+          lineBounds.y + lineBounds.height,
+        ]}
+        stroke={palette.detailFill}
+        strokeWidth={darkStrokeWidth}
+      />
+      <ComponentGlyph
+        boundsMm={lineBounds}
+        glyph={instance.type === 'curved-mirror' ? 'curved-mirror' : 'mirror'}
+        isConvex={instance.config.curvedMirror?.isConvex}
+        stroke={palette.detailStroke ?? opticStroke}
+        strokeScale={faceStrokeScale}
+        style="enhanced"
+      />
+      {symbolStyle !== 'schematic' ? (
+        <Line
+          lineCap="round"
+          opacity={0.46}
+          points={[
+            lineBounds.x + lineBounds.width * 0.82,
+            lineBounds.y + lineBounds.height * 0.08,
+            lineBounds.x + lineBounds.width * 0.58,
+            lineBounds.y + lineBounds.height * 0.32,
+          ]}
+          stroke="rgba(255, 255, 255, 0.72)"
+          strokeWidth={0.62}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function renderSchematicBeamsplitterHardware(
+  args: RenderRealisticHardwareArgs,
+  palette: RealisticPalette,
+) {
+  const { bodyBoundsMm, opticStroke, symbolStyle } = args
+  const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
+  const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
+  const plateLength = Math.max(
+    8,
+    Math.min(bodyBoundsMm.width, bodyBoundsMm.height) *
+      (symbolStyle === 'schematic' ? 0.74 : 0.88),
+  )
+  const plateWidth = Math.max(1.3, plateLength * (symbolStyle === 'schematic' ? 0.12 : 0.16))
+
+  return (
+    <>
+      {renderSoftMountDisk(args, palette)}
+      <Rect
+        cornerRadius={plateWidth * 0.34}
+        fill={applyAlpha(palette.glassTint, symbolStyle === 'schematic' ? 0.2 : 0.32)}
+        height={plateLength}
+        opacity={0.96}
+        rotation={45}
+        stroke={palette.detailStroke ?? opticStroke}
+        strokeWidth={symbolStyle === 'schematic' ? 0.7 : 0.82}
+        width={plateWidth}
+        x={centerX}
+        y={centerY - plateLength / 2}
+      />
+      <Line
+        dash={[1.6, 1.8]}
+        lineCap="round"
+        opacity={symbolStyle === 'schematic' ? 0.74 : 0.86}
+        points={[
+          centerX - plateLength * 0.36,
+          centerY + plateLength * 0.36,
+          centerX + plateLength * 0.36,
+          centerY - plateLength * 0.36,
+        ]}
+        stroke={palette.detailStroke}
+        strokeWidth={symbolStyle === 'schematic' ? 0.5 : 0.72}
+      />
+      {symbolStyle !== 'schematic' ? (
+        <Line
+          lineCap="round"
+          opacity={0.48}
+          points={[
+            centerX - plateLength * 0.18,
+            centerY + plateLength * 0.22,
+            centerX + plateLength * 0.18,
+            centerY - plateLength * 0.14,
+          ]}
+          stroke="rgba(255, 255, 255, 0.72)"
+          strokeWidth={0.52}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function renderSchematicLensHardware(
+  args: RenderRealisticHardwareArgs,
+  palette: RealisticPalette,
+) {
+  const { bodyBoundsMm, opticStroke, symbolStyle } = args
+  const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
+  const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
+  const radiusX = Math.max(2.1, bodyBoundsMm.width * (symbolStyle === 'schematic' ? 0.11 : 0.15))
+  const radiusY = Math.max(6.4, bodyBoundsMm.height * (symbolStyle === 'schematic' ? 0.38 : 0.43))
+
+  return (
+    <>
+      {renderSoftMountDisk(args, palette)}
+      <Ellipse
+        fill={applyAlpha(palette.glassTint, symbolStyle === 'schematic' ? 0.28 : 0.4)}
+        radiusX={radiusX}
+        radiusY={radiusY}
+        stroke={palette.detailStroke ?? opticStroke}
+        strokeWidth={symbolStyle === 'schematic' ? 0.7 : 0.86}
+        x={centerX}
+        y={centerY}
+      />
+      {symbolStyle !== 'schematic' ? (
+        <>
+          <Ellipse
+            fill="rgba(255, 255, 255, 0.16)"
+            opacity={0.76}
+            radiusX={Math.max(0.7, radiusX * 0.28)}
+            radiusY={radiusY * 0.66}
+            x={centerX - radiusX * 0.24}
+            y={centerY - radiusY * 0.06}
+          />
+          <Line
+            lineCap="round"
+            opacity={0.48}
+            points={[centerX, centerY - radiusY * 0.9, centerX, centerY + radiusY * 0.9]}
+            stroke="rgba(255, 255, 255, 0.58)"
+            strokeWidth={0.46}
+          />
+        </>
+      ) : null}
+    </>
+  )
+}
+
+function renderCompactSchematicHardware(
+  args: RenderRealisticHardwareArgs,
+  palette: RealisticPalette,
+) {
+  const { bodyBoundsMm, instance, opticStroke, spec } = args
+
+  return (
+    <ComponentGlyph
+      boundsMm={bodyBoundsMm}
+      fill={applyAlpha(palette.accentFill, 0.12)}
+      glyph={spec.renderHint.glyph}
+      isConvex={instance.config.curvedMirror?.isConvex}
+      stroke={palette.detailStroke ?? opticStroke}
+      strokeScale={0.82}
+      style="enhanced"
+    />
+  )
+}
+
 function renderHeroHardware(args: RenderRealisticHardwareArgs) {
-  const { bodyBoundsMm, instance, mountBoundsMm, mountStroke, opticStroke, showMount, spec } = args
-  const palette = createRealisticPalette(args)
+  const {
+    bodyBoundsMm,
+    instance,
+    mountBoundsMm,
+    mountStroke,
+    opticStroke,
+    showMount,
+    spec,
+    symbolStyle,
+  } = args
+  const palette = applyCatalogMaterialProfile(createRealisticPalette(args))
   const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
   const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
   const opticRadius = Math.max(4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.42)
+  const family = spec.realisticVisualPreset?.family
 
-  switch (spec.realisticVisualPreset?.family) {
+  if (
+    symbolStyle === 'schematic' &&
+    family !== 'mirror' &&
+    family !== 'beamsplitter' &&
+    family !== 'lens' &&
+    family !== undefined
+  ) {
+    return renderCompactSchematicHardware(args, palette)
+  }
+
+  switch (family) {
     case 'beam-control':
       return renderBeamControlHardware(args, palette)
     case 'mirror':
-      return showMount && spec.realisticVisualPreset.mountVisual === 'kinematic-round' ? (
-        <MirrorMountTopView
-          boundsMm={mountBoundsMm}
-          palette={palette}
-          stroke={mountStroke}
-        />
-      ) : (
-        <MirrorOpticFace
-          centerX={centerX}
-          centerY={centerY}
-          palette={palette}
-          radius={opticRadius}
-          stroke={opticStroke}
-        />
-      )
+      return renderSchematicMirrorHardware(args, palette)
     case 'beamsplitter':
-      return (
-        <>
-          {showMount && spec.realisticVisualPreset.mountVisual === 'kinematic-round' ? (
-            <KinematicMountTop
-              boundsMm={mountBoundsMm}
-              centerX={centerX}
-              centerY={centerY}
-              palette={palette}
-              stroke={mountStroke}
-            />
-          ) : null}
-          <BeamsplitterPlate
-            bodyBoundsMm={bodyBoundsMm}
-            centerX={centerX}
-            centerY={centerY}
-            palette={palette}
-            stroke={opticStroke}
-          />
-        </>
-      )
+      return renderSchematicBeamsplitterHardware(args, palette)
     case 'lens':
-      return (
-        <>
-          {showMount && spec.realisticVisualPreset.mountVisual === 'kinematic-round' ? (
-            <KinematicMountTop
-              boundsMm={mountBoundsMm}
-              centerX={centerX}
-              centerY={centerY}
-              palette={palette}
-              stroke={mountStroke}
-            />
-          ) : null}
-          <LensGlass
-            centerX={centerX}
-            centerY={centerY}
-            palette={palette}
-            radius={Math.max(5, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.46)}
-            stroke={opticStroke}
-          />
-        </>
-      )
+      return renderSchematicLensHardware(args, palette)
     case 'filter':
       return (
         <>
-          {showMount && spec.realisticVisualPreset.mountVisual === 'kinematic-round' ? (
+          {showMount && spec.realisticVisualPreset?.mountVisual === 'kinematic-round' ? (
             <KinematicMountTop
               boundsMm={mountBoundsMm}
               centerX={centerX}
@@ -446,7 +654,7 @@ function renderHeroHardware(args: RenderRealisticHardwareArgs) {
           bodyBoundsMm={bodyBoundsMm}
           mountBoundsMm={mountBoundsMm}
           palette={palette}
-          showMount={showMount && spec.realisticVisualPreset.mountVisual === 'iris-body'}
+          showMount={showMount && spec.realisticVisualPreset?.mountVisual === 'iris-body'}
           stroke={mountStroke}
         />
       )
@@ -459,7 +667,7 @@ function renderHeroHardware(args: RenderRealisticHardwareArgs) {
 
       return (
         <>
-          {showMount && spec.realisticVisualPreset.mountVisual === 'sensor-disc' ? (
+          {showMount && spec.realisticVisualPreset?.mountVisual === 'sensor-disc' ? (
             <>
               <Circle
                 fill={palette.mountBase}
@@ -567,6 +775,7 @@ function renderLegacyRealisticHardware({
   opticStroke,
   showMount,
   spec,
+  symbolStyle,
 }: RenderRealisticHardwareArgs) {
   const centerX = bodyBoundsMm.x + bodyBoundsMm.width / 2
   const centerY = bodyBoundsMm.y + bodyBoundsMm.height / 2
@@ -737,13 +946,30 @@ function renderLegacyRealisticHardware({
         </>
       )
     default:
+      if (symbolStyle === 'schematic') {
+        return (
+          <ComponentGlyph
+            boundsMm={bodyBoundsMm}
+            fill={applyAlpha(opticFill, 0.12)}
+            glyph={spec.renderHint.glyph}
+            stroke={opticStroke}
+            strokeScale={0.82}
+            style="enhanced"
+          />
+        )
+      }
+
+      {
+        const mountRadiusScale =
+          symbolStyle === 'technical' ? 0.62 : symbolStyle === 'reference' ? 0.74 : 1
+
       return (
         <>
           {showMount ? (
             <Circle
               fill={mountFill}
-              opacity={0.94}
-              radius={Math.min(mountBoundsMm.width, mountBoundsMm.height) / 2}
+              opacity={symbolStyle === 'hardware' ? 0.94 : 0.56}
+              radius={(Math.min(mountBoundsMm.width, mountBoundsMm.height) / 2) * mountRadiusScale}
               stroke={mountStroke}
               strokeWidth={0.9}
               x={mountBoundsMm.x + mountBoundsMm.width / 2}
@@ -769,6 +995,7 @@ function renderLegacyRealisticHardware({
           />
         </>
       )
+      }
   }
 }
 

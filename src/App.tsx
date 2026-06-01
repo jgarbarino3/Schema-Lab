@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   startTransition,
   useCallback,
   useEffect,
@@ -91,30 +93,58 @@ import { useEditorStore } from './state/editorStore'
 import { useAppInteractionState } from './state/editorSelectors'
 import { AnnotationDock } from './ui/AnnotationDock'
 import { AnnotationTextEditor } from './ui/AnnotationTextEditor'
-import { ClearConfirmModal, type ClearModalState } from './ui/ClearConfirmModal'
+import type { ClearModalState } from './ui/ClearConfirmModal'
 import {
   CanvasContextMenu,
   type CanvasContextMenuAction,
 } from './ui/CanvasContextMenu'
 import { ComponentLibrary } from './ui/ComponentLibrary'
-import { ExportOptionsModal } from './ui/ExportOptionsModal'
 import { FullLibraryModal } from './ui/FullLibraryModal'
 import { InspectorPanel } from './ui/InspectorPanel'
-import { JsonModal } from './ui/JsonModal'
 import { OnboardingTour, type OnboardingStep } from './ui/OnboardingTour'
-import { SvgCalibrationModal } from './ui/SvgCalibrationModal'
-import { SvgImportOptionsModal } from './ui/SvgImportOptionsModal'
 import { dispatchClearLibraryRecents } from './ui/libraryRecents'
 import { SelectionToolbar } from './ui/SelectionToolbar'
 import { Toolbar, type ExportAction } from './ui/Toolbar'
 import { TutorialModal } from './ui/TutorialModal'
-import { VersionHistoryModal } from './ui/VersionHistoryModal'
 import { WarningReviewModal } from './ui/WarningReviewModal'
-import { WorkspaceModeModal } from './ui/WorkspaceModeModal'
 import {
   getProjectedBoundsAabb,
   shouldUseProjectedTableView,
 } from './canvas/renderers/tableViewProjection'
+
+const ClearConfirmModal = lazy(() =>
+  import('./ui/ClearConfirmModal').then(({ ClearConfirmModal }) => ({
+    default: ClearConfirmModal,
+  })),
+)
+const ExportOptionsModal = lazy(() =>
+  import('./ui/ExportOptionsModal').then(({ ExportOptionsModal }) => ({
+    default: ExportOptionsModal,
+  })),
+)
+const JsonModal = lazy(() =>
+  import('./ui/JsonModal').then(({ JsonModal }) => ({ default: JsonModal })),
+)
+const SvgCalibrationModal = lazy(() =>
+  import('./ui/SvgCalibrationModal').then(({ SvgCalibrationModal }) => ({
+    default: SvgCalibrationModal,
+  })),
+)
+const SvgImportOptionsModal = lazy(() =>
+  import('./ui/SvgImportOptionsModal').then(({ SvgImportOptionsModal }) => ({
+    default: SvgImportOptionsModal,
+  })),
+)
+const VersionHistoryModal = lazy(() =>
+  import('./ui/VersionHistoryModal').then(({ VersionHistoryModal }) => ({
+    default: VersionHistoryModal,
+  })),
+)
+const WorkspaceModeModal = lazy(() =>
+  import('./ui/WorkspaceModeModal').then(({ WorkspaceModeModal }) => ({
+    default: WorkspaceModeModal,
+  })),
+)
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
@@ -152,7 +182,7 @@ interface SvgImportPendingOptionsState {
   workspaceConfig: SvgImportWorkspaceConfig
 }
 
-interface SvgImportPendingCalibrationState extends SvgImportPendingOptionsState {}
+type SvgImportPendingCalibrationState = SvgImportPendingOptionsState
 
 type WorkspaceModalState =
   {
@@ -397,6 +427,7 @@ function App() {
   )
   const renderMode = useEditorStore((state) => state.renderMode)
   const simpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
+  const simpleGlyphAppearances = useEditorStore((state) => state.simpleGlyphAppearances)
   const warningFilters = useEditorStore((state) => state.warningFilters)
   const openToolbarMenu = useEditorStore((state) => state.openToolbarMenu)
   const loadScene = useEditorStore((state) => state.loadScene)
@@ -482,6 +513,7 @@ function App() {
   const [exportOptionsFormat, setExportOptionsFormat] = useState<ExportFormat>()
   const [rasterExportRequest, setRasterExportRequest] =
     useState<ExportRequestState>()
+  const [asyncStatus, setAsyncStatus] = useState<string>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
   const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
@@ -647,16 +679,25 @@ function App() {
       (warning) => warning.id === selectedWarningId,
     ) ??
     visibleSceneWarnings.find(
-    (warning) => warning.id === selectedWarningId,
-  )
+      (warning) => warning.id === selectedWarningId,
+    )
   const highlightedWarning =
     selectedWarning ??
     (isWarningsOpen
       ? filteredSceneWarnings[0] ?? visibleSceneWarnings[0]
       : undefined)
-  const highlightedComponentIds = highlightedWarning?.highlightTarget?.componentIds ?? []
-  const highlightedPathIds = highlightedWarning?.highlightTarget?.pathIds ?? []
-  const highlightedInteractionIds = highlightedWarning?.highlightTarget?.interactionIds ?? []
+  const highlightedComponentIds = useMemo(
+    () => highlightedWarning?.highlightTarget?.componentIds ?? [],
+    [highlightedWarning],
+  )
+  const highlightedPathIds = useMemo(
+    () => highlightedWarning?.highlightTarget?.pathIds ?? [],
+    [highlightedWarning],
+  )
+  const highlightedInteractionIds = useMemo(
+    () => highlightedWarning?.highlightTarget?.interactionIds ?? [],
+    [highlightedWarning],
+  )
   const stageHighlightedComponentIds = useMemo(
     () =>
       Array.from(
@@ -676,7 +717,7 @@ function App() {
     () => [
       {
         title: 'Keyboard Shortcuts',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Open the shortcuts overlay any time to see the core canvas controls without covering the workspace in instructions.</p>
@@ -685,7 +726,7 @@ function App() {
       },
       {
         title: 'Workspace Modes',
-        selector: '[data-tour=\"workspace-modes\"]',
+        selector: '[data-tour="workspace-modes"]',
         body: (
           <>
             <p>Switch between Board Focus for detail work and Table View for the broader optical-table layout without losing your place.</p>
@@ -694,7 +735,7 @@ function App() {
       },
       {
         title: 'Component Library',
-        selector: '[data-tour=\"component-library\"]',
+        selector: '[data-tour="component-library"]',
         body: (
           <>
             <p>Search the library, click a family to arm placement, then place it directly on the active surface.</p>
@@ -703,7 +744,7 @@ function App() {
       },
       {
         title: 'Panel Collapse',
-        selector: '[data-tour=\"panel-library-toggle\"]',
+        selector: '[data-tour="panel-library-toggle"]',
         body: (
           <>
             <p>Collapse either side panel from its own header when you want more canvas space without leaving the current workflow.</p>
@@ -712,7 +753,7 @@ function App() {
       },
       {
         title: 'Inspector Context',
-        selector: '[data-tour=\"inspector\"]',
+        selector: '[data-tour="inspector"]',
         body: (
           <>
             <p>The inspector changes with the current selection so you can tune board settings, component variants, or annotation details in one place.</p>
@@ -721,7 +762,7 @@ function App() {
       },
       {
         title: 'Canvas Flow',
-        selector: '[data-tour=\"canvas-panel\"]',
+        selector: '[data-tour="canvas-panel"]',
         body: (
           <>
             <p>The canvas stays visually quiet until you select or place something, then the relevant placement, selection, and source-target cues appear in context.</p>
@@ -730,7 +771,7 @@ function App() {
       },
       {
         title: 'Warnings',
-        selector: '[data-tour=\"toolbar-controls\"]',
+        selector: '[data-tour="toolbar-controls"]',
         body: (
           <>
             <p>Review warnings from the top bar when the scene needs attention, then dismiss or restore them without leaving the editor.</p>
@@ -739,7 +780,7 @@ function App() {
       },
       {
         title: 'Files',
-        selector: '[data-tour=\"toolbar-export\"]',
+        selector: '[data-tour="toolbar-export"]',
         body: (
           <>
             <p>Use Files for imports, exports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
@@ -748,7 +789,7 @@ function App() {
       },
       {
         title: 'Help',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Use the question-mark control to reopen this guide, review shortcuts, open the appendix, or jump into the tutorial without leaving the editor.</p>
@@ -762,7 +803,7 @@ function App() {
     () => [
       {
         title: 'Tutorial Scene Loaded',
-        selector: '[data-tour=\"canvas-panel\"]',
+        selector: '[data-tour="canvas-panel"]',
         body: (
           <>
             <p>This scene combines steering optics and an inline branch so you can inspect multiple optics families in one working layout.</p>
@@ -771,7 +812,7 @@ function App() {
       },
       {
         title: 'Selected Delay Stage',
-        selector: '[data-tour=\"inspector\"]',
+        selector: '[data-tour="inspector"]',
         body: (
           <>
             <p>The inspector is focused on the delay stage so you can adjust timing-related controls immediately.</p>
@@ -780,7 +821,7 @@ function App() {
       },
       {
         title: 'Shortcuts and Context',
-        selector: '[data-tour=\"toolbar-help\"]',
+        selector: '[data-tour="toolbar-help"]',
         body: (
           <>
             <p>Open the shortcuts overlay whenever you want a quick reminder of canvas navigation, edit commands, and placement controls.</p>
@@ -789,7 +830,7 @@ function App() {
       },
       {
         title: 'Files Review',
-        selector: '[data-tour=\"toolbar-export\"]',
+        selector: '[data-tour="toolbar-export"]',
         body: (
           <>
             <p>Open Files once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
@@ -903,11 +944,11 @@ function App() {
     setWarningsOpen,
   ])
 
-  const markOnboardingSeen = () => {
+  const markOnboardingSeen = useCallback(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(ONBOARDING_SEEN_KEY, '1')
     }
-  }
+  }, [])
 
   const handleOpenOnboarding = () => {
     markOnboardingSeen()
@@ -916,10 +957,10 @@ function App() {
     setIsOnboardingOpen(true)
   }
 
-  const handleCloseOnboarding = () => {
+  const handleCloseOnboarding = useCallback(() => {
     markOnboardingSeen()
     setIsOnboardingOpen(false)
-  }
+  }, [markOnboardingSeen])
 
   const handleNeverShowOnboarding = () => {
     if (typeof window !== 'undefined') {
@@ -946,6 +987,7 @@ function App() {
   const downloadSceneJson = () => {
     const jsonBlob = new Blob([sceneJson], { type: 'application/json' })
     downloadBlob(jsonBlob, 'schema-lab-scene.json')
+    setAsyncStatus('Scene JSON export downloaded.')
   }
 
   const handleExportAction = (action: ExportAction) => {
@@ -959,59 +1001,80 @@ function App() {
 
   const startExport = useCallback(
     async (request: ExportRequestState) => {
-      if (request.format === 'svg') {
-        const { createSceneSvg } = await import('./domain/svgExport')
-        const svgMarkup = createSceneSvg({
-          beamTrace,
-          breadboardSurfaceId: exportBreadboardSurfaceId,
-          gaussianTrace,
-          renderMode,
-          scene,
-          scope: request.scope,
-          showGaussianEnvelope,
-          simpleIconStyle,
-          svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
-        })
-        const presetSuffix =
-          request.svgPreset === 'presentation' ? '-presentation' : '-engineering'
+      const exportLabel = `${request.scope === 'breadboard-only' ? 'breadboard' : 'full scheme'} ${request.format.toUpperCase()}`
+      setAsyncStatus(`Preparing ${exportLabel} export...`)
 
-        downloadBlob(
-          new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
-          request.scope === 'breadboard-only'
-            ? `schema-lab-breadboard${presetSuffix}.svg`
-            : `schema-lab-full-scheme${presetSuffix}.svg`,
-        )
-        return
+      if (request.format === 'svg') {
+        try {
+          const { createSceneSvg } = await import('./domain/svgExport')
+          const svgMarkup = createSceneSvg({
+            beamTrace,
+            breadboardSurfaceId: exportBreadboardSurfaceId,
+            gaussianTrace,
+            renderMode,
+            scene,
+            scope: request.scope,
+            showGaussianEnvelope,
+            simpleIconStyle,
+            svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
+          })
+          const presetSuffix =
+            request.svgPreset === 'presentation' ? '-presentation' : '-engineering'
+
+          downloadBlob(
+            new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
+            request.scope === 'breadboard-only'
+              ? `schema-lab-breadboard${presetSuffix}.svg`
+              : `schema-lab-full-scheme${presetSuffix}.svg`,
+          )
+          setAsyncStatus(`${exportLabel} export downloaded.`)
+          return
+        } catch (error) {
+          setAsyncStatus(
+            `Export failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+          )
+          throw error
+        }
       }
 
       if (request.format === 'dxf') {
-        const { createSceneDxf } = await import('./domain/dxfExport')
-        const dxfMarkup = createSceneDxf({
-          beamTrace,
-          breadboardSurfaceId: exportBreadboardSurfaceId,
-          gaussianTrace,
-          renderMode,
-          scene,
-          scope: request.scope,
-          showGaussianEnvelope,
-          simpleIconStyle,
-        })
+        try {
+          const { createSceneDxf } = await import('./domain/dxfExport')
+          const dxfMarkup = createSceneDxf({
+            beamTrace,
+            breadboardSurfaceId: exportBreadboardSurfaceId,
+            gaussianTrace,
+            renderMode,
+            scene,
+            scope: request.scope,
+            showGaussianEnvelope,
+            simpleIconStyle,
+          })
 
-        downloadBlob(
-          new Blob([dxfMarkup], { type: 'application/dxf;charset=utf-8' }),
-          request.scope === 'breadboard-only'
-            ? 'schema-lab-breadboard.dxf'
-            : 'schema-lab-full-scheme.dxf',
-        )
-        return
+          downloadBlob(
+            new Blob([dxfMarkup], { type: 'application/dxf;charset=utf-8' }),
+            request.scope === 'breadboard-only'
+              ? 'schema-lab-breadboard.dxf'
+              : 'schema-lab-full-scheme.dxf',
+          )
+          setAsyncStatus(`${exportLabel} export downloaded.`)
+          return
+        } catch (error) {
+          setAsyncStatus(
+            `Export failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+          )
+          throw error
+        }
       }
 
+      setAsyncStatus(`Rendering ${exportLabel} export...`)
       setRasterExportRequest(request)
     },
     [
       beamTrace,
       exportBreadboardSurfaceId,
       gaussianTrace,
+      setAsyncStatus,
       showGaussianEnvelope,
       simpleIconStyle,
       renderMode,
@@ -1205,7 +1268,7 @@ function App() {
     })
   }
 
-  const handleCenterSelection = () => {
+  const handleCenterSelection = useCallback(() => {
     const viewport = useEditorStore.getState().viewport
 
     const focusBoundsMm = (() => {
@@ -1264,7 +1327,14 @@ function App() {
       ...viewport,
       ...nextViewport,
     })
-  }
+  }, [
+    breadboardInstances,
+    highlightSelection,
+    primaryBreadboard,
+    scene,
+    selectedAnnotation,
+    selection,
+  ])
 
   const handleRotateSelection = useCallback(() => {
     if (highlightSelection) {
@@ -1398,53 +1468,63 @@ function App() {
 
   const finalizeRasterExport = useCallback(
     async (stage: Konva.Stage, request: ExportRequestState) => {
-      await nextAnimationFrame()
+      const exportLabel = `${request.scope === 'breadboard-only' ? 'breadboard' : 'full scheme'} ${request.format.toUpperCase()}`
 
-      const dataUrl = stage.toDataURL({
-        mimeType: request.format === 'pdf' ? 'image/jpeg' : 'image/png',
-        pixelRatio: 2,
-        quality: 0.94,
-      })
+      try {
+        await nextAnimationFrame()
 
-      if (request.format === 'png') {
-        const response = await fetch(dataUrl)
-        const blob = await response.blob()
-
-        downloadBlob(
-          blob,
-          request.scope === 'breadboard-only'
-            ? 'schema-lab-breadboard.png'
-            : 'schema-lab-full-scheme.png',
-        )
-      } else if (request.format === 'pdf') {
-        const { createSingleImagePdfBlob } = await import('./domain/pdfExport')
-        const pdfBlob = createSingleImagePdfBlob({
-          jpegDataUrl: dataUrl,
-          widthPx: EXPORT_CANVAS_WIDTH_PX,
-          heightPx: EXPORT_CANVAS_HEIGHT_PX,
+        const dataUrl = stage.toDataURL({
+          mimeType: request.format === 'pdf' ? 'image/jpeg' : 'image/png',
+          pixelRatio: 2,
+          quality: 0.94,
         })
 
-        downloadBlob(
-          pdfBlob,
-          request.scope === 'breadboard-only'
-            ? 'schema-lab-breadboard.pdf'
-            : 'schema-lab-full-scheme.pdf',
-        )
-      } else {
-        const { createSingleImagePptxBlob } = await import('./domain/pptxExport')
-        const pptxBlob = await createSingleImagePptxBlob(dataUrl)
+        if (request.format === 'png') {
+          const response = await fetch(dataUrl)
+          const blob = await response.blob()
 
-        downloadBlob(
-          pptxBlob,
-          request.scope === 'breadboard-only'
-            ? 'schema-lab-breadboard.pptx'
-            : 'schema-lab-full-scheme.pptx',
+          downloadBlob(
+            blob,
+            request.scope === 'breadboard-only'
+              ? 'schema-lab-breadboard.png'
+              : 'schema-lab-full-scheme.png',
+          )
+        } else if (request.format === 'pdf') {
+          const { createSingleImagePdfBlob } = await import('./domain/pdfExport')
+          const pdfBlob = createSingleImagePdfBlob({
+            jpegDataUrl: dataUrl,
+            widthPx: EXPORT_CANVAS_WIDTH_PX,
+            heightPx: EXPORT_CANVAS_HEIGHT_PX,
+          })
+
+          downloadBlob(
+            pdfBlob,
+            request.scope === 'breadboard-only'
+              ? 'schema-lab-breadboard.pdf'
+              : 'schema-lab-full-scheme.pdf',
+          )
+        } else {
+          const { createSingleImagePptxBlob } = await import('./domain/pptxExport')
+          const pptxBlob = await createSingleImagePptxBlob(dataUrl)
+
+          downloadBlob(
+            pptxBlob,
+            request.scope === 'breadboard-only'
+              ? 'schema-lab-breadboard.pptx'
+              : 'schema-lab-full-scheme.pptx',
+          )
+        }
+
+        setAsyncStatus(`${exportLabel} export downloaded.`)
+      } catch (error) {
+        setAsyncStatus(
+          `Export failed: ${error instanceof Error ? error.message : 'unknown error'}`,
         )
+      } finally {
+        setRasterExportRequest(undefined)
       }
-
-      setRasterExportRequest(undefined)
     },
-    [],
+    [setAsyncStatus],
   )
 
   const handleExportStageReady = useCallback(
@@ -1772,6 +1852,7 @@ function App() {
     duplicateSelectedComponent,
     exportOptionsFormat,
     handleClearCanvasSelection,
+    handleCloseOnboarding,
     isClearModalOpen,
     contextMenuState,
     editingTextAnnotationId,
@@ -1856,6 +1937,7 @@ function App() {
 
       const summary = `Imported ${result.importedComponents} components and ${result.importedAnnotations} annotation lines from SVG.`
       setSvgImportNotice(result.warnings[0] ?? summary)
+      setAsyncStatus(result.warnings[0] ? `Drawing import finished with warning: ${result.warnings[0]}` : summary)
       setSvgCalibrationState(undefined)
       setSvgImportOptionsState(undefined)
     },
@@ -1901,6 +1983,11 @@ function App() {
       })
 
       setSvgImportNotice(result.warnings[0])
+      setAsyncStatus(
+        result.warnings[0]
+          ? `Raster import finished with warning: ${result.warnings[0]}`
+          : 'Raster import applied.',
+      )
       setSvgCalibrationState(undefined)
       setSvgImportOptionsState(undefined)
     },
@@ -1947,6 +2034,7 @@ function App() {
         setNotice(notice)
       })
 
+      setAsyncStatus(notice)
       setJsonError(undefined)
       setIsJsonModalOpen(false)
     },
@@ -1960,6 +2048,7 @@ function App() {
       return
     }
 
+    setAsyncStatus(`Loading scene JSON from ${nextFile.name}...`)
     const rawText = await nextFile.text()
 
     try {
@@ -1969,6 +2058,7 @@ function App() {
         error instanceof Error ? error.message : 'Scene JSON could not be loaded.'
 
       openJsonModal(rawText, message)
+      setAsyncStatus(`Scene JSON import failed: ${message}`)
     } finally {
       event.target.value = ''
     }
@@ -1980,6 +2070,8 @@ function App() {
     if (!nextFile) {
       return
     }
+
+    setAsyncStatus(`Preparing drawing import for ${nextFile.name}...`)
 
     try {
       const isSvgFile =
@@ -2021,6 +2113,7 @@ function App() {
           previewItems,
           workspaceConfig,
         })
+        setAsyncStatus(`Drawing import preview ready for ${nextFile.name}.`)
       } else {
         const dataUrl = await readFileAsDataUrl(nextFile)
         const image = await loadImageElement(dataUrl)
@@ -2096,6 +2189,7 @@ function App() {
           previewItems,
           workspaceConfig,
         })
+        setAsyncStatus(`Raster import preview ready for ${nextFile.name}.`)
       }
     } catch (error) {
       const message =
@@ -2104,6 +2198,7 @@ function App() {
           : 'Drawing could not be parsed and interpreted.'
 
       setSvgImportNotice(message)
+      setAsyncStatus(`Import failed: ${message}`)
     } finally {
       event.target.value = ''
     }
@@ -2570,7 +2665,6 @@ function App() {
   return (
     <div className={`app-shell${isOgMode ? ' app-shell--og' : ''}`}>
       <Toolbar
-        beamTrace={beamTrace}
         dismissedWarningCount={dismissedWarningIds.length}
         isBoardFocusAvailable={boardFocusAvailable}
         isOgMode={isOgMode}
@@ -2734,26 +2828,35 @@ function App() {
 
           {!isOgMode ? (
             <div className="canvas-status" data-testid="canvas-status">
-            <button
-              aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
-              className="canvas-status__version"
-              data-testid="status-version"
-              onClick={() => setIsVersionHistoryOpen(true)}
-              type="button"
-            >
-              {CURRENT_VERSION}
-            </button>
-            <span data-testid="status-counts">
-              {activeSources.length} sources · {beamTrace.pathSummaries.length} paths
-            </span>
-            <span data-testid="status-board">Board: {statusBoardLabel}</span>
-            <span data-testid="status-zoom">{viewport.zoomPxPerMm.toFixed(2)} px/mm</span>
-            {notice ? (
-              <span className="canvas-status__warning">{notice}</span>
-            ) : null}
-            {svgImportNotice ? (
-              <span className="canvas-status__warning">{svgImportNotice}</span>
-            ) : null}
+              <button
+                aria-label={`Open Schema-Lab release history for ${CURRENT_VERSION}`}
+                className="canvas-status__version"
+                data-testid="status-version"
+                onClick={() => setIsVersionHistoryOpen(true)}
+                type="button"
+              >
+                {CURRENT_VERSION}
+              </button>
+              <span data-testid="status-counts">
+                {activeSources.length} sources · {beamTrace.pathSummaries.length} paths
+              </span>
+              <span data-testid="status-board">Board: {statusBoardLabel}</span>
+              <span data-testid="status-zoom">{viewport.zoomPxPerMm.toFixed(2)} px/mm</span>
+              {asyncStatus ? (
+                <span className="canvas-status__warning" role="status" aria-live="polite">
+                  {asyncStatus}
+                </span>
+              ) : null}
+              {notice ? (
+                <span className="canvas-status__warning" role="status" aria-live="polite">
+                  {notice}
+                </span>
+              ) : null}
+              {svgImportNotice ? (
+                <span className="canvas-status__warning" role="status" aria-live="polite">
+                  {svgImportNotice}
+                </span>
+              ) : null}
             </div>
           ) : null}
 
@@ -2802,80 +2905,88 @@ function App() {
         type="file"
       />
 
-      {svgImportOptionsState ? (
-        <SvgImportOptionsModal
-          analysis={svgImportOptionsState.analysis}
-          autoCalibrationSuggestion={svgImportOptionsState.autoCalibrationSuggestion}
-          canAppendBreadboardToTable={
-            scene.workspace.kind === 'optical-table' &&
-            svgImportOptionsState.workspaceConfig.breadboards.length === 1
-          }
-          currentTablePlacement={currentImportTablePlacement}
-          document={svgImportOptionsState.document}
-          fileName={svgImportOptionsState.fileName}
-          hostSurfaceId={activeHostSurfaceId}
-          initialAppendBreadboardCenterMm={svgImportOptionsState.appendBreadboardCenterMm}
-          initialMode={svgImportOptionsState.mode}
-          initialPreviewItems={svgImportOptionsState.previewItems}
-          initialWorkspaceConfig={svgImportOptionsState.workspaceConfig}
-          isOpen={isSvgImportOptionsOpen}
-          onCancel={() => setSvgImportOptionsState(undefined)}
-          onConfirm={handleConfirmSvgImportOptions}
-          onOpenCalibration={handleOpenSvgCalibration}
-          scaleIsReliable={svgImportOptionsState.document.scale.isReliable}
-          scaleReason={svgImportOptionsState.document.scale.reason}
-          showLabels={showComponentLabels}
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {svgImportOptionsState ? (
+          <SvgImportOptionsModal
+            analysis={svgImportOptionsState.analysis}
+            autoCalibrationSuggestion={svgImportOptionsState.autoCalibrationSuggestion}
+            canAppendBreadboardToTable={
+              scene.workspace.kind === 'optical-table' &&
+              svgImportOptionsState.workspaceConfig.breadboards.length === 1
+            }
+            currentTablePlacement={currentImportTablePlacement}
+            document={svgImportOptionsState.document}
+            fileName={svgImportOptionsState.fileName}
+            hostSurfaceId={activeHostSurfaceId}
+            initialAppendBreadboardCenterMm={svgImportOptionsState.appendBreadboardCenterMm}
+            initialMode={svgImportOptionsState.mode}
+            initialPreviewItems={svgImportOptionsState.previewItems}
+            initialWorkspaceConfig={svgImportOptionsState.workspaceConfig}
+            isOpen={isSvgImportOptionsOpen}
+            onCancel={() => setSvgImportOptionsState(undefined)}
+            onConfirm={handleConfirmSvgImportOptions}
+            onOpenCalibration={handleOpenSvgCalibration}
+            scaleIsReliable={svgImportOptionsState.document.scale.isReliable}
+            scaleReason={svgImportOptionsState.document.scale.reason}
+            showLabels={showComponentLabels}
+          />
+        ) : null}
 
-      {svgCalibrationState ? (
-        <SvgCalibrationModal
-          autoCalibrationSuggestion={svgCalibrationState.autoCalibrationSuggestion}
-          baseMmPerUnit={svgCalibrationState.document.scale.baseMmPerUnit}
-          document={svgCalibrationState.document}
-          isOpen={isSvgCalibrationOpen}
-          onBack={() => {
-            setSvgImportOptionsState({
-              analysis: svgCalibrationState.analysis,
-              appendBreadboardCenterMm: svgCalibrationState.appendBreadboardCenterMm,
-              autoCalibrationSuggestion: svgCalibrationState.autoCalibrationSuggestion,
-              detection: svgCalibrationState.detection,
-              document: svgCalibrationState.document,
-              fileName: svgCalibrationState.fileName,
-              mode: svgCalibrationState.mode,
-              previewItems: svgCalibrationState.previewItems,
-              workspaceConfig: svgCalibrationState.workspaceConfig,
-            })
-            setSvgCalibrationState(undefined)
-          }}
-          onCancel={() => setSvgCalibrationState(undefined)}
-          onConfirm={handleConfirmSvgCalibration}
-          onUseSuggestedAutoCalibration={handleUseSuggestedAutoCalibration}
-        />
-      ) : null}
+        {svgCalibrationState ? (
+          <SvgCalibrationModal
+            autoCalibrationSuggestion={svgCalibrationState.autoCalibrationSuggestion}
+            baseMmPerUnit={svgCalibrationState.document.scale.baseMmPerUnit}
+            document={svgCalibrationState.document}
+            isOpen={isSvgCalibrationOpen}
+            onBack={() => {
+              setSvgImportOptionsState({
+                analysis: svgCalibrationState.analysis,
+                appendBreadboardCenterMm: svgCalibrationState.appendBreadboardCenterMm,
+                autoCalibrationSuggestion: svgCalibrationState.autoCalibrationSuggestion,
+                detection: svgCalibrationState.detection,
+                document: svgCalibrationState.document,
+                fileName: svgCalibrationState.fileName,
+                mode: svgCalibrationState.mode,
+                previewItems: svgCalibrationState.previewItems,
+                workspaceConfig: svgCalibrationState.workspaceConfig,
+              })
+              setSvgCalibrationState(undefined)
+            }}
+            onCancel={() => setSvgCalibrationState(undefined)}
+            onConfirm={handleConfirmSvgCalibration}
+            onUseSuggestedAutoCalibration={handleUseSuggestedAutoCalibration}
+          />
+        ) : null}
 
-      <ExportOptionsModal
-        defaultScope={
-          scene.workspace.kind === 'optical-table' ? 'breadboard-only' : 'full-scheme'
-        }
-        defaultSvgPreset={DEFAULT_SVG_PRESET}
-        format={exportOptionsFormat}
-        isOpen={exportOptionsFormat !== undefined}
-        onCancel={() => setExportOptionsFormat(undefined)}
-        onConfirm={handleConfirmExportOptions}
-      />
+        {exportOptionsFormat !== undefined ? (
+          <ExportOptionsModal
+            defaultScope={
+              scene.workspace.kind === 'optical-table'
+                ? 'breadboard-only'
+                : 'full-scheme'
+            }
+            defaultSvgPreset={DEFAULT_SVG_PRESET}
+            format={exportOptionsFormat}
+            isOpen={true}
+            onCancel={() => setExportOptionsFormat(undefined)}
+            onConfirm={handleConfirmExportOptions}
+          />
+        ) : null}
 
-      <JsonModal
-        error={jsonError}
-        initialValue={jsonSeed}
-        isOpen={isJsonModalOpen}
-        onClose={() => {
-          setJsonError(undefined)
-          setIsJsonModalOpen(false)
-        }}
-        onLoad={handleLoadFromJson}
-        schemaVersion={SCENE_DOCUMENT_VERSION}
-      />
+        {isJsonModalOpen ? (
+          <JsonModal
+            error={jsonError}
+            initialValue={jsonSeed}
+            isOpen={true}
+            onClose={() => {
+              setJsonError(undefined)
+              setIsJsonModalOpen(false)
+            }}
+            onLoad={handleLoadFromJson}
+            schemaVersion={SCENE_DOCUMENT_VERSION}
+          />
+        ) : null}
+      </Suspense>
 
       {!isOgMode ? (
         <FullLibraryModal
@@ -2927,12 +3038,14 @@ function App() {
         />
       ) : null}
 
-      {!isOgMode ? (
-        <VersionHistoryModal
-          isOpen={isVersionHistoryOpen}
-          onClose={() => setIsVersionHistoryOpen(false)}
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {!isOgMode && isVersionHistoryOpen ? (
+          <VersionHistoryModal
+            isOpen={true}
+            onClose={() => setIsVersionHistoryOpen(false)}
+          />
+        ) : null}
+      </Suspense>
 
       {!isOgMode ? (
         <OnboardingTour
@@ -2946,30 +3059,36 @@ function App() {
         />
       ) : null}
 
-      <WorkspaceModeModal
-        isOpen={isWorkspaceModalOpen}
-        onCancel={() => setWorkspaceModalState(undefined)}
-        onConvertToSingleBreadboard={handleConvertToSingleBreadboard}
-        state={
-          workspaceModalState
-            ? {
-                mode: 'to-single-breadboard',
-                breadboards: breadboardInstances.map((breadboard) => ({
-                  id: breadboard.id,
-                  label: breadboard.label,
-                  dimensionsLabel: `${breadboard.model.widthMm.toFixed(0)} × ${breadboard.model.heightMm.toFixed(0)} mm`,
-                })),
-              }
-            : undefined
-        }
-      />
+      <Suspense fallback={null}>
+        {isWorkspaceModalOpen ? (
+          <WorkspaceModeModal
+            isOpen={true}
+            onCancel={() => setWorkspaceModalState(undefined)}
+            onConvertToSingleBreadboard={handleConvertToSingleBreadboard}
+            state={
+              workspaceModalState
+                ? {
+                    mode: 'to-single-breadboard',
+                    breadboards: breadboardInstances.map((breadboard) => ({
+                      id: breadboard.id,
+                      label: breadboard.label,
+                      dimensionsLabel: `${breadboard.model.widthMm.toFixed(0)} × ${breadboard.model.heightMm.toFixed(0)} mm`,
+                    })),
+                  }
+                : undefined
+            }
+          />
+        ) : null}
 
-      <ClearConfirmModal
-        isOpen={isClearModalOpen}
-        onCancel={() => setClearModalState(undefined)}
-        onConfirm={handleConfirmClearSurface}
-        state={clearModalState}
-      />
+        {isClearModalOpen ? (
+          <ClearConfirmModal
+            isOpen={true}
+            onCancel={() => setClearModalState(undefined)}
+            onConfirm={handleConfirmClearSurface}
+            state={clearModalState}
+          />
+        ) : null}
+      </Suspense>
 
       {rasterExportRequest && exportViewport ? (
         <ExportStage
@@ -2982,6 +3101,8 @@ function App() {
           scope={rasterExportRequest.scope}
           showGaussianEnvelope={showGaussianEnvelope}
           showLabels={showComponentLabels}
+          simpleGlyphAppearances={simpleGlyphAppearances}
+          simpleIconStyle={simpleIconStyle}
           viewport={exportViewport}
         />
       ) : null}

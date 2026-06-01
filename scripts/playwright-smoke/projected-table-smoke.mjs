@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
-const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..', '..')
 

@@ -27,11 +27,12 @@ import {
   roundMm,
 } from './geometry'
 import { getExportWorldBoundsMm, type ExportScope, type SvgExportPreset } from './exportLayout'
+import { getScopedExportScene } from './exportScope'
 import { getGaussianWaistMarkers } from './gaussian'
+import { resolveRealisticSymbolStyle } from './realisticSymbolDecisions'
 import {
   getBreadboardInstance,
   getBreadboardInstances,
-  getHostSurfaceIdForComponent,
   getOpticalTable,
   getWorkspacePrimaryBreadboard,
 } from './workspace'
@@ -46,7 +47,9 @@ import type {
   GaussianTraceResult,
   OpticalTableModel,
   QuarterTurn,
+  RealisticSymbolStyle,
   RenderMode,
+  ResolvedComponentSpec,
   SceneDocument,
   ShapeAnnotation,
   SimpleIconStyle,
@@ -823,9 +826,11 @@ function renderSimpleLocalGlyph(
 
 function renderRealisticLocalHardware(
   component: ComponentInstance,
+  spec: ResolvedComponentSpec,
   bodyBoundsMm: BoundsMm,
   mountBoundsMm: BoundsMm,
   showMount: boolean,
+  symbolStyle: RealisticSymbolStyle,
   palette: {
     bodyFill: string
     bodyStroke: string
@@ -843,6 +848,19 @@ function renderRealisticLocalHardware(
   const opticRadius = Math.max(4, Math.min(bodyBoundsMm.width, bodyBoundsMm.height) * 0.42)
   const screwRadius = Math.max(1.5, mountRadius * 0.14)
   const screwOffset = Math.max(6.8, mountRadius - 4.2)
+
+  if (symbolStyle === 'schematic') {
+    return renderSimpleLocalGlyph(
+      spec.renderHint.glyph,
+      bodyBoundsMm,
+      {
+        fill: palette.bodyFill,
+        stroke: palette.bodyStroke,
+      },
+      'enhanced',
+    )
+  }
+
   const mountNodes =
     showMount && component.type !== 'bbo-crystal'
       ? [
@@ -919,25 +937,27 @@ function renderRealisticLocalHardware(
       return [
         ...mountNodes,
         {
-          kind: 'circle',
-          centerMm: { x: roundMm(centerX), y: roundMm(centerY) },
-          radiusMm: roundMm(opticRadius),
+          kind: 'line',
+          x1Mm: roundMm(centerX + opticRadius * 0.86),
+          y1Mm: roundMm(centerY - opticRadius * 0.86),
+          x2Mm: roundMm(centerX - opticRadius * 0.86),
+          y2Mm: roundMm(centerY + opticRadius * 0.86),
           style: defaultStyle({
-            fill: palette.bodyFill,
-            stroke: palette.bodyStroke,
-            strokeWidthMm: 0.7,
+            lineCap: 'round',
+            stroke: '#26343f',
+            strokeWidthMm: 1.65,
           }),
         },
         {
           kind: 'line',
-          x1Mm: roundMm(centerX + opticRadius * 0.72),
-          y1Mm: roundMm(centerY - opticRadius * 0.72),
-          x2Mm: roundMm(centerX - opticRadius * 0.72),
-          y2Mm: roundMm(centerY + opticRadius * 0.72),
+          x1Mm: roundMm(centerX + opticRadius * 0.82),
+          y1Mm: roundMm(centerY - opticRadius * 0.82),
+          x2Mm: roundMm(centerX - opticRadius * 0.82),
+          y2Mm: roundMm(centerY + opticRadius * 0.82),
           style: defaultStyle({
             lineCap: 'round',
             stroke: palette.bodyStroke,
-            strokeWidthMm: 0.8,
+            strokeWidthMm: 0.86,
           }),
         },
       ]
@@ -945,27 +965,29 @@ function renderRealisticLocalHardware(
       return [
         ...mountNodes,
         {
-          kind: 'circle',
-          centerMm: { x: roundMm(centerX), y: roundMm(centerY) },
-          radiusMm: roundMm(opticRadius),
+          kind: 'line',
+          x1Mm: roundMm(centerX - opticRadius * 0.86),
+          y1Mm: roundMm(centerY + opticRadius * 0.86),
+          x2Mm: roundMm(centerX + opticRadius * 0.86),
+          y2Mm: roundMm(centerY - opticRadius * 0.86),
           style: defaultStyle({
-            fill: palette.bodyFill,
-            fillOpacity: 0.24,
             stroke: palette.bodyStroke,
-            strokeWidthMm: 0.7,
+            strokeWidthMm: 1.08,
+            lineCap: 'round',
           }),
         },
         {
           kind: 'line',
-          x1Mm: roundMm(centerX - opticRadius * 0.75),
-          y1Mm: roundMm(centerY + opticRadius * 0.75),
-          x2Mm: roundMm(centerX + opticRadius * 0.75),
-          y2Mm: roundMm(centerY - opticRadius * 0.75),
+          x1Mm: roundMm(centerX - opticRadius * 0.64),
+          y1Mm: roundMm(centerY + opticRadius * 0.64),
+          x2Mm: roundMm(centerX + opticRadius * 0.64),
+          y2Mm: roundMm(centerY - opticRadius * 0.64),
           style: defaultStyle({
             dashMm: [1.3, 1.3],
             lineCap: 'round',
-            stroke: palette.bodyStroke,
-            strokeWidthMm: 0.75,
+            stroke: '#ffffff',
+            strokeOpacity: 0.48,
+            strokeWidthMm: 0.48,
           }),
         },
       ]
@@ -975,13 +997,26 @@ function renderRealisticLocalHardware(
         {
           kind: 'ellipse',
           centerMm: { x: roundMm(centerX), y: roundMm(centerY) },
-          radiusXMm: roundMm(Math.max(2.6, bodyBoundsMm.width * 0.18)),
-          radiusYMm: roundMm(Math.max(7.4, bodyBoundsMm.height * 0.42)),
+          radiusXMm: roundMm(Math.max(2.5, bodyBoundsMm.width * 0.16)),
+          radiusYMm: roundMm(Math.max(7.4, bodyBoundsMm.height * 0.45)),
           style: defaultStyle({
             fill: palette.bodyFill,
-            fillOpacity: 0.32,
+            fillOpacity: 0.42,
             stroke: palette.bodyStroke,
             strokeWidthMm: 0.7,
+          }),
+        },
+        {
+          kind: 'ellipse',
+          centerMm: {
+            x: roundMm(centerX - bodyBoundsMm.width * 0.04),
+            y: roundMm(centerY - bodyBoundsMm.height * 0.03),
+          },
+          radiusXMm: roundMm(Math.max(0.7, bodyBoundsMm.width * 0.05)),
+          radiusYMm: roundMm(Math.max(5.2, bodyBoundsMm.height * 0.32)),
+          style: defaultStyle({
+            fill: '#ffffff',
+            fillOpacity: 0.22,
           }),
         },
       ]
@@ -1293,6 +1328,7 @@ function createComponentNodes(
   mountGroup?: VectorGroupNode
 } {
   const spec = getResolvedComponentSpecForInstance(component)
+  const realisticSymbolStyle = resolveRealisticSymbolStyle(component, spec)
   const componentPalette = getComponentPalette(component, preset)
   const effectiveSupportBoundsMm = getEffectiveSupportBoundsMm(component, spec)
   const mountBoundsMm = spec.mountVisualBoundsMm ?? spec.mount.supportBoundsMm
@@ -1338,9 +1374,11 @@ function createComponentNodes(
         )
       : renderRealisticLocalHardware(
           component,
+          spec,
           spec.visualBodyBoundsMm,
           mountBoundsMm,
           showMount,
+          realisticSymbolStyle,
           componentPalette,
         )
 
@@ -1688,10 +1726,18 @@ export function createVectorExportSceneGraph({
   const primaryBreadboard = getWorkspacePrimaryBreadboard(scene)
   const opticalTable = getOpticalTable(scene)
   const breadboardInstances = getBreadboardInstances(scene)
+  const scopedScene = getScopedExportScene({
+    beamTrace,
+    breadboardSurfaceId,
+    gaussianTrace,
+    scene,
+    scope,
+  })
   const exportBreadboardInstance =
-    scene.workspace.kind === 'optical-table'
+    scopedScene.exportBreadboardInstance ??
+    (scene.workspace.kind === 'optical-table'
       ? getBreadboardInstance(scene, breadboardSurfaceId) ?? breadboardInstances[0]
-      : undefined
+      : undefined)
   const showTableSurface = !(
     scope === 'breadboard-only' && scene.workspace.kind === 'optical-table'
   )
@@ -1701,13 +1747,7 @@ export function createVectorExportSceneGraph({
       : scope === 'breadboard-only' && exportBreadboardInstance
         ? [exportBreadboardInstance]
         : breadboardInstances
-  const componentsToRender =
-    scope === 'breadboard-only' && exportBreadboardInstance
-      ? scene.components.filter(
-          (component) =>
-            getHostSurfaceIdForComponent(scene, component) === exportBreadboardInstance.id,
-        )
-      : scene.components
+  const componentsToRender = scopedScene.components
 
   if (scene.workspace.kind === 'single-breadboard') {
     createBoardNodes({
@@ -1767,7 +1807,7 @@ export function createVectorExportSceneGraph({
     }
   }
 
-  for (const segment of beamTrace.segments) {
+  for (const segment of scopedScene.beamTrace.segments) {
     pushLayerNode(layerMap, 'beams', {
       kind: 'line',
       id: `beam-${segment.id}`,
@@ -1785,11 +1825,7 @@ export function createVectorExportSceneGraph({
     })
   }
 
-  for (const annotation of scene.annotations) {
-    if (annotation.hidden) {
-      continue
-    }
-
+  for (const annotation of scopedScene.annotations) {
     const annotationLayer: VectorExportLayerId =
       annotation.layerBand === 'below-components'
         ? 'annotations-below'
@@ -1824,11 +1860,11 @@ export function createVectorExportSceneGraph({
   }
 
   if (showGaussianEnvelope) {
-    for (const node of createGaussianEnvelopeNodes(beamTrace, gaussianTrace)) {
+    for (const node of createGaussianEnvelopeNodes(scopedScene.beamTrace, scopedScene.gaussianTrace)) {
       pushLayerNode(layerMap, 'gaussian', node)
     }
 
-    for (const node of createWaistMarkerNodes(beamTrace, gaussianTrace)) {
+    for (const node of createWaistMarkerNodes(scopedScene.beamTrace, scopedScene.gaussianTrace)) {
       pushLayerNode(layerMap, 'gaussian', node)
     }
   }

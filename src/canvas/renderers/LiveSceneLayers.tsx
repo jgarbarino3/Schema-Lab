@@ -25,6 +25,7 @@ import type {
   SceneDocument,
   ScreenPointPx,
   RenderMode,
+  SimpleIconStyle,
   SnapMode,
   Vector2Mm,
   ViewportState,
@@ -123,6 +124,7 @@ export interface LiveSceneLayersProps {
   showLabels: boolean
   showPostHolders: boolean
   simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
+  simpleIconStyle?: SimpleIconStyle
   sourceGuide?:
     | {
         alignmentAxis?: 'horizontal' | 'vertical'
@@ -175,6 +177,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
   showLabels,
   showPostHolders,
   simpleGlyphAppearances,
+  simpleIconStyle = 'enhanced',
   sourceGuide,
   snapMode,
   useProjectedTableView = false,
@@ -349,6 +352,7 @@ export const LiveSceneLayers = memo(function LiveSceneLayers({
         }
         snapMode={snapMode}
         simpleGlyphAppearances={simpleGlyphAppearances}
+        simpleIconStyle={simpleIconStyle}
         viewport={viewport}
         useProjectedTableView={useProjectedTableView}
       />

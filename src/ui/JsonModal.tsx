@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { ModalShell } from './ModalShell'
 
 interface JsonModalProps {
   error?: string
@@ -151,6 +152,7 @@ export function JsonModal({
   onLoad,
   schemaVersion,
 }: JsonModalProps) {
+  const titleId = useId()
   const [draft, setDraft] = useState(initialValue)
   const [isHelperOpen, setIsHelperOpen] = useState(false)
   const [localError, setLocalError] = useState<string | undefined>()
@@ -207,23 +209,16 @@ export function JsonModal({
   }
 
   return (
-    <div
+    <ModalShell
+      ariaLabel="Scene JSON"
+      cardClassName="json-modal__dialog"
       className="json-modal"
-      onClick={() => {
-        onClose()
-      }}
-      role="presentation"
+      onClose={onClose}
+      titleId={titleId}
     >
-      <section
-        className="json-modal__dialog"
-        onClick={(event) => {
-          event.stopPropagation()
-        }}
-        role="dialog"
-      >
         <div className="json-modal__header">
           <div>
-            <h2>Scene JSON</h2>
+            <h2 id={titleId}>Scene JSON</h2>
             <p>Load or edit the serialized scene document directly.</p>
             <p className="json-modal__hint">
               Import accepts shorthand JSON and auto-uses schema version {schemaVersion}.
@@ -300,7 +295,11 @@ export function JsonModal({
                 </button>
               </div>
             </div>
-            {helperStatus ? <p className="json-modal__helper-status">{helperStatus}</p> : null}
+            {helperStatus ? (
+              <p className="json-modal__helper-status" role="status">
+                {helperStatus}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -356,7 +355,6 @@ export function JsonModal({
             Load Scene
           </button>
         </div>
-      </section>
-    </div>
+    </ModalShell>
   )
 }

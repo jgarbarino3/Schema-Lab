@@ -1,7 +1,9 @@
+import { useId } from 'react'
 import {
   CURRENT_VERSION,
   VERSION_HISTORY,
 } from '../content/versionHistory'
+import { ModalShell } from './ModalShell'
 
 interface VersionHistoryModalProps {
   isOpen: boolean
@@ -12,22 +14,21 @@ export function VersionHistoryModal({
   isOpen,
   onClose,
 }: VersionHistoryModalProps) {
+  const titleId = useId()
+
   if (!isOpen) {
     return null
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Schema-Lab version history">
-      <button
-        aria-label="Close version history"
-        className="modal-shell__backdrop"
-        onClick={onClose}
-        type="button"
-      />
-
-      <div className="modal-shell__card modal-shell__card--version-history">
+    <ModalShell
+      ariaLabel="Schema-Lab version history"
+      cardClassName="modal-shell__card modal-shell__card--version-history"
+      onClose={onClose}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>Schema-Lab Release History</h2>
+          <h2 id={titleId}>Schema-Lab Release History</h2>
           <p>
             Versions track meaningful milestones instead of every Git push. Most entries stay
             concise, while major releases can spell out the bigger workflow changes.
@@ -67,7 +68,6 @@ export function VersionHistoryModal({
             Close
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

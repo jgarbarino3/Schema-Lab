@@ -4,6 +4,7 @@ import {
   getComponentDefinition,
   getResolvedComponentSpec,
 } from './componentCatalog'
+import { createAutoNumberedComponentLabel } from './componentLabels'
 import { normalizeQuarterTurns, rotatePointQuarterTurns, roundMm } from './geometry'
 import {
   getSurfacePlacementModel,
@@ -2799,26 +2800,6 @@ function ensureDraftComponentIdForPreviewItem(
   return reserveComponentId(nextId, existingIds)
 }
 
-function createAutoLabel(type: ComponentType, existingComponents: ComponentInstance[]): string {
-  const familyLabel = getComponentDefinition(type).familyLabel
-  const escapedFamilyLabel = familyLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`^${escapedFamilyLabel}\\s+(\\d+)$`)
-  let highestOrdinal = 0
-
-  for (const component of existingComponents) {
-    if (component.type !== type) {
-      continue
-    }
-
-    const match = component.label.match(pattern)
-    if (match) {
-      highestOrdinal = Math.max(highestOrdinal, Number.parseInt(match[1], 10))
-    }
-  }
-
-  return `${familyLabel} ${highestOrdinal + 1}`
-}
-
 function createAnnotationId(existingIds: Set<string>) {
   let index = existingIds.size + 1
   let nextId = `line-import-${index}`
@@ -3829,7 +3810,11 @@ function buildSvgImportSceneCore(args: {
           )
         : createComponentId(resolution.suggestion.componentType, existingComponentIds),
       type: resolution.suggestion.componentType,
-      label: createAutoLabel(resolution.suggestion.componentType, baseScene.components),
+      label: createAutoNumberedComponentLabel(
+        baseScene.components,
+        resolution.suggestion.componentType,
+        variantId,
+      ),
       variantId,
       anchorMm: worldAnchor,
       hostSurfaceId: target.hostSurfaceId,
@@ -3873,7 +3858,11 @@ function buildSvgImportSceneCore(args: {
         existingComponentIds,
       ),
       type: injected.componentType,
-      label: createAutoLabel(injected.componentType, baseScene.components),
+      label: createAutoNumberedComponentLabel(
+        baseScene.components,
+        injected.componentType,
+        variantId,
+      ),
       variantId,
       anchorMm: mapSvgPointToWorldMm({
         importBounds: target.boundsUnits,

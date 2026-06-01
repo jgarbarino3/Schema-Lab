@@ -65,6 +65,11 @@ describe('component catalog variants', () => {
         'LMR1/M',
         'NDL-10C-2',
         'PF10-03-P01',
+        'PH20/M',
+        'PH30/M',
+        'PH40/M',
+        'PH50/M',
+        'PH75/M',
         'PH20E/M',
         'PH40E/M',
         'PH50E/M',
@@ -86,6 +91,25 @@ describe('component catalog variants', () => {
     expect(skus.has('PM5020')).toBe(false)
     expect(skus.has('XE25T3/M')).toBe(false)
     expect(skus.has('R2/M')).toBe(false)
+  })
+
+  it('uses the common PH20/M holder as the default support hardware and keeps posts distinct', () => {
+    const supportHardware = COMPONENT_DEFINITIONS.find(
+      (definition) => definition.type === 'support-hardware',
+    )
+    const defaultHolder = getResolvedComponentSpec('support-hardware')
+    const shortPost = getResolvedComponentSpec('support-hardware', 'tr20-m')
+    const pedestalHolder = getResolvedComponentSpec('support-hardware', 'ph20e-m')
+
+    expect(supportHardware?.defaultVariantId).toBe('ph20-m')
+    expect(defaultHolder.sku).toBe('PH20/M')
+    expect(defaultHolder.footprintBoundsMm.width).toBeCloseTo(25, 3)
+    expect(defaultHolder.renderHint.glyph).toBe('support-post-holder')
+    expect(shortPost.sku).toBe('TR20/M')
+    expect(shortPost.footprintBoundsMm.width).toBeCloseTo(12.7, 3)
+    expect(shortPost.renderHint.glyph).toBe('support-pedestal-post')
+    expect(pedestalHolder.sku).toBe('PH20E/M')
+    expect(pedestalHolder.footprintBoundsMm.width).toBeCloseTo(31.8, 3)
   })
 
   it('makes the Thorlabs platform mount the default sample holder', () => {

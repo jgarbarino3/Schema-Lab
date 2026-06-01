@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
-const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
 
 function parseZoom(text) {
   const match = text.match(/([0-9]+(?:\.[0-9]+)?)\s*px\/mm/i)
@@ -106,7 +106,7 @@ try {
   await page.locator('.panel__title-editor-input').waitFor()
   await page.waitForFunction(() => {
     const titleEditor = document.querySelector('.panel__title-editor-input')
-    return titleEditor instanceof HTMLTextAreaElement && /mirror/i.test(titleEditor.value)
+    return titleEditor instanceof HTMLTextAreaElement && /^M\d+/i.test(titleEditor.value)
   })
   const selectedComponentId = await page.evaluate(() => {
     const store = (window).__SCHEMA_LAB_STORE__
@@ -132,7 +132,7 @@ try {
   }, selectedComponentId)
   await page.waitForFunction(() => {
     const titleEditor = document.querySelector('.panel__title-editor-input')
-    return titleEditor instanceof HTMLTextAreaElement && /mirror/i.test(titleEditor.value)
+    return titleEditor instanceof HTMLTextAreaElement && /^M\d+/i.test(titleEditor.value)
   })
   const reselectedComponentMetrics = await readStageShellMetrics(page)
 
@@ -214,7 +214,7 @@ try {
 
   helpDialog = await openHelpDialog()
   await helpDialog.getByRole('button', { name: 'Tutorial' }).click()
-  const tutorialDialog = page.getByRole('dialog', { name: 'Load tutorial scene' })
+  const tutorialDialog = page.getByRole('dialog', { name: /Load Tutorial/i })
   await tutorialDialog.waitFor()
   await page.getByRole('button', { name: 'Cancel' }).click()
   await expectHidden(tutorialDialog)
@@ -222,7 +222,7 @@ try {
   helpDialog = await openHelpDialog()
   await helpDialog.getByRole('button', { name: 'What’s New' }).click()
   const versionDialog = page.getByRole('dialog', {
-    name: 'Schema-Lab version history',
+    name: /Schema-Lab Release History/i,
   })
   await versionDialog.waitFor()
   await page.getByRole('button', { exact: true, name: 'Close' }).click()

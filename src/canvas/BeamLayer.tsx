@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import { Circle, Layer, Line, Text } from 'react-konva'
 import { getBeamColor } from '../domain/beamTracing'
-import { getNearestBeamSegmentHit } from '../domain/beamSelection'
+import { getNearestBeamSegmentHit } from './beamHitTesting'
 import { worldToScreen } from '../domain/geometry'
 import { getGaussianInteractionAnalysis } from '../domain/gaussian'
 import { getSurfaceMountPlaneOffsetMm } from '../domain/workspace'

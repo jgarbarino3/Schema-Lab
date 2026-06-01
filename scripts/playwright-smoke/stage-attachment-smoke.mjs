@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
-const targetUrl = process.argv[2] ?? 'http://127.0.0.1:5173/'
+const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..', '..')
 
@@ -47,7 +47,7 @@ try {
   })
 
   assert.ok(stageInfo.stageId, 'Sample holder should be placed')
-  assert.equal(stageInfo.variantId, 'compact-slotted-sample-holder')
+  assert.equal(stageInfo.variantId, 'thorlabs-km100b-m')
 
   const samplePending = await page.evaluate((stageId) => {
     const store = window.__SCHEMA_LAB_STORE__

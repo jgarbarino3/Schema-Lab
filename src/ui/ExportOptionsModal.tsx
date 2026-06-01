@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { ExportFormat, ExportScope, SvgExportPreset } from '../domain/exportLayout'
+import { ModalShell } from './ModalShell'
 
 interface ExportOptionsModalProps {
   defaultScope: ExportScope
@@ -39,6 +40,7 @@ export function ExportOptionsModal({
   onCancel,
   onConfirm,
 }: ExportOptionsModalProps) {
+  const titleId = useId()
   const [scope, setScope] = useState<ExportScope>(defaultScope)
   const [svgPreset, setSvgPreset] = useState<SvgExportPreset>(defaultSvgPreset)
 
@@ -63,12 +65,14 @@ export function ExportOptionsModal({
       : `Export ${formatExportFormat(format)}`
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Export options">
-      <div className="modal-shell__backdrop" onClick={onCancel} />
-
-      <div className="modal-shell__card modal-shell__card--export">
+    <ModalShell
+      ariaLabel="Export options"
+      cardClassName="modal-shell__card modal-shell__card--export"
+      onClose={onCancel}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>{formatExportFormat(format)} Export Options</h2>
+          <h2 id={titleId}>{formatExportFormat(format)} Export Options</h2>
           <p>
             Choose what portion of the scene to export. SVG also lets you choose between a
             clean engineering preset and a presentation-styled preset.
@@ -145,7 +149,6 @@ export function ExportOptionsModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

@@ -19,6 +19,7 @@ import type {
   RenderMode,
   SceneDocument,
   ScreenPointPx,
+  SimpleIconStyle,
   SnapMode,
   ViewportState,
 } from '../domain/types'
@@ -81,6 +82,7 @@ interface ComponentsLayerProps {
   scene: SceneDocument
   selectedComponentId?: string
   simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
+  simpleIconStyle?: SimpleIconStyle
   snapMode: SnapMode
   useProjectedTableView?: boolean
   viewport: ViewportState
@@ -138,6 +140,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
   scene,
   selectedComponentId,
   simpleGlyphAppearances,
+  simpleIconStyle = 'enhanced',
   snapMode,
   useProjectedTableView = false,
   viewport,
@@ -180,16 +183,20 @@ export const ComponentsLayer = memo(function ComponentsLayer({
         : undefined,
     [highlightedComponentIds],
   )
-  const draggedComponentIdSet = draggedComponentIds
-    ? new Set(draggedComponentIds)
-    : undefined
-  const previewDragDeltaMm =
-    dragPreview && previewedComponent
-      ? {
-          x: dragPreview.candidateAnchorMm.x - previewedComponent.anchorMm.x,
-          y: dragPreview.candidateAnchorMm.y - previewedComponent.anchorMm.y,
-        }
-      : undefined
+  const draggedComponentIdSet = useMemo(
+    () => (draggedComponentIds ? new Set(draggedComponentIds) : undefined),
+    [draggedComponentIds],
+  )
+  const previewDragDeltaMm = useMemo(
+    () =>
+      dragPreview && previewedComponent
+        ? {
+            x: dragPreview.candidateAnchorMm.x - previewedComponent.anchorMm.x,
+            y: dragPreview.candidateAnchorMm.y - previewedComponent.anchorMm.y,
+          }
+        : undefined,
+    [dragPreview, previewedComponent],
+  )
   const breadboardDragDeltaMm =
     scene.workspace.kind === 'optical-table' && breadboardDragPreview
       ? (() => {
@@ -552,6 +559,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               : undefined,
           showLabels,
           showPostHolders,
+          simpleIconStyle,
           surfaceSupportCompensationMm: getSurfaceSupportCompensationMm(
             scene,
             component.hostSurfaceId,
@@ -611,6 +619,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               renderMode={renderMode}
               showLabels={showLabels}
               simpleGlyphAppearance={simpleGlyphAppearances?.[pendingPlacement.draft.id]}
+              simpleIconStyle={simpleIconStyle}
               surfaceSupportCompensationMm={getSurfaceSupportCompensationMm(
                 scene,
                 pendingPlacement.draft.hostSurfaceId,
@@ -690,6 +699,7 @@ export const ComponentsLayer = memo(function ComponentsLayer({
               renderMode={renderMode}
               showLabels={showLabels}
               simpleGlyphAppearance={simpleGlyphAppearances?.[previewedComponent.id]}
+              simpleIconStyle={simpleIconStyle}
               viewport={viewport}
             />
           )}

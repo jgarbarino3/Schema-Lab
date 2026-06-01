@@ -9,7 +9,93 @@ import { createSceneSvg } from '../domain/svgExport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from '../domain/tutorialScene'
 import { convertSceneToOpticalTable, createBreadboardInstance } from '../domain/workspace'
 import { createBreadboardFromPreset } from '../domain/breadboardPresets'
-import { DEFAULT_SIMPLE_ICON_STYLE } from '../domain/types'
+import {
+  DEFAULT_SIMPLE_ICON_STYLE,
+  type BeamSegment,
+  type BeamTraceResult,
+  type GaussianSegmentAnalysis,
+  type GaussianTraceResult,
+  type PolarizationSnapshot,
+} from '../domain/types'
+
+const DEFAULT_POLARIZATION: PolarizationSnapshot = {
+  basis: 'ray-local',
+  dominantAxis: 'in-plane',
+  inPlaneAmplitude: 1,
+  inPlaneFraction: 1,
+  outOfPlaneAmplitude: 0,
+  outOfPlaneFraction: 0,
+  presetId: 'linear-in-plane',
+  relativePhaseDeg: 0,
+  tag: 'Linear in-plane',
+}
+
+function makeBeamSegment(
+  id: string,
+  sourceComponentId: string,
+  startMm: { x: number; y: number },
+  endMm: { x: number; y: number },
+): BeamSegment {
+  const lengthMm = Math.hypot(endMm.x - startMm.x, endMm.y - startMm.y)
+
+  return {
+    id,
+    attenuationClass: 'normal',
+    bandwidthNm: 10,
+    beamDiameterMm: 2,
+    beamId: `${id}-beam`,
+    branchKind: 'root',
+    directionMm: {
+      x: lengthMm > 0 ? (endMm.x - startMm.x) / lengthMm : 1,
+      y: lengthMm > 0 ? (endMm.y - startMm.y) / lengthMm : 0,
+    },
+    effectiveOpticalLengthMm: lengthMm,
+    endMm,
+    generation: 0,
+    geometricLengthMm: lengthMm,
+    internalOpticalPathMm: 0,
+    opticalPathMm: lengthMm,
+    outcomeClass: 'escaped',
+    pathId: `${id}-path`,
+    pathRole: 'fundamental',
+    polarization: DEFAULT_POLARIZATION,
+    powerMw: 10,
+    powerPercent: 100,
+    sourceComponentId,
+    startMm,
+    status: 'escaped',
+    timeDelayFs: 0,
+    wavelengthNm: 800,
+  }
+}
+
+function makeGaussianSegmentAnalysis(segment: BeamSegment): GaussianSegmentAnalysis {
+  const localReadout = {
+    beamDiameterMm: 2,
+    q: { realMm: 0, imagMm: 1 },
+    rayleighRangeMm: 100,
+    spotRadiusMm: 1,
+    waistOffsetMm: 0,
+    waistRadiusMm: 1,
+    wavelengthNm: segment.wavelengthNm,
+  }
+
+  return {
+    segmentId: segment.id,
+    effectiveOpticalLengthMm: segment.effectiveOpticalLengthMm,
+    end: localReadout,
+    endDistanceMm: segment.geometricLengthMm,
+    endTimeDelayFs: 0,
+    geometricLengthMm: segment.geometricLengthMm,
+    internalOpticalPathMm: 0,
+    lengthMm: segment.geometricLengthMm,
+    pathId: segment.pathId,
+    sourceComponentId: segment.sourceComponentId,
+    start: localReadout,
+    startDistanceMm: 0,
+    startTimeDelayFs: 0,
+  }
+}
 
 describe('export helpers', () => {
   it('creates mm-native layered SVG output from resolved scene geometry', () => {
@@ -210,6 +296,157 @@ describe('export helpers', () => {
     expect(svgMarkup).not.toContain('Source Lane')
     expect(svgMarkup).not.toContain('source-lanes-layer')
     expect(svgMarkup).not.toContain('sources at ±')
+  })
+
+  it('scopes breadboard-only SVG export to the selected breadboard', () => {
+    const scene = convertSceneToOpticalTable(createEmptyScene())
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    const primaryBreadboard = scene.workspace.breadboards[0]
+    if (!primaryBreadboard) {
+      throw new Error('expected primary breadboard')
+    }
+
+    scene.workspace.breadboards.push(
+      createBreadboardInstance({
+        id: 'breadboard-2',
+        label: 'Breadboard 2',
+        model: createBreadboardFromPreset('metric-300-square'),
+        anchorMm: { x: 2280, y: 520 },
+      }),
+    )
+
+    const mirrorDefinition = getComponentDefinition('mirror')
+    scene.components = [
+      {
+        id: 'mirror-on-board-1',
+        type: 'mirror',
+        label: 'M1',
+        variantId: mirrorDefinition.defaultVariantId,
+        anchorMm: {
+          x: primaryBreadboard.anchorMm.x + 100,
+          y: primaryBreadboard.anchorMm.y + 100,
+        },
+        hostSurfaceId: primaryBreadboard.id,
+        rotationQuarterTurns: 0,
+        config: createDefaultComponentConfig('mirror'),
+      },
+      {
+        id: 'mirror-on-board-2',
+        type: 'mirror',
+        label: 'M2',
+        variantId: mirrorDefinition.defaultVariantId,
+        anchorMm: { x: 2355, y: 595 },
+        hostSurfaceId: 'breadboard-2',
+        rotationQuarterTurns: 0,
+        config: createDefaultComponentConfig('mirror'),
+      },
+    ]
+    scene.annotations = [
+      {
+        id: 'inside-note',
+        kind: 'text',
+        anchorMm: {
+          x: primaryBreadboard.anchorMm.x + 40,
+          y: primaryBreadboard.anchorMm.y + 45,
+        },
+        backgroundColor: 'transparent',
+        borderColor: '#000000',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
+        text: 'Inside board 1',
+        variant: 'plain',
+        widthMm: 60,
+        style: {
+          align: 'left',
+          bold: false,
+          color: '#111111',
+          fontFamily: 'clean-sans',
+          fontSizeMm: 5,
+          italic: false,
+          underline: false,
+        },
+        zIndex: 0,
+      },
+      {
+        id: 'outside-note',
+        kind: 'text',
+        anchorMm: { x: 2340, y: 565 },
+        backgroundColor: 'transparent',
+        borderColor: '#000000',
+        hidden: false,
+        layerBand: 'above-components',
+        locked: false,
+        text: 'Outside board 2',
+        variant: 'plain',
+        widthMm: 60,
+        style: {
+          align: 'left',
+          bold: false,
+          color: '#111111',
+          fontFamily: 'clean-sans',
+          fontSizeMm: 5,
+          italic: false,
+          underline: false,
+        },
+        zIndex: 0,
+      },
+    ]
+
+    const insideSegment = makeBeamSegment(
+      'inside-segment',
+      'mirror-on-board-1',
+      { x: primaryBreadboard.anchorMm.x + 30, y: primaryBreadboard.anchorMm.y + 85 },
+      { x: primaryBreadboard.anchorMm.x + 230, y: primaryBreadboard.anchorMm.y + 85 },
+    )
+    const outsideSegment = makeBeamSegment(
+      'outside-segment',
+      'mirror-on-board-2',
+      { x: 2310, y: 585 },
+      { x: 2450, y: 585 },
+    )
+    const beamTrace: BeamTraceResult = {
+      events: [],
+      opticInteractionSummaries: [],
+      pathSummaries: [],
+      segments: [insideSegment, outsideSegment],
+      summaries: [],
+      terminalCaptures: [],
+    }
+    const gaussianTrace: GaussianTraceResult = {
+      componentWarnings: [],
+      interactionAnalyses: [],
+      pathAnalyses: [],
+      segmentAnalyses: [
+        makeGaussianSegmentAnalysis(insideSegment),
+        makeGaussianSegmentAnalysis(outsideSegment),
+      ],
+      sources: [],
+    }
+
+    const svgMarkup = createSceneSvg({
+      beamTrace,
+      breadboardSurfaceId: primaryBreadboard.id,
+      gaussianTrace,
+      renderMode: 'realistic',
+      scene,
+      simpleIconStyle: DEFAULT_SIMPLE_ICON_STYLE,
+      scope: 'breadboard-only',
+      showGaussianEnvelope: true,
+    })
+
+    expect(svgMarkup).toContain('M1')
+    expect(svgMarkup).toContain('Inside board 1')
+    expect(svgMarkup).toContain('beam-inside-segment')
+    expect(svgMarkup).toContain('gaussian-inside-segment')
+    expect(svgMarkup).not.toContain('M2')
+    expect(svgMarkup).not.toContain('Outside board 2')
+    expect(svgMarkup).not.toContain('beam-outside-segment')
+    expect(svgMarkup).not.toContain('gaussian-outside-segment')
   })
 
   it('creates a deterministic tutorial scene with the expected focus component', () => {

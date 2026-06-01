@@ -1,4 +1,6 @@
+import { useId } from 'react'
 import type { SceneWarning } from '../domain/types'
+import { ModalShell } from './ModalShell'
 
 interface WarningReviewModalProps {
   exportLabel?: string
@@ -21,17 +23,21 @@ export function WarningReviewModal({
   onReviewWarnings,
   warnings,
 }: WarningReviewModalProps) {
+  const titleId = useId()
+
   if (!isOpen) {
     return null
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Review scene warnings">
-      <div className="modal-shell__backdrop" onClick={onCancel} />
-
-      <div className="modal-shell__card modal-shell__card--warning">
+    <ModalShell
+      ariaLabel="Review scene warnings"
+      cardClassName="modal-shell__card modal-shell__card--warning"
+      onClose={onCancel}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>
+          <h2 id={titleId}>
             Review Warnings Before {formatExportLabel(exportLabel)}
           </h2>
           <p>
@@ -67,7 +73,6 @@ export function WarningReviewModal({
             Export anyway
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

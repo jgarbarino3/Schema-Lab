@@ -10,6 +10,10 @@ import {
   shouldIncludeDefaultMount,
 } from '../domain/componentCatalog'
 import { quarterTurnsToDegrees, worldToScreen } from '../domain/geometry'
+import {
+  resolveRealisticSupportPostholderStyle,
+  resolveRealisticSymbolStyle,
+} from '../domain/realisticSymbolDecisions'
 import type {
   ComponentInstance,
   PlacementStatus,
@@ -22,7 +26,6 @@ import { ComponentGlyph } from './ComponentGlyph'
 import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
 import { resolveSupportHardwareDetail } from './supportHardwareDetail'
-import { useEditorStore } from '../state/editorStore'
 
 export interface SimpleGlyphAppearance {
   color: string
@@ -143,6 +146,8 @@ export function ComponentNodeView({
   viewport,
 }: ComponentNodeProps) {
   const spec = getResolvedComponentSpecForInstance(instance)
+  const realisticSymbolStyle = resolveRealisticSymbolStyle(instance, spec)
+  const realisticSupportPostholderStyle = resolveRealisticSupportPostholderStyle()
   const screenAnchorPx = worldToScreen(instance.anchorMm, viewport)
   const bodyBoundsMm = spec.visualBodyBoundsMm
   const footprintBoundsMm = spec.footprintBoundsMm
@@ -183,7 +188,9 @@ export function ComponentNodeView({
   const showPostHolderCircle =
     renderMode === 'simple' && supportHardwareDetail !== 'none'
   const showSupportCompensation =
-    surfaceSupportCompensationMm > 0.1 && isPostMountedType(instance.type)
+    surfaceSupportCompensationMm > 0.1 &&
+    isPostMountedType(instance.type) &&
+    !(renderMode === 'realistic' && realisticSupportPostholderStyle === 'schematic')
   const mountCenterX = mountBoundsMm.x + mountBoundsMm.width / 2
   const mountCenterY = mountBoundsMm.y + mountBoundsMm.height / 2
   const compensationOuterRadiusMm =
@@ -202,6 +209,8 @@ export function ComponentNodeView({
   const effectiveSimpleGlyphColor = simpleGlyphAppearance?.color ?? stroke
   const effectiveSimpleGlyphScale = simpleGlyphAppearance?.scale ?? 1
   const effectiveSimpleGlyphWeight = simpleGlyphAppearance?.weight ?? 1
+  const effectiveSimpleIconStyle =
+    instance.simpleIconStyleOverride ?? simpleIconStyle
   const simpleGlyphBoundsMm =
     renderMode === 'simple' && supportsSimpleAppearance
       ? scaleBoundsAboutCenter(bodyBoundsMm, effectiveSimpleGlyphScale)
@@ -449,6 +458,7 @@ export function ComponentNodeView({
               opticStroke: stroke,
               showMount: showIntegratedMount,
               spec,
+              symbolStyle: realisticSymbolStyle,
             },
           )
         : (
@@ -516,7 +526,7 @@ export function ComponentNodeView({
                       : stroke
                 }
                 strokeScale={renderMode === 'simple' ? effectiveSimpleGlyphWeight : 1}
-                style={renderMode === 'simple' ? simpleIconStyle : 'enhanced'}
+                style={renderMode === 'simple' ? effectiveSimpleIconStyle : 'enhanced'}
               />
             </>
           )}
@@ -701,21 +711,4 @@ export function ComponentNodeView({
   )
 }
 
-export const ComponentNode = memo(function ComponentNode(props: ComponentNodeProps) {
-  const storedSimpleGlyphAppearance = useEditorStore(
-    (state) => state.simpleGlyphAppearances[props.instance.id],
-  )
-  const globalSimpleIconStyle = useEditorStore((state) => state.simpleIconStyle)
-  const simpleGlyphAppearance =
-    props.simpleGlyphAppearance ?? storedSimpleGlyphAppearance
-  const simpleIconStyle =
-    props.instance.simpleIconStyleOverride ?? props.simpleIconStyle ?? globalSimpleIconStyle
-
-  return (
-    <ComponentNodeView
-      {...props}
-      simpleGlyphAppearance={simpleGlyphAppearance}
-      simpleIconStyle={simpleIconStyle}
-    />
-  )
-})
+export const ComponentNode = memo(ComponentNodeView)

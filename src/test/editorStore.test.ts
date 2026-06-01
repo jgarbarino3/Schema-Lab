@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBreadboardFromPreset } from '../domain/breadboardPresets'
+import { getNearestBoardCenterHole } from '../domain/breadboard'
 import {
   createDefaultComponentConfig,
   getComponentDefinition,
@@ -12,6 +13,7 @@ import {
   createBreadboardInstance,
   getBreadboardInstance,
   getBreadboardWorldBoundsMm,
+  surfaceLocalToWorld,
 } from '../domain/workspace'
 import { useEditorStore } from '../state/editorStore'
 
@@ -31,13 +33,13 @@ describe('editor store pending placement', () => {
 
     expect(useEditorStore.getState().scene.components).toHaveLength(0)
     expect(useEditorStore.getState().interaction.pendingPlacement?.draft.label).toBe(
-      'Planar Mirror 1',
+      'M1',
     )
 
     useEditorStore.getState().commitPendingPlacement({ x: 112.5, y: 112.5 })
 
     expect(useEditorStore.getState().scene.components).toHaveLength(1)
-    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Planar Mirror 1')
+    expect(useEditorStore.getState().scene.components[0]?.label).toBe('M1')
     expect(useEditorStore.getState().interaction.pendingPlacement).toBeUndefined()
   })
 
@@ -53,7 +55,18 @@ describe('editor store pending placement', () => {
 
     expect(
       useEditorStore.getState().scene.components.map((component) => component.label),
-    ).toEqual(['Planar Mirror 1', 'Planar Mirror 2'])
+    ).toEqual(['M1', 'M2'])
+  })
+
+  it('uses compact schematic labels for other optics', () => {
+    const store = useEditorStore.getState()
+
+    store.addComponent('lens')
+    expect(useEditorStore.getState().interaction.pendingPlacement?.draft.label).toBe('L1')
+    store.cancelActiveInteraction()
+
+    store.addComponent('beamsplitter')
+    expect(useEditorStore.getState().interaction.pendingPlacement?.draft.label).toBe('BS1')
   })
 
   it('cancels an armed pending placement cleanly', () => {
@@ -209,7 +222,7 @@ describe('editor store scene history', () => {
 
     store.undo()
 
-    expect(useEditorStore.getState().scene.components[0]?.label).toBe('Planar Mirror 1')
+    expect(useEditorStore.getState().scene.components[0]?.label).toBe('M1')
   })
 })
 
@@ -625,6 +638,54 @@ describe('editor store optical table placement', () => {
     )
     expect(pendingPlacement?.candidateAnchorMm.x).toBeGreaterThan(2280)
     expect(pendingPlacement?.candidateAnchorMm.y).toBeGreaterThan(520)
+  })
+
+  it('defaults armed placement to the world center of a rotated host breadboard', () => {
+    const scene = useEditorStore.getState().scene
+
+    if (scene.workspace.kind !== 'optical-table') {
+      throw new Error('expected optical-table workspace')
+    }
+
+    useEditorStore.getState().loadScene(
+      {
+        ...scene,
+        workspace: {
+          ...scene.workspace,
+          breadboards: scene.workspace.breadboards.map((breadboard) =>
+            breadboard.id === 'breadboard-2'
+              ? {
+                  ...breadboard,
+                  rotationQuarterTurns: 1,
+                }
+              : breadboard,
+          ),
+        },
+      },
+      { history: 'reset' },
+    )
+
+    const rotatedScene = useEditorStore.getState().scene
+    const rotatedBreadboard = getBreadboardInstance(rotatedScene, 'breadboard-2')
+    if (!rotatedBreadboard) {
+      throw new Error('expected rotated breadboard')
+    }
+
+    const expectedAnchorMm = surfaceLocalToWorld(
+      rotatedScene,
+      'breadboard-2',
+      getNearestBoardCenterHole(rotatedBreadboard.model),
+    )
+
+    const store = useEditorStore.getState()
+    store.selectBreadboard('breadboard-2')
+    store.addComponent('lens')
+
+    const pendingPlacement = useEditorStore.getState().interaction.pendingPlacement
+
+    expect(pendingPlacement?.draft.hostSurfaceId).toBe('breadboard-2')
+    expect(pendingPlacement?.draft.anchorMm).toEqual(expectedAnchorMm)
+    expect(pendingPlacement?.candidateAnchorMm).toEqual(expectedAnchorMm)
   })
 
   it('defaults optical-table laser sources to the compact table-mounted variant', () => {

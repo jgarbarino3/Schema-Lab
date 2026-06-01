@@ -1,4 +1,4 @@
-import { useMemo, useState, type FocusEvent } from 'react'
+import { useId, useMemo, useState, type FocusEvent } from 'react'
 import {
   DEFAULT_IMPORT_HOLE_PITCH_MM,
   type ImportAutoCalibrationResult,
@@ -10,6 +10,7 @@ import type {
   SvgCalibrationSample,
 } from '../domain/svgImport'
 import type { Vector2Mm } from '../domain/types'
+import { ModalShell } from './ModalShell'
 import { SvgImportPreview } from './SvgImportPreview'
 
 interface SvgCalibrationModalProps {
@@ -59,6 +60,7 @@ function selectAllText(event: FocusEvent<HTMLInputElement>) {
 }
 
 export function SvgCalibrationModal(props: SvgCalibrationModalProps) {
+  const titleId = useId()
   const {
     autoCalibrationSuggestion,
     baseMmPerUnit,
@@ -110,14 +112,15 @@ export function SvgCalibrationModal(props: SvgCalibrationModalProps) {
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Drawing calibration">
-      <button className="modal-shell__backdrop" onClick={onCancel} type="button" />
-      <div
-        className="modal-shell__card svg-calibration-modal"
-        data-testid="drawing-calibration-modal"
-      >
+    <ModalShell
+      ariaLabel="Drawing calibration"
+      cardClassName="modal-shell__card svg-calibration-modal"
+      onClose={onCancel}
+      testId="drawing-calibration-modal"
+      titleId={titleId}
+    >
         <header className="modal-shell__header">
-          <h2>Calibrate Import Scale</h2>
+          <h2 id={titleId}>Calibrate Import Scale</h2>
           <p>Select points on the preview, then enter the known physical distance in mm.</p>
         </header>
 
@@ -280,7 +283,6 @@ export function SvgCalibrationModal(props: SvgCalibrationModalProps) {
             Use Calibration
           </button>
         </footer>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

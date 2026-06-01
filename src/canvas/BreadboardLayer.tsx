@@ -36,7 +36,6 @@ interface BreadboardLayerProps {
   }
   renderInLayer?: boolean
   rotationQuarterTurns?: QuarterTurn
-  showSourceLanes?: boolean
   showLabels?: boolean
   viewport: ViewportState
 }
@@ -56,7 +55,6 @@ export function BreadboardLayer({
   palette,
   renderInLayer = true,
   rotationQuarterTurns = 0,
-  showSourceLanes: _showSourceLanes = true,
   showLabels = true,
   viewport,
 }: BreadboardLayerProps) {

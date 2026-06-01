@@ -238,43 +238,52 @@ export function AnnotationDock({
   const textButtonRef = useRef<HTMLButtonElement | null>(null)
   const shapeButtonRef = useRef<HTMLButtonElement | null>(null)
   const [openPopover, setOpenPopover] = useState<PopoverTool | undefined>()
+  const [popoverAnchor, setPopoverAnchor] = useState<HTMLButtonElement | null>(null)
 
-  useEffect(() => {
-    if (
-      selectedAnnotation ||
-      (openPopover && activeTool !== openPopover)
-    ) {
-      setOpenPopover(undefined)
-    }
-  }, [activeTool, openPopover, selectedAnnotation])
+  const activePopover =
+    selectedAnnotation || (openPopover && activeTool !== openPopover)
+      ? undefined
+      : openPopover
 
   const handleActivateTool = (tool: ActiveTool) => {
     onDone()
 
     if (tool === 'select' || tool === 'pan' || tool === 'highlight') {
       setOpenPopover(undefined)
+      setPopoverAnchor(null)
       setActiveTool(tool)
       return
     }
 
     const shouldToggleClosed = activeTool === tool && openPopover === tool
+    const nextAnchor =
+      tool === 'line'
+        ? lineButtonRef.current
+        : tool === 'text'
+          ? textButtonRef.current
+          : shapeButtonRef.current
+
     setActiveTool(tool)
     setOpenPopover(shouldToggleClosed ? undefined : tool)
+    setPopoverAnchor(shouldToggleClosed ? null : nextAnchor)
   }
 
   const handleLineColorSelect = (color: string) => {
     setLineColor(color)
     setOpenPopover(undefined)
+    setPopoverAnchor(null)
   }
 
   const handleTextVariantSelect = (variant: AnnotationText['variant']) => {
     setTextToolVariant(variant)
     setOpenPopover(undefined)
+    setPopoverAnchor(null)
   }
 
   const handleShapeKindSelect = (shapeKind: ShapeAnnotation['shapeKind']) => {
     setShapeToolKind(shapeKind)
     setOpenPopover(undefined)
+    setPopoverAnchor(null)
   }
 
   const highlightedTool =
@@ -336,7 +345,7 @@ export function AnnotationDock({
           aria-pressed={highlightedTool === 'line'}
           className={`toolbar__icon-button${highlightedTool === 'line' ? ' is-active' : ''}`}
           data-tooltip="Line"
-          data-popover-open={openPopover === 'line' ? 'true' : undefined}
+          data-popover-open={activePopover === 'line' ? 'true' : undefined}
           onClick={() => handleActivateTool('line')}
           ref={lineButtonRef}
           type="button"
@@ -367,7 +376,7 @@ export function AnnotationDock({
           aria-pressed={highlightedTool === 'text'}
           className={`toolbar__icon-button${highlightedTool === 'text' ? ' is-active' : ''}`}
           data-tooltip="Text"
-          data-popover-open={openPopover === 'text' ? 'true' : undefined}
+          data-popover-open={activePopover === 'text' ? 'true' : undefined}
           onClick={() => handleActivateTool('text')}
           ref={textButtonRef}
           type="button"
@@ -396,7 +405,7 @@ export function AnnotationDock({
           aria-pressed={highlightedTool === 'shape'}
           className={`toolbar__icon-button${highlightedTool === 'shape' ? ' is-active' : ''}`}
           data-tooltip="Shape"
-          data-popover-open={openPopover === 'shape' ? 'true' : undefined}
+          data-popover-open={activePopover === 'shape' ? 'true' : undefined}
           onClick={() => handleActivateTool('shape')}
           ref={shapeButtonRef}
           type="button"
@@ -426,11 +435,14 @@ export function AnnotationDock({
         ) : null}
       </div>
 
-      {openPopover === 'line' && !selectedAnnotation ? (
+      {activePopover === 'line' ? (
         <AnnotationToolPopover
-          anchor={lineButtonRef.current}
+          anchor={popoverAnchor}
           label="Line"
-          onClose={() => setOpenPopover(undefined)}
+          onClose={() => {
+            setOpenPopover(undefined)
+            setPopoverAnchor(null)
+          }}
           testId="annotation-tool-popover-line"
         >
           <div className="annotation-dock__popover-header">
@@ -453,11 +465,14 @@ export function AnnotationDock({
         </AnnotationToolPopover>
       ) : null}
 
-      {openPopover === 'text' && !selectedAnnotation ? (
+      {activePopover === 'text' ? (
         <AnnotationToolPopover
-          anchor={textButtonRef.current}
+          anchor={popoverAnchor}
           label="Text"
-          onClose={() => setOpenPopover(undefined)}
+          onClose={() => {
+            setOpenPopover(undefined)
+            setPopoverAnchor(null)
+          }}
           testId="annotation-tool-popover-text"
         >
           <div className="annotation-dock__popover-header">
@@ -481,11 +496,14 @@ export function AnnotationDock({
         </AnnotationToolPopover>
       ) : null}
 
-      {openPopover === 'shape' && !selectedAnnotation ? (
+      {activePopover === 'shape' ? (
         <AnnotationToolPopover
-          anchor={shapeButtonRef.current}
+          anchor={popoverAnchor}
           label="Shape"
-          onClose={() => setOpenPopover(undefined)}
+          onClose={() => {
+            setOpenPopover(undefined)
+            setPopoverAnchor(null)
+          }}
           testId="annotation-tool-popover-shape"
         >
           <div className="annotation-dock__popover-header">

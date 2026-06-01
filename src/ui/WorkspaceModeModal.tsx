@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
+import { ModalShell } from './ModalShell'
 
 interface BreadboardChoice {
   id: string
@@ -29,6 +30,7 @@ export function WorkspaceModeModal({
   onCancel,
   onConvertToSingleBreadboard,
 }: WorkspaceModeModalProps) {
+  const titleId = useId()
   const [selectedBreadboardId, setSelectedBreadboardId] = useState<string>()
   const [createFresh, setCreateFresh] = useState(false)
   const [preserveSnapshot, setPreserveSnapshot] = useState(true)
@@ -48,12 +50,13 @@ export function WorkspaceModeModal({
   }
 
   return (
-    <div className="modal-shell" role="dialog" aria-modal="true" aria-label="Switch to single breadboard mode">
-      <div className="modal-shell__backdrop" onClick={onCancel} />
-
-      <div className="modal-shell__card">
+    <ModalShell
+      ariaLabel="Switch to single breadboard mode"
+      onClose={onCancel}
+      titleId={titleId}
+    >
         <div className="modal-shell__header">
-          <h2>Switch to Single Breadboard</h2>
+          <h2 id={titleId}>Switch to Single Breadboard</h2>
           <p>
             Pick which breadboard to promote into the single-board workspace, or start from a
             fresh board. You can also keep the current optical-table workspace in this browser
@@ -126,7 +129,6 @@ export function WorkspaceModeModal({
             Switch to single breadboard
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   )
 }

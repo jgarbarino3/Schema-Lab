@@ -176,6 +176,13 @@ export type RenderMode = 'realistic' | 'simple'
 export const SIMPLE_ICON_STYLE_VALUES = ['enhanced', 'classic'] as const
 export type SimpleIconStyle = (typeof SIMPLE_ICON_STYLE_VALUES)[number]
 export const DEFAULT_SIMPLE_ICON_STYLE: SimpleIconStyle = 'enhanced'
+export const REALISTIC_SYMBOL_STYLE_VALUES = [
+  'schematic',
+  'technical',
+  'hardware',
+  'reference',
+] as const
+export type RealisticSymbolStyle = (typeof REALISTIC_SYMBOL_STYLE_VALUES)[number]
 export type ToolbarMenu =
   | 'import'
   | 'export'

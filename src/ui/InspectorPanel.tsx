@@ -711,6 +711,7 @@ function AnnotationStackSection({
               key={annotation.id}
             >
               <button
+                aria-current={isSelected ? 'true' : undefined}
                 className="inspector__stack-select"
                 onClick={() => onSelect(annotation.id)}
                 type="button"
@@ -720,6 +721,7 @@ function AnnotationStackSection({
               </button>
               <div className="inspector__stack-actions">
                 <button
+                  aria-pressed={annotation.hidden}
                   className={annotation.hidden ? 'is-active' : undefined}
                   onClick={() => {
                     if (isSelected) {
@@ -734,6 +736,7 @@ function AnnotationStackSection({
                   {annotation.hidden ? 'Show' : 'Hide'}
                 </button>
                 <button
+                  aria-pressed={annotation.locked}
                   className={annotation.locked ? 'is-active' : undefined}
                   onClick={() => {
                     if (isSelected) {
@@ -1466,6 +1469,7 @@ export function InspectorPanel({
             <h3>Selection</h3>
             <div className="inspector__button-row">
               <button
+                aria-pressed={selectedAnnotation.hidden}
                 className={selectedAnnotation.hidden ? 'is-active' : undefined}
                 onClick={() =>
                   updateSelectedAnnotationVisibility(!selectedAnnotation.hidden)
@@ -1475,6 +1479,7 @@ export function InspectorPanel({
                 {selectedAnnotation.hidden ? 'Hidden' : 'Visible'}
               </button>
               <button
+                aria-pressed={selectedAnnotation.locked}
                 className={selectedAnnotation.locked ? 'is-active' : undefined}
                 onClick={() =>
                   updateSelectedAnnotationLock(!selectedAnnotation.locked)
@@ -1708,6 +1713,7 @@ export function InspectorPanel({
 
               <div className="inspector__button-row">
                 <button
+                  aria-pressed={selectedAnnotation.style.bold}
                   className={selectedAnnotation.style.bold ? 'is-active' : undefined}
                   onClick={() =>
                     updateSelectedTextStyle({
@@ -1719,6 +1725,7 @@ export function InspectorPanel({
                   Bold
                 </button>
                 <button
+                  aria-pressed={selectedAnnotation.style.italic}
                   className={selectedAnnotation.style.italic ? 'is-active' : undefined}
                   onClick={() =>
                     updateSelectedTextStyle({
@@ -1730,6 +1737,7 @@ export function InspectorPanel({
                   Italic
                 </button>
                 <button
+                  aria-pressed={selectedAnnotation.style.underline}
                   className={selectedAnnotation.style.underline ? 'is-active' : undefined}
                   onClick={() =>
                     updateSelectedTextStyle({
@@ -2357,6 +2365,7 @@ export function InspectorPanel({
             </div>
             <div className="inspector__button-row inspector__button-row--compact">
               <button
+                aria-pressed={showBeamDetails}
                 className={showBeamDetails ? 'is-active' : undefined}
                 onClick={() => setShowBeamDetails(!showBeamDetails)}
                 type="button"
@@ -2364,6 +2373,7 @@ export function InspectorPanel({
                 {showBeamDetails ? 'Beam details on' : 'Beam details off'}
               </button>
               <button
+                aria-pressed={showGaussianEnvelope}
                 className={showGaussianEnvelope ? 'is-active' : undefined}
                 onClick={() => setShowGaussianEnvelope(!showGaussianEnvelope)}
                 type="button"

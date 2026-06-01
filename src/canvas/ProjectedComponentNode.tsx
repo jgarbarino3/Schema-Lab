@@ -15,6 +15,10 @@ import type {
   ScreenPointPx,
   ViewportState,
 } from '../domain/types'
+import {
+  resolveRealisticSupportPostholderStyle,
+  resolveRealisticSymbolStyle,
+} from '../domain/realisticSymbolDecisions'
 import { wavelengthToHex } from './beamColorUtil'
 import {
   ProjectedSupportFoot,
@@ -400,6 +404,8 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
   viewport,
 }: ProjectedComponentNodeProps) {
   const spec = getResolvedComponentSpecForInstance(instance)
+  const realisticSymbolStyle = resolveRealisticSymbolStyle(instance, spec)
+  const realisticSupportPostholderStyle = resolveRealisticSupportPostholderStyle()
   const accentStroke = getPlacementAccent(placementStatus)
   const supportBoundsMm = getEffectiveSupportBoundsMm(instance, spec)
   const boundsMm = spec.hitBoundsMm
@@ -442,25 +448,16 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
         ),
     [instance.rotationQuarterTurns, viewport],
   )
-  const localBounds = useMemo(
-    () => polygonAtElevation(boundsPoints(boundsMm), localPoint),
-    [boundsMm, localPoint],
-  )
-  const supportPolygon = useMemo(
-    () => polygonAtElevation(boundsPoints(supportBoundsMm), localPoint),
-    [localPoint, supportBoundsMm],
-  )
-  const supportAabb = useMemo(() => {
-    const xValues = supportPolygon.map((point) => point.x)
-    const yValues = supportPolygon.map((point) => point.y)
-
-    return {
-      maxX: Math.max(...xValues),
-      maxY: Math.max(...yValues),
-      minX: Math.min(...xValues),
-      minY: Math.min(...yValues),
-    }
-  }, [supportPolygon])
+  const localBounds = polygonAtElevation(boundsPoints(boundsMm), localPoint)
+  const supportPolygon = polygonAtElevation(boundsPoints(supportBoundsMm), localPoint)
+  const xValues = supportPolygon.map((point) => point.x)
+  const yValues = supportPolygon.map((point) => point.y)
+  const supportAabb = {
+    maxX: Math.max(...xValues),
+    maxY: Math.max(...yValues),
+    minX: Math.min(...xValues),
+    minY: Math.min(...yValues),
+  }
   const extrusionMm = spec.twoPointFiveDVisualPreset?.extrusionMm ?? 8
   const postHolderDiameterMm =
     instance.config.postHolderDiameterMm ?? DEFAULT_POST_HOLDER_DIAMETER_MM
@@ -473,9 +470,19 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
   const showPostHolderCircle =
     renderMode === 'simple' && supportHardwareDetail !== 'none'
   const projectedSupportHardwareDetail =
-    renderMode === 'realistic' ? supportHardwareDetail : 'none'
+    renderMode !== 'realistic'
+      ? 'none'
+      : realisticSupportPostholderStyle === 'hardware'
+        ? supportHardwareDetail
+        : realisticSupportPostholderStyle === 'technical'
+          ? supportHardwareDetail === 'none'
+            ? 'none'
+            : 'foot'
+          : 'none'
   const showSupportCompensation =
-    surfaceSupportCompensationMm > 0.1 && isPostMountedType(instance.type)
+    surfaceSupportCompensationMm > 0.1 &&
+    isPostMountedType(instance.type) &&
+    realisticSupportPostholderStyle !== 'schematic'
   const isEnabledSource =
     instance.type === 'laser-source' && instance.config.source?.isEnabled
   const sourceGlowColor = isEnabledSource
@@ -587,6 +594,12 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
   const postShaftWidth = clamp(holderWidth * 0.16, 1.6, 4.6)
   const bodyFill = spec.renderHint.fill
   const profile = spec.twoPointFiveDVisualPreset?.profile ?? 'body-rect'
+  const usesProjectedSchematicOptic =
+    renderMode === 'realistic' &&
+    (instance.type === 'mirror' ||
+      instance.type === 'curved-mirror' ||
+      instance.type === 'beamsplitter' ||
+      instance.type === 'lens')
   const handleSelect = (event?: KonvaEventObject<MouseEvent | TouchEvent>) => {
     onSelect?.(instance.id, event)
   }
@@ -770,7 +783,105 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
         />
       ) : null}
 
-      {profile === 'optic-disc' ? (
+      {usesProjectedSchematicOptic ? (
+        instance.type === 'lens' ? (
+          <>
+            <Ellipse
+              fill={applyAlpha(bodyFill, realisticSymbolStyle === 'schematic' ? 0.3 : 0.46)}
+              listening={false}
+              radiusX={clamp(radiusX * (realisticSymbolStyle === 'schematic' ? 0.18 : 0.24), 2.4, 7.6)}
+              radiusY={clamp(radiusY * (realisticSymbolStyle === 'schematic' ? 0.82 : 0.92), 5, 16)}
+              stroke={stroke}
+              strokeWidth={realisticSymbolStyle === 'schematic' ? 0.86 : 1.05}
+              x={radiusCenterTop.x}
+              y={radiusCenterTop.y}
+            />
+            {realisticSymbolStyle !== 'schematic' ? (
+              <Ellipse
+                fill="rgba(255, 255, 255, 0.2)"
+                listening={false}
+                radiusX={clamp(radiusX * 0.08, 1, 2.6)}
+                radiusY={clamp(radiusY * 0.62, 4, 12)}
+                x={radiusCenterTop.x - radiusX * 0.08}
+                y={radiusCenterTop.y - radiusY * 0.05}
+              />
+            ) : null}
+          </>
+        ) : (() => {
+            const insetX =
+              bodyBoundsMm.width * (realisticSymbolStyle === 'schematic' ? 0.2 : 0.15)
+            const insetY =
+              bodyBoundsMm.height * (realisticSymbolStyle === 'schematic' ? 0.2 : 0.15)
+            const mirrorStart = localPoint(
+              {
+                x: bodyBoundsMm.x + bodyBoundsMm.width - insetX,
+                y: bodyBoundsMm.y + insetY,
+              },
+              extrusionMm + 0.4,
+            )
+            const mirrorEnd = localPoint(
+              {
+                x: bodyBoundsMm.x + insetX,
+                y: bodyBoundsMm.y + bodyBoundsMm.height - insetY,
+              },
+              extrusionMm + 0.4,
+            )
+            const splitterStart = localPoint(
+              {
+                x: bodyBoundsMm.x + insetX,
+                y: bodyBoundsMm.y + bodyBoundsMm.height - insetY,
+              },
+              extrusionMm + 0.4,
+            )
+            const splitterEnd = localPoint(
+              {
+                x: bodyBoundsMm.x + bodyBoundsMm.width - insetX,
+                y: bodyBoundsMm.y + insetY,
+              },
+              extrusionMm + 0.4,
+            )
+            const start =
+              instance.type === 'beamsplitter' ? splitterStart : mirrorStart
+            const end = instance.type === 'beamsplitter' ? splitterEnd : mirrorEnd
+
+            return (
+              <>
+                <Line
+                  lineCap="round"
+                  listening={false}
+                  points={[start.x, start.y, end.x, end.y]}
+                  stroke="rgba(12, 20, 26, 0.86)"
+                  strokeWidth={realisticSymbolStyle === 'schematic' ? 2.4 : 3.8}
+                />
+                <Line
+                  dash={instance.type === 'beamsplitter' ? [3, 3] : undefined}
+                  lineCap="round"
+                  listening={false}
+                  points={[start.x, start.y, end.x, end.y]}
+                  stroke={stroke}
+                  strokeWidth={realisticSymbolStyle === 'schematic' ? 1.25 : 1.8}
+                />
+                {instance.type === 'beamsplitter' ? (
+                  <Line
+                    lineCap="round"
+                    listening={false}
+                    opacity={0.52}
+                    points={[
+                      start.x + (end.x - start.x) * 0.18,
+                      start.y + (end.y - start.y) * 0.18,
+                      start.x + (end.x - start.x) * 0.54,
+                      start.y + (end.y - start.y) * 0.54,
+                    ]}
+                    stroke="rgba(255, 255, 255, 0.72)"
+                    strokeWidth={1}
+                  />
+                ) : null}
+              </>
+            )
+          })()
+      ) : null}
+
+      {profile === 'optic-disc' && !usesProjectedSchematicOptic ? (
         <>
           <Ellipse
             fill={shadeHex(bodyFill, -0.22)}
