@@ -45,14 +45,8 @@ try {
   }
 
   await loadExampleButton.click()
-  const exampleDialog = page.getByRole('dialog', { name: 'Load example setup' })
-  await exampleDialog.waitFor()
-  assert.match((await exampleDialog.textContent()) ?? '', /folded/i)
-  assert.match((await exampleDialog.textContent()) ?? '', /sample/i)
-
-  await page.getByRole('button', { name: 'Replace with example' }).click()
-  await expectHidden(exampleDialog)
   await expectHidden(tourCard)
+  await expectHidden(page.getByRole('dialog', { name: 'Load example setup' }))
   await expectHidden(page.getByTestId('tutorial-table-view-nudge'))
   await page.waitForFunction(() => {
     const store = window.__SCHEMA_LAB_STORE__?.getState()

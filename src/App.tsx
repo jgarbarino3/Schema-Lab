@@ -743,15 +743,6 @@ function App() {
         ),
       },
       {
-        title: 'Canvas Flow',
-        selector: '[data-tour="canvas-panel"]',
-        body: (
-          <>
-            <p>The canvas stays visually quiet until you select or place something, then the relevant placement, selection, and source-target cues appear in context.</p>
-          </>
-        ),
-      },
-      {
         title: 'Start With a Setup',
         selector: '[data-tour="toolbar-help"]',
         body: (
@@ -1327,13 +1318,7 @@ function App() {
     setIsTutorialModalOpen(true)
   }
 
-  const handleOpenTutorialFromGuide = () => {
-    markOnboardingSeen()
-    setIsOnboardingOpen(false)
-    setIsTutorialModalOpen(true)
-  }
-
-  const handleLoadTutorial = () => {
+  const loadExampleSetup = () => {
     const tutorialScene = createTutorialScene()
 
     setRenderMode('simple')
@@ -1344,6 +1329,16 @@ function App() {
     setOnboardingStep(0)
     setIsTutorialModalOpen(false)
     setIsOnboardingOpen(false)
+  }
+
+  const handleOpenTutorialFromGuide = () => {
+    markOnboardingSeen()
+    loadExampleSetup()
+  }
+
+  const handleLoadTutorial = () => {
+    markOnboardingSeen()
+    loadExampleSetup()
   }
 
   const handleClearCanvasSelection = useCallback(() => {
