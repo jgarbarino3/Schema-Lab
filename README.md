@@ -2,6 +2,10 @@
 
 Schema-Lab is a browser-based optics workspace for laying out, tracing, reviewing, and exporting ultrafast optics setups such as FROG, Z-scan, delay-line, OPA, and related lab schematics.
 
+## Platform Note
+
+Schema-Lab is designed for desktop and laptop workflows with a wide canvas, keyboard, and pointer. Mobile browsers are not a primary target because practical optical-layout work needs enough screen space to inspect boards, panels, beam paths, and export controls at once.
+
 The current repository includes:
 
 - millimeter-first geometry for breadboards, optical tables, component footprints, anchors, and ports
