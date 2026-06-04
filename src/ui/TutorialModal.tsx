@@ -20,13 +20,13 @@ export function TutorialModal({
 
   return (
     <ModalShell
-      ariaLabel="Load tutorial scene"
+      ariaLabel="Load example setup"
       cardClassName="modal-shell__card modal-shell__card--tutorial"
       onClose={onCancel}
       titleId={titleId}
     >
         <div className="modal-shell__header">
-          <h2 id={titleId}>Load Tutorial Example</h2>
+          <h2 id={titleId}>Load Example Setup</h2>
           <p>
             This replaces the current scene with a curated single-breadboard example that
             demonstrates a folded 800 nm sample line with attenuation, polarization control,
@@ -57,7 +57,7 @@ export function TutorialModal({
             Cancel
           </button>
           <button className="modal-shell__primary" onClick={onConfirm} type="button">
-            Replace with tutorial
+            Replace with example
           </button>
         </div>
     </ModalShell>

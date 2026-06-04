@@ -517,9 +517,7 @@ function App() {
   const [asyncStatus, setAsyncStatus] = useState<string>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
-  const [tourMode, setTourMode] = useState<'guide' | 'tutorial'>('guide')
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
-  const [isTutorialTableNudgeOpen, setIsTutorialTableNudgeOpen] = useState(false)
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
   const [isFullLibraryOpen, setIsFullLibraryOpen] = useState(false)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(() =>
@@ -718,15 +716,6 @@ function App() {
   const guideSteps = useMemo<OnboardingStep[]>(
     () => [
       {
-        title: 'Keyboard Shortcuts',
-        selector: '[data-tour="toolbar-help"]',
-        body: (
-          <>
-            <p>Open the shortcuts overlay any time to see the core canvas controls without covering the workspace in instructions.</p>
-          </>
-        ),
-      },
-      {
         title: 'Workspace Modes',
         selector: '[data-tour="workspace-modes"]',
         body: (
@@ -741,15 +730,6 @@ function App() {
         body: (
           <>
             <p>Search the library, click a family to arm placement, then place it directly on the active surface.</p>
-          </>
-        ),
-      },
-      {
-        title: 'Panel Collapse',
-        selector: '[data-tour="panel-library-toggle"]',
-        body: (
-          <>
-            <p>Collapse either side panel from its own header when you want more canvas space without leaving the current workflow.</p>
           </>
         ),
       },
@@ -772,77 +752,17 @@ function App() {
         ),
       },
       {
-        title: 'Warnings',
-        selector: '[data-tour="toolbar-controls"]',
-        body: (
-          <>
-            <p>Review warnings from the top bar when the scene needs attention, then dismiss or restore them without leaving the editor.</p>
-          </>
-        ),
-      },
-      {
-        title: 'Files',
-        selector: '[data-tour="toolbar-export"]',
-        body: (
-          <>
-            <p>Use Files for imports, exports, scope-aware output, raw JSON, and the board-to-table helpers. Unresolved warnings still pause downloads before output.</p>
-          </>
-        ),
-      },
-      {
         title: 'Start With a Setup',
         selector: '[data-tour="toolbar-help"]',
         body: (
           <>
-            <p>Load the folded tutorial setup when you want a real scene on the board immediately: a conditioned 800 nm beam, monitor pickoff, steering mirrors, sample holder, and detectors.</p>
+            <p>Load the folded example setup when you want a real scene on the board immediately: a conditioned 800 nm beam, monitor pickoff, steering mirrors, sample holder, and detectors.</p>
           </>
         ),
       },
     ],
     [],
   )
-  const tutorialSteps = useMemo<OnboardingStep[]>(
-    () => [
-      {
-        title: 'Folded Sample Line',
-        selector: '[data-tour="canvas-panel"]',
-        body: (
-          <>
-            <p>The tutorial routes one 800 nm source through power and polarization controls, samples a small diagnostic pickoff, then steps the main beam up to the sample rail with two steering mirrors.</p>
-          </>
-        ),
-      },
-      {
-        title: 'Selected Sample Holder',
-        selector: '[data-tour="inspector"]',
-        body: (
-          <>
-            <p>The inspector starts on the sample holder so you can see the mounted sample context before tuning individual optics.</p>
-          </>
-        ),
-      },
-      {
-        title: 'Shortcuts and Context',
-        selector: '[data-tour="toolbar-help"]',
-        body: (
-          <>
-            <p>Open the shortcuts overlay whenever you want a quick reminder of canvas navigation, edit commands, and placement controls.</p>
-          </>
-        ),
-      },
-      {
-        title: 'Files Review',
-        selector: '[data-tour="toolbar-export"]',
-        body: (
-          <>
-            <p>Open Files once you are ready to capture the scene as presentation, engineering, or fabrication output.</p>
-          </>
-        ),
-      },
-    ],
-    [],
-  )
-  const onboardingSteps = tourMode === 'tutorial' ? tutorialSteps : guideSteps
   const isOgSceneLoaded = useMemo(
     () =>
       ogSceneVariant === 'tutorial'
@@ -850,11 +770,6 @@ function App() {
         : scene.metadata.name === 'Schema-Lab OG Scene',
     [ogSceneVariant, scene.metadata.name],
   )
-  const isTutorialSceneLoaded = useMemo(
-    () => scene.components.some((component) => component.id === TUTORIAL_FOCUS_COMPONENT_ID),
-    [scene.components],
-  )
-
   useEffect(() => {
     if (typeof window !== 'undefined') {
       ;(window as Window & { __SCHEMA_LAB_STORE__?: typeof useEditorStore }).__SCHEMA_LAB_STORE__ =
@@ -919,7 +834,6 @@ function App() {
     setSvgImportNotice(undefined)
     setShowComponentLabels(true)
     setShowPostHolders(true)
-    setTourMode('guide')
     setOnboardingStep(0)
     setIsLibraryCollapsed(false)
     setIsInspectorCollapsed(false)
@@ -958,7 +872,6 @@ function App() {
 
   const handleOpenOnboarding = () => {
     markOnboardingSeen()
-    setTourMode('guide')
     setOnboardingStep(0)
     setIsOnboardingOpen(true)
   }
@@ -978,7 +891,7 @@ function App() {
   }
 
   const handleAdvanceOnboarding = () => {
-    if (onboardingStep >= onboardingSteps.length - 1) {
+    if (onboardingStep >= guideSteps.length - 1) {
       handleCloseOnboarding()
       return
     }
@@ -1428,63 +1341,10 @@ function App() {
     selectComponent(TUTORIAL_FOCUS_COMPONENT_ID)
     setShowGaussianEnvelope(false)
     setShowBeamDetails(false)
-    setTourMode('tutorial')
     setOnboardingStep(0)
     setIsTutorialModalOpen(false)
-    setIsTutorialTableNudgeOpen(true)
-    setIsOnboardingOpen(true)
+    setIsOnboardingOpen(false)
   }
-
-  const handleShowTutorialTableView = useCallback(() => {
-    if (!isTutorialSceneLoaded) {
-      setIsTutorialTableNudgeOpen(false)
-      return
-    }
-
-    setRenderMode('realistic')
-
-    if (scene.workspace.kind === 'optical-table') {
-      setWorkspaceViewMode('table-view')
-    } else {
-      convertWorkspaceToOpticalTable()
-    }
-
-    selectOpticalTable()
-    setIsTutorialTableNudgeOpen(false)
-    setNotice('Tutorial is showing in realistic Table View.')
-  }, [
-    convertWorkspaceToOpticalTable,
-    isTutorialSceneLoaded,
-    scene.workspace.kind,
-    selectOpticalTable,
-    setNotice,
-    setRenderMode,
-    setWorkspaceViewMode,
-  ])
-
-  useEffect(() => {
-    if (isTutorialTableNudgeOpen && !isTutorialSceneLoaded) {
-      setIsTutorialTableNudgeOpen(false)
-    }
-  }, [isTutorialSceneLoaded, isTutorialTableNudgeOpen])
-
-  useEffect(() => {
-    if (
-      isTutorialTableNudgeOpen &&
-      isTutorialSceneLoaded &&
-      scene.workspace.kind === 'optical-table' &&
-      workspaceViewMode === 'table-view' &&
-      renderMode === 'realistic'
-    ) {
-      setIsTutorialTableNudgeOpen(false)
-    }
-  }, [
-    isTutorialSceneLoaded,
-    isTutorialTableNudgeOpen,
-    renderMode,
-    scene.workspace.kind,
-    workspaceViewMode,
-  ])
 
   const handleClearCanvasSelection = useCallback(() => {
     if (scene.workspace.kind === 'optical-table') {
@@ -2871,37 +2731,6 @@ function App() {
               showPostHolders={showPostHolders}
             />
 
-            {!isOgMode && isTutorialTableNudgeOpen && isTutorialSceneLoaded ? (
-              <aside
-                aria-label="Tutorial table view suggestion"
-                className="tutorial-table-nudge"
-                data-testid="tutorial-table-view-nudge"
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <span className="tutorial-table-nudge__copy">
-                  See the tutorial in realistic 2.5D
-                </span>
-                <div className="tutorial-table-nudge__actions">
-                  <button
-                    className="tutorial-table-nudge__primary"
-                    data-testid="tutorial-table-view-nudge-action"
-                    onClick={handleShowTutorialTableView}
-                    type="button"
-                  >
-                    Table View
-                  </button>
-                  <button
-                    aria-label="Dismiss tutorial table view suggestion"
-                    className="tutorial-table-nudge__dismiss"
-                    onClick={() => setIsTutorialTableNudgeOpen(false)}
-                    type="button"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </aside>
-            ) : null}
-
             {!isOgMode && selectionToolbarStyle ? (
               <SelectionToolbar
                 canCenter={canCenterSelection}
@@ -3155,14 +2984,14 @@ function App() {
       {!isOgMode ? (
         <OnboardingTour
           currentStep={onboardingStep}
-          finalPrimaryLabel={tourMode === 'guide' ? 'Load tutorial setup' : undefined}
+          finalPrimaryLabel="Load example setup"
           isOpen={isOnboardingOpen}
           onClose={handleCloseOnboarding}
-          onFinalPrimary={tourMode === 'guide' ? handleOpenTutorialFromGuide : undefined}
+          onFinalPrimary={handleOpenTutorialFromGuide}
           onNeverShowAgain={handleNeverShowOnboarding}
           onNext={handleAdvanceOnboarding}
           onPrevious={handleRetreatOnboarding}
-          steps={onboardingSteps}
+          steps={guideSteps}
         />
       ) : null}
 

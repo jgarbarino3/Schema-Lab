@@ -10,9 +10,9 @@ export const VERSION_HISTORY: VersionHistoryEntry[] = [
   {
     version: 'v2.5',
     summary:
-      'Schema-Lab 2.5 improves the tutorial workflow, export reliability, accessibility, and everyday editor polish while keeping the core planning experience familiar.',
+      'Schema-Lab 2.5 improves the example setup workflow, export reliability, accessibility, and everyday editor polish while keeping the core planning experience familiar.',
     highlights: [
-      'Refined tutorial setup with clearer layout guidance',
+      'Refined example setup with clearer layout guidance',
       'Compact component labels for cleaner optical diagrams',
       'More reliable breadboard-focused exports and drawing review flows',
       'Accessibility, modal, touch, and toolbar polish across the editor',
@@ -109,8 +109,8 @@ export const VERSION_HISTORY: VersionHistoryEntry[] = [
   {
     version: 'v1.2',
     summary:
-      'Onboarding and communication improved with tutorial flows, realistic top-down rendering, and beam-line annotations.',
-    highlights: ['Tutorial scene', 'Realistic mode', 'Beam lines'],
+      'Onboarding and communication improved with example flows, realistic top-down rendering, and beam-line annotations.',
+    highlights: ['Example scene', 'Realistic mode', 'Beam lines'],
   },
   {
     version: 'v1.0',

@@ -603,7 +603,7 @@ export function Toolbar({
                 }}
                 type="button"
               >
-                Tutorial
+                Example setup
               </button>
               <button
                 onClick={() => {

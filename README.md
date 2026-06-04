@@ -10,7 +10,7 @@ The current repository includes:
 - optional Gaussian-beam analysis, overlays, and warning support
 - interpreted SVG import with reliable-path mapping and ambiguity review
 - scoped export flows for SVG, DXF, PDF, PPTX, and shared vector-scene output
-- onboarding, tutorial, help, and browser-smoke coverage for critical UI flows
+- onboarding, example setup, help, and browser-smoke coverage for critical UI flows
 
 ## Stack
 
