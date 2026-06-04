@@ -2,27 +2,33 @@ import assert from 'node:assert/strict'
 import { chromium, devices } from 'playwright'
 
 const targetUrl = process.argv[2] ?? 'http://127.0.0.1:4173/'
+const iphoneDevice = devices['iPhone 14']
 const scenarios = [
   {
     contextOptions: devices['iPad Pro 11 landscape'],
+    expectsMobileNotice: false,
     label: 'iPad landscape',
   },
   {
     contextOptions: {
+      ...iphoneDevice,
       deviceScaleFactor: 3,
       hasTouch: true,
       isMobile: true,
       viewport: { width: 390, height: 844 },
     },
+    expectsMobileNotice: true,
     label: 'phone portrait',
   },
   {
     contextOptions: {
+      ...iphoneDevice,
       deviceScaleFactor: 3,
       hasTouch: true,
       isMobile: true,
       viewport: { width: 844, height: 390 },
     },
+    expectsMobileNotice: true,
     label: 'phone landscape',
   },
 ]
@@ -152,6 +158,28 @@ async function runTouchScenario(browser, scenario) {
     if (await tourCard.isVisible().catch(() => false)) {
       await page.getByRole('button', { name: 'Exit' }).click()
       await tourCard.waitFor({ state: 'hidden' })
+    }
+
+    const mobileNotice = page.getByRole('dialog', {
+      name: 'Desktop recommended notice',
+    })
+    const isMobileNoticeVisible = await mobileNotice.isVisible().catch(() => false)
+    if (scenario.expectsMobileNotice) {
+      assert.equal(
+        isMobileNoticeVisible,
+        true,
+        `${scenario.label} should show the phone-only desktop/tablet notice`,
+      )
+      await page.getByRole('button', { name: 'Continue' }).click()
+      await mobileNotice.waitFor({ state: 'hidden' })
+      step(`${scenario.label} shows and dismisses the phone-only notice`)
+    } else {
+      assert.equal(
+        isMobileNoticeVisible,
+        false,
+        `${scenario.label} should not show the phone-only desktop/tablet notice`,
+      )
+      step(`${scenario.label} does not show the phone-only notice`)
     }
 
     await page.evaluate(() => {

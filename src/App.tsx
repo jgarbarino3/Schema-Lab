@@ -148,6 +148,7 @@ const WorkspaceModeModal = lazy(() =>
 
 const ONBOARDING_SEEN_KEY = 'schema-lab.onboarding.seen'
 const ONBOARDING_NEVER_SHOW_KEY = 'schema-lab.onboarding.never-show'
+const MOBILE_NOTICE_DISMISSED_KEY = 'schema-lab.mobile-desktop-notice.dismissed'
 const LEFT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.left-panel-collapsed'
 const RIGHT_PANEL_COLLAPSED_KEY = 'schema-lab.ui.right-panel-collapsed'
 const OPTICAL_TABLE_SNAPSHOT_KEY = 'schema-lab.workspace.optical-table-snapshot'
@@ -163,6 +164,15 @@ const OG_CENTER_FRAME_BOTTOM_PADDING_PX = 82
 const OG_SOLO_BOARD_SIDE_PADDING_PX = 26
 const OG_SOLO_BOARD_TOP_PADDING_PX = 10
 const OG_SOLO_BOARD_BOTTOM_PADDING_PX = 16
+
+function isMobilePhoneBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+
+  const userAgent = navigator.userAgent
+  return /iPhone|iPod|Windows Phone|Android.+Mobile/i.test(userAgent)
+}
 
 interface ExportRequestState {
   format: ExportFormat
@@ -517,6 +527,7 @@ function App() {
   const [asyncStatus, setAsyncStatus] = useState<string>()
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [isMobileNoticeOpen, setIsMobileNoticeOpen] = useState(false)
   const [isTutorialModalOpen, setIsTutorialModalOpen] = useState(false)
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false)
   const [isFullLibraryOpen, setIsFullLibraryOpen] = useState(false)
@@ -785,6 +796,27 @@ function App() {
       setIsOnboardingOpen(true)
     }
   }, [isOgMode])
+
+  useEffect(() => {
+    if (isOgMode || isOnboardingOpen || typeof window === 'undefined') {
+      return
+    }
+
+    const hasDismissed = window.localStorage.getItem(MOBILE_NOTICE_DISMISSED_KEY) === '1'
+    if (hasDismissed) {
+      return
+    }
+
+    setIsMobileNoticeOpen(isMobilePhoneBrowser())
+  }, [isOgMode, isOnboardingOpen])
+
+  const handleDismissMobileNotice = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(MOBILE_NOTICE_DISMISSED_KEY, '1')
+    }
+
+    setIsMobileNoticeOpen(false)
+  }
 
   useEffect(() => {
     if (!isOgMode || isOgSceneLoaded) {
@@ -2988,6 +3020,25 @@ function App() {
           onPrevious={handleRetreatOnboarding}
           steps={guideSteps}
         />
+      ) : null}
+
+      {!isOgMode && !isOnboardingOpen && isMobileNoticeOpen ? (
+        <aside
+          aria-label="Desktop recommended notice"
+          className="mobile-desktop-notice"
+          role="dialog"
+        >
+          <div>
+            <strong>Desktop or tablet recommended</strong>
+            <p>
+              Schema-Lab works best with a wide canvas, keyboard, and pointer so
+              you can inspect panels, boards, beam paths, and exports together.
+            </p>
+          </div>
+          <button onClick={handleDismissMobileNotice} type="button">
+            Continue
+          </button>
+        </aside>
       ) : null}
 
       <Suspense fallback={null}>
