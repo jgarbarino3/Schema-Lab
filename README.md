@@ -4,7 +4,7 @@ Schema-Lab is a browser-based optics workspace for laying out, tracing,
 reviewing, and exporting ultrafast optics setups such as FROG, Z-scan,
 delay-line, OPA, and related lab schematics.
 
-[Live demo](https://schemalaboratorio.netlify.app) · Current version: `v2.5` ·
+[Use Schema Lab](https://schemalaboratorio.netlify.app) · Current version: `v2.5` ·
 Status: early public release
 
 ![Schema-Lab example setup](public/schema-lab-og-tutorial.png)
