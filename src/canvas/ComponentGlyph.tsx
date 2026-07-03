@@ -396,21 +396,22 @@ export function ComponentGlyph({
         />
       )
     case 'folded-mirror-pair': {
-      const baseWidth = Math.max(14, width * 0.64)
-      const baseHeight = Math.max(10, height * 0.42)
+      const baseWidth = Math.max(20, width * 0.86)
+      const baseHeight = Math.max(18, height * 0.82)
       const baseX = centerX - baseWidth / 2
       const baseY = centerY - baseHeight / 2
-      const mirrorInsetX = Math.max(3, baseWidth * 0.18)
-      const mirrorInsetY = Math.max(2.8, baseHeight * 0.18)
+      const joinedBackGap = Math.max(1.8, Math.min(baseWidth, baseHeight) * 0.06)
+      const mirrorStrokeWidth = strokeWidth(2.25)
+      const backStrokeWidth = strokeWidth(1.15)
 
       return (
         <>
           <Rect
-            cornerRadius={2.4}
+            cornerRadius={2.2}
             fill={fill ?? 'rgba(255,255,255,0.06)'}
             height={baseHeight}
             stroke={stroke}
-            strokeWidth={strokeWidth(0.82)}
+            strokeWidth={strokeWidth(0.58)}
             width={baseWidth}
             x={baseX}
             y={baseY}
@@ -418,24 +419,35 @@ export function ComponentGlyph({
           <Line
             lineCap="round"
             points={[
-              baseX + mirrorInsetX,
-              baseY + baseHeight - mirrorInsetY,
-              centerX - baseWidth * 0.08,
-              centerY + baseHeight * 0.02,
+              centerX - joinedBackGap,
+              centerY,
+              baseX + baseWidth * 0.16,
+              baseY + baseHeight * 0.18,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.55)}
+            strokeWidth={mirrorStrokeWidth}
           />
           <Line
             lineCap="round"
             points={[
-              centerX + baseWidth * 0.08,
-              centerY + baseHeight * 0.02,
-              baseX + baseWidth - mirrorInsetX,
-              baseY + baseHeight - mirrorInsetY,
+              centerX + joinedBackGap,
+              centerY,
+              baseX + baseWidth * 0.84,
+              baseY + baseHeight * 0.18,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.55)}
+            strokeWidth={mirrorStrokeWidth}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - joinedBackGap,
+              centerY,
+              centerX + joinedBackGap,
+              centerY,
+            ]}
+            stroke={stroke}
+            strokeWidth={backStrokeWidth}
           />
         </>
       )
@@ -2078,10 +2090,11 @@ function renderClassicComponentGlyph({
         </>
       )
     case 'folded-mirror-pair': {
-      const baseWidth = Math.max(13, width * 0.62)
-      const baseHeight = Math.max(9, height * 0.38)
+      const baseWidth = Math.max(19, width * 0.84)
+      const baseHeight = Math.max(17, height * 0.8)
       const baseX = centerX - baseWidth / 2
       const baseY = centerY - baseHeight / 2
+      const joinedBackGap = Math.max(1.6, Math.min(baseWidth, baseHeight) * 0.06)
 
       return (
         <>
@@ -2098,24 +2111,35 @@ function renderClassicComponentGlyph({
           <Line
             lineCap="round"
             points={[
-              baseX + baseWidth * 0.18,
-              baseY + baseHeight * 0.78,
-              centerX - baseWidth * 0.08,
+              centerX - joinedBackGap,
               centerY,
+              baseX + baseWidth * 0.16,
+              baseY + baseHeight * 0.18,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.45)}
+            strokeWidth={strokeWidth(1.9)}
           />
           <Line
             lineCap="round"
             points={[
-              centerX + baseWidth * 0.08,
+              centerX + joinedBackGap,
               centerY,
               baseX + baseWidth * 0.82,
-              baseY + baseHeight * 0.78,
+              baseY + baseHeight * 0.18,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.45)}
+            strokeWidth={strokeWidth(1.9)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX - joinedBackGap,
+              centerY,
+              centerX + joinedBackGap,
+              centerY,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1)}
           />
         </>
       )

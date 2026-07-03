@@ -729,10 +729,11 @@ function renderSimpleLocalGlyph(
 
   switch (resolvedGlyph) {
     case 'folded-mirror-pair': {
-      const baseWidth = Math.max(13, bodyBoundsMm.width * 0.62)
-      const baseHeight = Math.max(9, bodyBoundsMm.height * 0.38)
+      const baseWidth = Math.max(19, bodyBoundsMm.width * 0.84)
+      const baseHeight = Math.max(17, bodyBoundsMm.height * 0.8)
       const baseX = centerX - baseWidth / 2
       const baseY = centerY - baseHeight / 2
+      const joinedBackGap = Math.max(1.6, Math.min(baseWidth, baseHeight) * 0.06)
 
       return [
         {
@@ -753,26 +754,38 @@ function renderSimpleLocalGlyph(
         },
         {
           kind: 'line',
-          x1Mm: roundMm(baseX + baseWidth * 0.18),
-          y1Mm: roundMm(baseY + baseHeight * 0.78),
-          x2Mm: roundMm(centerX - baseWidth * 0.08),
-          y2Mm: roundMm(centerY),
+          x1Mm: roundMm(centerX - joinedBackGap),
+          y1Mm: roundMm(centerY),
+          x2Mm: roundMm(baseX + baseWidth * 0.16),
+          y2Mm: roundMm(baseY + baseHeight * 0.18),
           style: defaultStyle({
             lineCap: 'round',
             stroke: style.stroke,
-            strokeWidthMm: isClassic ? 1.35 : 1.2,
+            strokeWidthMm: isClassic ? 1.9 : 1.7,
           }),
         },
         {
           kind: 'line',
-          x1Mm: roundMm(centerX + baseWidth * 0.08),
+          x1Mm: roundMm(centerX + joinedBackGap),
           y1Mm: roundMm(centerY),
-          x2Mm: roundMm(baseX + baseWidth * 0.82),
-          y2Mm: roundMm(baseY + baseHeight * 0.78),
+          x2Mm: roundMm(baseX + baseWidth * 0.84),
+          y2Mm: roundMm(baseY + baseHeight * 0.18),
           style: defaultStyle({
             lineCap: 'round',
             stroke: style.stroke,
-            strokeWidthMm: isClassic ? 1.35 : 1.2,
+            strokeWidthMm: isClassic ? 1.9 : 1.7,
+          }),
+        },
+        {
+          kind: 'line',
+          x1Mm: roundMm(centerX - joinedBackGap),
+          y1Mm: roundMm(centerY),
+          x2Mm: roundMm(centerX + joinedBackGap),
+          y2Mm: roundMm(centerY),
+          style: defaultStyle({
+            lineCap: 'round',
+            stroke: style.stroke,
+            strokeWidthMm: isClassic ? 1 : 0.9,
           }),
         },
       ]

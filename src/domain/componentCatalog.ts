@@ -1650,7 +1650,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Generic',
         sku: 'FOLDED-PAIR-45',
         description:
-          'Two separate planar mirror faces drawn at right angles as one compact schematic payload for folded steering layouts.',
+          'Two full-size planar mirror faces joined at the back and opening at positive and negative 45 degrees for folded steering layouts.',
       },
       {
         id: 'frog-delay-retroreflector',
@@ -1658,7 +1658,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
         vendor: 'Generic',
         sku: 'FROG-RETRO-PAIR',
         description:
-          'Stage-top pair of separate planar mirrors for FROG-style delay scanning; the parent delay stage owns timing semantics.',
+          'Stage-top pair of full-size planar mirrors joined at the back for FROG-style delay scanning; the parent delay stage owns timing semantics.',
       },
     ],
   },

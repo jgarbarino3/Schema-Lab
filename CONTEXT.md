@@ -2,7 +2,7 @@
 
 ## Folded Mirror Pair
 
-A folded mirror pair is a single schematic component that represents two separate planar mirror faces at right angles in one compact payload. In v1 it is layout and visual metadata only; it does not own beam timing, reflection, or internal two-bounce propagation.
+A folded mirror pair is a single schematic component that represents two full-size planar mirror faces joined at the back, with the mirror faces opening symmetrically at positive and negative 45 degrees. In v1 it is layout and visual metadata only; it does not own beam timing, reflection, or internal two-bounce propagation.
 
 ## Delay Stage
 
