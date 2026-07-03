@@ -754,8 +754,8 @@ function renderSimpleLocalGlyph(
         {
           kind: 'line',
           x1Mm: roundMm(baseX + baseWidth * 0.18),
-          y1Mm: roundMm(baseY + baseHeight * 0.82),
-          x2Mm: roundMm(centerX),
+          y1Mm: roundMm(baseY + baseHeight * 0.78),
+          x2Mm: roundMm(centerX - baseWidth * 0.08),
           y2Mm: roundMm(centerY),
           style: defaultStyle({
             lineCap: 'round',
@@ -765,10 +765,10 @@ function renderSimpleLocalGlyph(
         },
         {
           kind: 'line',
-          x1Mm: roundMm(centerX),
+          x1Mm: roundMm(centerX + baseWidth * 0.08),
           y1Mm: roundMm(centerY),
           x2Mm: roundMm(baseX + baseWidth * 0.82),
-          y2Mm: roundMm(baseY + baseHeight * 0.18),
+          y2Mm: roundMm(baseY + baseHeight * 0.78),
           style: defaultStyle({
             lineCap: 'round',
             stroke: style.stroke,

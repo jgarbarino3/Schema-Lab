@@ -420,33 +420,22 @@ export function ComponentGlyph({
             points={[
               baseX + mirrorInsetX,
               baseY + baseHeight - mirrorInsetY,
-              centerX,
-              centerY,
+              centerX - baseWidth * 0.08,
+              centerY + baseHeight * 0.02,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.45)}
+            strokeWidth={strokeWidth(1.55)}
           />
           <Line
             lineCap="round"
             points={[
-              centerX,
-              centerY,
+              centerX + baseWidth * 0.08,
+              centerY + baseHeight * 0.02,
               baseX + baseWidth - mirrorInsetX,
-              baseY + mirrorInsetY,
+              baseY + baseHeight - mirrorInsetY,
             ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.45)}
-          />
-          <Line
-            lineCap="round"
-            points={[
-              baseX + mirrorInsetX * 0.85,
-              centerY,
-              baseX + baseWidth - mirrorInsetX * 0.85,
-              centerY,
-            ]}
-            stroke={stroke}
-            strokeWidth={strokeWidth(0.62)}
+            strokeWidth={strokeWidth(1.55)}
           />
         </>
       )
@@ -2108,15 +2097,25 @@ function renderClassicComponentGlyph({
           />
           <Line
             lineCap="round"
-            points={[baseX + baseWidth * 0.18, baseY + baseHeight * 0.82, centerX, centerY]}
+            points={[
+              baseX + baseWidth * 0.18,
+              baseY + baseHeight * 0.78,
+              centerX - baseWidth * 0.08,
+              centerY,
+            ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.35)}
+            strokeWidth={strokeWidth(1.45)}
           />
           <Line
             lineCap="round"
-            points={[centerX, centerY, baseX + baseWidth * 0.82, baseY + baseHeight * 0.18]}
+            points={[
+              centerX + baseWidth * 0.08,
+              centerY,
+              baseX + baseWidth * 0.82,
+              baseY + baseHeight * 0.78,
+            ]}
             stroke={stroke}
-            strokeWidth={strokeWidth(1.35)}
+            strokeWidth={strokeWidth(1.45)}
           />
         </>
       )
