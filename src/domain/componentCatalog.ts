@@ -190,6 +190,7 @@ const SIMPLE_GLYPH_APPEARANCE_GLYPHS = new Set<ComponentRenderHint['glyph']>([
   'support-pump-seed-combiner',
   'mirror',
   'mirror-flip',
+  'folded-mirror-pair',
   'curved-mirror',
   'beamsplitter',
   'lens',
@@ -361,6 +362,7 @@ function inferTwoPointFiveDVisualPreset(
     case 'laser-source':
       return twoPointFiveDVisualPreset('body-rounded-rect', 12, labelAnchorMm)
     case 'mirror':
+    case 'folded-mirror-pair':
     case 'curved-mirror':
     case 'lens':
       return twoPointFiveDVisualPreset('optic-disc', 8, labelAnchorMm)
@@ -564,6 +566,7 @@ const STAGE_SAMPLE_CHILD_TYPES: ComponentType[] = ['sample']
 const STAGE_OPTIC_CHILD_TYPES: ComponentType[] = [
   'optic-mount',
   'mirror',
+  'folded-mirror-pair',
   'curved-mirror',
   'beamsplitter',
   'lens',
@@ -579,6 +582,7 @@ const STAGE_OPTIC_CHILD_TYPES: ComponentType[] = [
 
 const MOUNTED_COMPONENT_TYPES: ComponentType[] = [
   'mirror',
+  'folded-mirror-pair',
   'curved-mirror',
   'beamsplitter',
   'lens',
@@ -625,6 +629,11 @@ function getDefaultMountVisual(
 } {
   switch (type) {
     case 'mirror':
+    case 'folded-mirror-pair':
+      return {
+        boundsMm: bounds(-14, -14, 28, 28),
+        renderHint: renderHint('circle', '#29333d', '#9fb3bf', 'mount'),
+      }
     case 'curved-mirror':
     case 'beamsplitter':
     case 'filter':
@@ -1611,6 +1620,45 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
           glyph: 'mirror-flip',
         },
         physics: mirrorPhysics(450, 2000, 96.5, 1.8),
+      },
+    ],
+  },
+  {
+    type: 'folded-mirror-pair',
+    category: 'steering',
+    defaultLabel: 'Folded Mirror Pair',
+    familyLabel: 'Folded Mirror Pair',
+    defaultVariantId: 'compact-45-folded-pair',
+    footprintBoundsMm: bounds(-14, -14, 28, 28),
+    visualBodyBoundsMm: bounds(-12, -12, 24, 24),
+    mountVisualBoundsMm: bounds(-14, -14, 28, 28),
+    hitBoundsMm: bounds(-15, -15, 30, 30),
+    mount: mount('clamp-capable', -14, -14, 28, 28),
+    opticalCenterMm: { x: 0, y: 0 },
+    ports: [],
+    renderHint: renderHint('rect', '#4b545d', '#dbeaf4', 'folded-mirror-pair'),
+    mountRenderHint: renderHint('circle', 'rgba(53, 63, 72, 0.86)', '#93a4af', 'mount'),
+    physics: nonePhysics(),
+    recommendedHardware: {
+      mount: 'Compact two-mirror delay-line carriage',
+      post: 'Stage-top payload or compact pedestal assembly',
+    },
+    variants: [
+      {
+        id: 'compact-45-folded-pair',
+        label: 'Compact 45 deg Folded Pair',
+        vendor: 'Generic',
+        sku: 'FOLDED-PAIR-45',
+        description:
+          'Two 45 degree mirror faces drawn as one compact schematic payload for folded steering layouts.',
+      },
+      {
+        id: 'frog-delay-retroreflector',
+        label: 'FROG Delay Retroreflector',
+        vendor: 'Generic',
+        sku: 'FROG-RETRO-PAIR',
+        description:
+          'Stage-top folded mirror pair for FROG-style delay scanning; the parent delay stage owns timing semantics.',
       },
     ],
   },
@@ -3651,7 +3699,8 @@ export function createDefaultComponentConfig(
         support: supportConfig,
       }
     }
-    case 'mirror': {
+    case 'mirror':
+    case 'folded-mirror-pair': {
       if (spec.variantId === 'flip-mirror') {
         const defaultConfig: FlipMirrorConfig = {
           isFlippedDown: true,

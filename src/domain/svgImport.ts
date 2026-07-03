@@ -349,6 +349,10 @@ const COMPONENT_KEYWORD_MAP: Array<{
   },
   { type: 'curved-mirror', keywords: ['curved mirror', 'concave', 'convex'] },
   { type: 'mirror', keywords: [' mirror', ' m1', ' m2', ' m3'] },
+  {
+    type: 'folded-mirror-pair',
+    keywords: ['folded mirror pair', 'retroreflector', 'corner cube', 'frog delay'],
+  },
   { type: 'lens', keywords: [' lens', ' l1', ' l2', 'focal'] },
   {
     type: 'filter',

@@ -236,12 +236,27 @@ describe('deterministic beam tracing', () => {
         },
       },
     })
+    const foldedPair = makeComponent('folded-mirror-pair', {
+      id: 'folded-pair-1',
+      variantId: 'frog-delay-retroreflector',
+      anchorMm: { x: 130, y: 128.5 },
+      attachment: {
+        parentComponentId: 'stage-1',
+        parentMountSiteId: 'optic-seat',
+        localAnchorMm: { x: 10, y: -9 },
+        localRotationQuarterTurns: 0,
+      },
+    })
 
-    const trace = traceSceneBeams(makeScene([source, stage]))
+    const trace = traceSceneBeams(makeScene([source, stage, foldedPair]))
     const stageEvent = trace.events.find((event) => event.componentId === stage.id)!
+    const foldedPairEvent = trace.events.find(
+      (event) => event.componentId === foldedPair.id,
+    )
     const stageSegment = trace.segments.find((segment) => segment.parentInteractionId === stageEvent.id || segment.id === stageEvent.inputSegmentId)!
 
     expect(stageEvent.physicsKind).toBe('delay-line')
+    expect(foldedPairEvent).toBeUndefined()
     expect(stageEvent.internalOpticalPathMm).toBeCloseTo(20, 4)
     expect(stageSegment.internalOpticalPathMm).toBeCloseTo(20, 4)
     expect(stageEvent.timeDelayFs).toBeGreaterThan(60000)

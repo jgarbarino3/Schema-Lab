@@ -360,6 +360,7 @@ describe('editor store highlight drag', () => {
 
 describe('editor store mounted stage attachments', () => {
   const stageVariantId = getComponentDefinition('sample-holder').defaultVariantId
+  const delayStageVariantId = 'pi-m-112-1dg1'
   const irisVariantId = getComponentDefinition('iris').defaultVariantId
 
   function createBareStageScene() {
@@ -504,6 +505,56 @@ describe('editor store mounted stage attachments', () => {
       'optic-seat',
       'sample-seat',
     ])
+  })
+
+  it('arms a folded mirror pair onto a selected delay-stage optic seat', () => {
+    useEditorStore.getState().loadScene({
+      ...createEmptyScene(),
+      components: [
+        {
+          id: 'delay-stage-1',
+          type: 'delay-stage' as const,
+          label: 'Delay Stage 1',
+          variantId: delayStageVariantId,
+          anchorMm: { x: 150, y: 150 },
+          rotationQuarterTurns: 0 as const,
+          config: createDefaultComponentConfig('delay-stage', delayStageVariantId),
+        },
+      ],
+    }, { history: 'reset' })
+
+    const store = useEditorStore.getState()
+
+    store.selectComponent('delay-stage-1')
+    store.addComponent('folded-mirror-pair', 'frog-delay-retroreflector')
+
+    const pendingDraft = useEditorStore.getState().interaction.pendingPlacement?.draft
+
+    expect(pendingDraft?.label).toBe('FMP1')
+    expect(pendingDraft?.attachment?.parentComponentId).toBe('delay-stage-1')
+    expect(pendingDraft?.attachment?.parentMountSiteId).toBe('optic-seat')
+
+    store.commitPendingPlacement()
+    store.beginComponentDrag('delay-stage-1')
+    store.commitComponentDrag('delay-stage-1', { x: 175, y: 175 })
+
+    const movedStage = useEditorStore
+      .getState()
+      .scene.components.find((component) => component.id === 'delay-stage-1')
+    const foldedPair = useEditorStore
+      .getState()
+      .scene.components.find((component) => component.type === 'folded-mirror-pair')
+
+    expect(foldedPair?.variantId).toBe('frog-delay-retroreflector')
+    expect(foldedPair?.attachment?.parentComponentId).toBe('delay-stage-1')
+    expect(foldedPair?.anchorMm.x).toBeCloseTo(
+      (movedStage?.anchorMm.x ?? 0) + (foldedPair?.attachment?.localAnchorMm.x ?? 0),
+      5,
+    )
+    expect(foldedPair?.anchorMm.y).toBeCloseTo(
+      (movedStage?.anchorMm.y ?? 0) + (foldedPair?.attachment?.localAnchorMm.y ?? 0),
+      5,
+    )
   })
 
   it('does not warn that a stage overlaps its own mounted children', () => {

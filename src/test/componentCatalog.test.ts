@@ -6,6 +6,7 @@ import {
   getResolvedComponentSpecForInstance,
   isPostMountedType,
 } from '../domain/componentCatalog'
+import { getComponentLabelPrefix } from '../domain/componentLabels'
 
 describe('component catalog variants', () => {
   it('includes the PI M-112.1DG1 delay-stage variant with practical geometry', () => {
@@ -16,6 +17,30 @@ describe('component catalog variants', () => {
     expect(stage.footprintBoundsMm.width).toBeCloseTo(85, 3)
     expect(stage.renderHint.glyph).toBe('sample-delay-stage')
     expect(stage.recommendedHardware?.mount).toBeDefined()
+  })
+
+  it('adds a folded mirror pair that can fit the delay-stage optic seat', () => {
+    const foldedPair = getResolvedComponentSpec(
+      'folded-mirror-pair',
+      'frog-delay-retroreflector',
+    )
+    const stage = getResolvedComponentSpec('delay-stage', 'pi-m-112-1dg1')
+    const opticSeat = stage.mountSites.find((seat) => seat.id === 'optic-seat')
+
+    expect(foldedPair.category).toBe('steering')
+    expect(foldedPair.physics.kind).toBe('none')
+    expect(foldedPair.renderHint.glyph).toBe('folded-mirror-pair')
+    expect(getComponentLabelPrefix('folded-mirror-pair')).toBe('FMP')
+    expect(opticSeat?.allowedChildTypes).toContain('folded-mirror-pair')
+    expect(foldedPair.mount.supportBoundsMm.width).toBeLessThanOrEqual(
+      opticSeat?.seatBoundsMm.width ?? 0,
+    )
+    expect(foldedPair.mount.supportBoundsMm.height).toBeLessThanOrEqual(
+      opticSeat?.seatBoundsMm.height ?? 0,
+    )
+    expect(createDefaultComponentConfig('folded-mirror-pair').support).toMatchObject({
+      includeMount: true,
+    })
   })
 
   it('maps the CSV-backed hardware SKUs into placeable variants with practical footprints', () => {

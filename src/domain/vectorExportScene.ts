@@ -677,6 +677,8 @@ function renderSimpleLocalGlyph(
         return 'support'
       case 'mirror-flip':
         return 'mirror'
+      case 'folded-mirror-pair':
+        return 'folded-mirror-pair'
       case 'filter-longpass':
       case 'filter-shortpass':
       case 'filter-bandpass':
@@ -726,6 +728,55 @@ function renderSimpleLocalGlyph(
   const isClassic = iconStyle === 'classic'
 
   switch (resolvedGlyph) {
+    case 'folded-mirror-pair': {
+      const baseWidth = Math.max(13, bodyBoundsMm.width * 0.62)
+      const baseHeight = Math.max(9, bodyBoundsMm.height * 0.38)
+      const baseX = centerX - baseWidth / 2
+      const baseY = centerY - baseHeight / 2
+
+      return [
+        {
+          kind: 'polyline',
+          closed: true,
+          pointsMm: rectToPoints({
+            x: roundMm(baseX),
+            y: roundMm(baseY),
+            width: roundMm(baseWidth),
+            height: roundMm(baseHeight),
+          }),
+          style: defaultStyle({
+            fill: style.fill,
+            fillOpacity: 0.18,
+            stroke: style.stroke,
+            strokeWidthMm: isClassic ? 0.8 : 0.7,
+          }),
+        },
+        {
+          kind: 'line',
+          x1Mm: roundMm(baseX + baseWidth * 0.18),
+          y1Mm: roundMm(baseY + baseHeight * 0.82),
+          x2Mm: roundMm(centerX),
+          y2Mm: roundMm(centerY),
+          style: defaultStyle({
+            lineCap: 'round',
+            stroke: style.stroke,
+            strokeWidthMm: isClassic ? 1.35 : 1.2,
+          }),
+        },
+        {
+          kind: 'line',
+          x1Mm: roundMm(centerX),
+          y1Mm: roundMm(centerY),
+          x2Mm: roundMm(baseX + baseWidth * 0.82),
+          y2Mm: roundMm(baseY + baseHeight * 0.18),
+          style: defaultStyle({
+            lineCap: 'round',
+            stroke: style.stroke,
+            strokeWidthMm: isClassic ? 1.35 : 1.2,
+          }),
+        },
+      ]
+    }
     case 'mirror':
     case 'curved-mirror':
       return [

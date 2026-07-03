@@ -395,6 +395,62 @@ export function ComponentGlyph({
           strokeWidth={strokeWidth(1.75)}
         />
       )
+    case 'folded-mirror-pair': {
+      const baseWidth = Math.max(14, width * 0.64)
+      const baseHeight = Math.max(10, height * 0.42)
+      const baseX = centerX - baseWidth / 2
+      const baseY = centerY - baseHeight / 2
+      const mirrorInsetX = Math.max(3, baseWidth * 0.18)
+      const mirrorInsetY = Math.max(2.8, baseHeight * 0.18)
+
+      return (
+        <>
+          <Rect
+            cornerRadius={2.4}
+            fill={fill ?? 'rgba(255,255,255,0.06)'}
+            height={baseHeight}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.82)}
+            width={baseWidth}
+            x={baseX}
+            y={baseY}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              baseX + mirrorInsetX,
+              baseY + baseHeight - mirrorInsetY,
+              centerX,
+              centerY,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.45)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              centerX,
+              centerY,
+              baseX + baseWidth - mirrorInsetX,
+              baseY + mirrorInsetY,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.45)}
+          />
+          <Line
+            lineCap="round"
+            points={[
+              baseX + mirrorInsetX * 0.85,
+              centerY,
+              baseX + baseWidth - mirrorInsetX * 0.85,
+              centerY,
+            ]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.62)}
+          />
+        </>
+      )
+    }
     case 'curved-mirror': {
       const sign = isConvex ? 1 : -1
       const maxBow = Math.min(width, height) * 0.12 * sign
@@ -2032,6 +2088,39 @@ function renderClassicComponentGlyph({
           />
         </>
       )
+    case 'folded-mirror-pair': {
+      const baseWidth = Math.max(13, width * 0.62)
+      const baseHeight = Math.max(9, height * 0.38)
+      const baseX = centerX - baseWidth / 2
+      const baseY = centerY - baseHeight / 2
+
+      return (
+        <>
+          <Rect
+            cornerRadius={2}
+            fill={fill ?? 'rgba(255, 255, 255, 0.06)'}
+            height={baseHeight}
+            stroke={stroke}
+            strokeWidth={strokeWidth(0.85)}
+            width={baseWidth}
+            x={baseX}
+            y={baseY}
+          />
+          <Line
+            lineCap="round"
+            points={[baseX + baseWidth * 0.18, baseY + baseHeight * 0.82, centerX, centerY]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.35)}
+          />
+          <Line
+            lineCap="round"
+            points={[centerX, centerY, baseX + baseWidth * 0.82, baseY + baseHeight * 0.18]}
+            stroke={stroke}
+            strokeWidth={strokeWidth(1.35)}
+          />
+        </>
+      )
+    }
     case 'curved-mirror': {
       const sign = isConvex ? 1 : -1
       const bow = Math.min(width, height) * 0.08 * sign

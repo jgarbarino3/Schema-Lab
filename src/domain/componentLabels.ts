@@ -11,6 +11,7 @@ const COMPONENT_LABEL_PREFIXES: Record<ComponentType, string> = {
   'detector': 'D',
   'fiber-coupler': 'FC',
   'filter': 'F',
+  'folded-mirror-pair': 'FMP',
   'iris': 'AP',
   'laser-source': 'LS',
   'lens': 'L',

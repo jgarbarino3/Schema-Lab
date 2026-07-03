@@ -149,6 +149,53 @@ describe('scene serialization', () => {
     expect(mountedIris?.anchorMm).toEqual({ x: 156, y: 146 })
   })
 
+  it('round-trips a folded mirror pair attached to a delay stage', () => {
+    const scene = createEmptyScene()
+
+    scene.components.push(
+      {
+        id: 'delay-stage-1',
+        type: 'delay-stage',
+        label: 'Delay Stage 1',
+        variantId: 'pi-m-112-1dg1',
+        anchorMm: { x: 150, y: 150 },
+        rotationQuarterTurns: 0,
+        config: createDefaultComponentConfig('delay-stage', 'pi-m-112-1dg1'),
+      },
+      {
+        id: 'folded-pair-1',
+        type: 'folded-mirror-pair',
+        label: 'FMP1',
+        variantId: 'frog-delay-retroreflector',
+        anchorMm: { x: 160, y: 141 },
+        rotationQuarterTurns: 0,
+        attachment: {
+          parentComponentId: 'delay-stage-1',
+          parentMountSiteId: 'optic-seat',
+          localAnchorMm: { x: 10, y: -9 },
+          localRotationQuarterTurns: 0,
+        },
+        config: createDefaultComponentConfig(
+          'folded-mirror-pair',
+          'frog-delay-retroreflector',
+        ),
+      },
+    )
+
+    const parsed = parseSceneDocument(serializeSceneDocument(scene))
+    const foldedPair = parsed.components.find(
+      (component) => component.id === 'folded-pair-1',
+    )
+
+    expect(foldedPair?.type).toBe('folded-mirror-pair')
+    expect(foldedPair?.attachment).toMatchObject({
+      parentComponentId: 'delay-stage-1',
+      parentMountSiteId: 'optic-seat',
+      localAnchorMm: { x: 10, y: -9 },
+    })
+    expect(foldedPair?.anchorMm).toEqual({ x: 160, y: 141 })
+  })
+
   it('round-trips stage finishes and sample materials through scene JSON', () => {
     const scene = createEmptyScene()
 
