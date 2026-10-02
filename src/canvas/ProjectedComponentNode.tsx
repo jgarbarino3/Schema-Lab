@@ -1,11 +1,15 @@
 import { memo, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { Circle, Ellipse, Group, Line, Rect, Text } from 'react-konva'
+import { createRealisticAppearance } from '../domain/realisticAppearance'
+import { AppearanceNodes } from './AppearanceNodes'
+import { applyAlpha, getPlacementAccent, shadeHex } from './appearanceColor'
 import {
   DEFAULT_POST_HOLDER_DIAMETER_MM,
   getEffectiveSupportBoundsMm,
   getResolvedComponentSpecForInstance,
   isPostMountedType,
+  shouldIncludeDefaultMount,
 } from '../domain/componentCatalog'
 import type {
   BoundsMm,
@@ -63,77 +67,6 @@ interface ProjectedComponentNodeProps {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value))
-}
-
-function applyAlpha(hexColor: string, alpha: number) {
-  const normalized = hexColor.replace('#', '')
-
-  if (![3, 6].includes(normalized.length)) {
-    return hexColor
-  }
-
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((character) => `${character}${character}`)
-          .join('')
-      : normalized
-  const parsed = Number.parseInt(expanded, 16)
-
-  if (!Number.isFinite(parsed)) {
-    return hexColor
-  }
-
-  const red = (parsed >> 16) & 255
-  const green = (parsed >> 8) & 255
-  const blue = parsed & 255
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
-}
-
-function shadeHex(hexColor: string, factor: number) {
-  const normalized = hexColor.replace('#', '')
-
-  if (![3, 6].includes(normalized.length)) {
-    return hexColor
-  }
-
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((character) => `${character}${character}`)
-          .join('')
-      : normalized
-  const parsed = Number.parseInt(expanded, 16)
-
-  if (!Number.isFinite(parsed)) {
-    return hexColor
-  }
-
-  const transform = (value: number) =>
-    Math.round(
-      factor >= 0
-        ? value + (255 - value) * factor
-        : value * (1 + factor),
-    )
-      .toString(16)
-      .padStart(2, '0')
-
-  return `#${transform((parsed >> 16) & 255)}${transform((parsed >> 8) & 255)}${transform(parsed & 255)}`
-}
-
-function getPlacementAccent(status: PlacementStatus | undefined) {
-  switch (status) {
-    case 'snapped':
-      return '#9adbf0'
-    case 'warning':
-      return '#f5d28c'
-    case 'valid':
-    default:
-      return '#bcdbe6'
-  }
 }
 
 function boundsPoints(boundsMm: BoundsMm) {
@@ -462,6 +395,16 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
     }
   }, [supportPolygon])
   const extrusionMm = spec.twoPointFiveDVisualPreset?.extrusionMm ?? 8
+  const appearance = renderMode === 'realistic' ? createRealisticAppearance({
+    instance,
+    spec,
+    showMount: shouldIncludeDefaultMount(instance),
+    view: 'angled',
+    projectPoint: (point, elevationMm = 0) => {
+      const projected = localPoint(point, elevationMm)
+      return { x: projected.x / viewport.zoomPxPerMm, y: projected.y / viewport.zoomPxPerMm }
+    },
+  }) : undefined
   const postHolderDiameterMm =
     instance.config.postHolderDiameterMm ?? DEFAULT_POST_HOLDER_DIAMETER_MM
   const supportHardwareDetail = resolveSupportHardwareDetail({
@@ -593,6 +536,7 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
 
   return (
     <Group
+      id={`component-${instance.id}`}
       draggable={isDragEnabled && !isPreview}
       dragDistance={1}
       listening={!isPreview}
@@ -756,6 +700,11 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
         />
       ) : null}
 
+      {appearance ? (
+        <Group scaleX={viewport.zoomPxPerMm} scaleY={viewport.zoomPxPerMm}>
+          <AppearanceNodes nodes={appearance} />
+        </Group>
+      ) : <>
       {isEnabledSource ? (
         <Ellipse
           fill="transparent"
@@ -1094,6 +1043,8 @@ export const ProjectedComponentNode = memo(function ProjectedComponentNode({
             stroke,
           })
         : null}
+
+      </>}
 
       {spec.opticalCenterMm && showOverlay ? (
         <>

@@ -6,7 +6,6 @@
 - Physical millimeters are the only persisted geometry unit for boards, holes, footprints, anchors, ports, and future beam paths.
 - Zoom and pan are view transforms only. Screen-space coordinates may be derived for rendering and input handling, but they are never the source of truth.
 - Keep the optics domain model separate from Konva rendering code and separate both from Zustand UI/editor state.
-- Stage 1 is layout only. Do not mix in deterministic beam propagation, beam-power bookkeeping, Gaussian-beam parameters, or paraxial optics logic.
 - Stage 1 rotations are quarter turns only: `0`, `90`, `180`, `270` degrees.
 
 ## Modeling
@@ -27,3 +26,5 @@
 
 - Add or update unit tests when changing coordinate transforms, snapping, rotated bounds, port transforms, or scene serialization.
 - Test world-space behavior first; avoid relying on UI tests for geometry correctness.
+- For schematic-builder loops, use: real user task -> source/import/export roundtrip -> browser/runtime proof -> geometry tests -> public claim update.
+- Physical millimeters and versioned scene JSON remain the source of truth; browser screenshots and runtime checks verify user-visible behavior, not persisted geometry authority.

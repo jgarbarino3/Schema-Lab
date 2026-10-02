@@ -50,24 +50,6 @@ const selectInspectorInteractionState = (state: EditorStore) => ({
   pendingPlacement: state.interaction.pendingPlacement,
 })
 
-const selectSchemaStageInteractionState = (state: EditorStore) => ({
-  activeTool: state.interaction.activeTool,
-  editingTextAnnotationId: state.interaction.editingTextAnnotationId,
-  editingTextDraftText: state.interaction.editingTextDraftText,
-  focusedBreadboardId: state.interaction.focusedBreadboardId,
-  highlightSelection: state.interaction.highlightSelection,
-  isSpacePanning: state.interaction.isSpacePanning,
-  lineColor: state.interaction.lineColor,
-  lineDrawStartMm: state.interaction.lineDrawStartMm,
-  pendingBreadboardPlacement: state.interaction.pendingBreadboardPlacement,
-  pendingPlacement: state.interaction.pendingPlacement,
-  selectedBeamInteractionId: state.interaction.selectedBeamInteractionId,
-  selectedBeamPathId: state.interaction.selectedBeamPathId,
-  selectedBeamSegmentId: state.interaction.selectedBeamSegmentId,
-  showBeamDetails: state.interaction.showBeamDetails,
-  showGaussianEnvelope: state.interaction.showGaussianEnvelope,
-})
-
 export function useAppInteractionState() {
   return useEditorStore(useShallow(selectAppInteractionState))
 }
@@ -90,8 +72,4 @@ export function useBeamInspectionState() {
 
 export function useInspectorInteractionState() {
   return useEditorStore(useShallow(selectInspectorInteractionState))
-}
-
-export function useSchemaStageInteractionState() {
-  return useEditorStore(useShallow(selectSchemaStageInteractionState))
 }

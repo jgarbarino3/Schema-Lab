@@ -195,25 +195,6 @@ export function getLiveSurfaceLabel(surface: LiveSurfaceDescriptor) {
   )} mm pitch`
 }
 
-export function getSurfaceWorldBoundsMm(surface: LiveSurfaceDescriptor) {
-  const corners = [
-    surfaceLocalToWorld(surface, { x: 0, y: 0 }),
-    surfaceLocalToWorld(surface, { x: surface.widthMm, y: 0 }),
-    surfaceLocalToWorld(surface, { x: 0, y: surface.heightMm }),
-    surfaceLocalToWorld(surface, { x: surface.widthMm, y: surface.heightMm }),
-  ]
-
-  const xValues = corners.map((point) => point.x)
-  const yValues = corners.map((point) => point.y)
-
-  return {
-    x: Math.min(...xValues),
-    y: Math.min(...yValues),
-    width: Math.max(...xValues) - Math.min(...xValues),
-    height: Math.max(...yValues) - Math.min(...yValues),
-  }
-}
-
 export function surfaceLocalToWorld(
   surface: LiveSurfaceDescriptor,
   pointMm: Vector2Mm,

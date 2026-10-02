@@ -1,6 +1,9 @@
 import { Circle, Line, Rect } from 'react-konva'
 import type { BoundsMm, ComponentInstance, ResolvedComponentSpec } from '../domain/types'
 import { ComponentGlyph } from './ComponentGlyph'
+import { applyAlpha } from './appearanceColor'
+import { createRealisticAppearance } from '../domain/realisticAppearance'
+import { AppearanceNodes } from './AppearanceNodes'
 import {
   BeamsplitterPlate,
   BeveledHousing,
@@ -25,33 +28,6 @@ interface RenderRealisticHardwareArgs {
   opticStroke: string
   showMount: boolean
   spec: ResolvedComponentSpec
-}
-
-function applyAlpha(hexColor: string, alpha: number) {
-  const normalized = hexColor.replace('#', '')
-
-  if (![3, 6].includes(normalized.length)) {
-    return hexColor
-  }
-
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((character) => `${character}${character}`)
-          .join('')
-      : normalized
-  const parsed = Number.parseInt(expanded, 16)
-
-  if (!Number.isFinite(parsed)) {
-    return hexColor
-  }
-
-  const red = (parsed >> 16) & 255
-  const green = (parsed >> 8) & 255
-  const blue = parsed & 255
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 function createRealisticPalette({
@@ -773,5 +749,13 @@ function renderLegacyRealisticHardware({
 }
 
 export function renderRealisticHardware(args: RenderRealisticHardwareArgs) {
+  const appearance = createRealisticAppearance({
+    instance: args.instance,
+    spec: args.spec,
+    showMount: args.showMount,
+    view: 'top-down',
+    projectPoint: point => point,
+  })
+  if (appearance) return <AppearanceNodes nodes={appearance} />
   return renderHeroHardware(args) ?? renderLegacyRealisticHardware(args)
 }

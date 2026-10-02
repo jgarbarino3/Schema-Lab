@@ -1,0 +1,186 @@
+{
+  "kind": "schema-lab.scene",
+  "version": 12,
+  "metadata": {
+    "name": "Schema-Lab 2.7 - six-component pilot"
+  },
+  "workspace": {
+    "kind": "optical-table",
+    "table": {
+      "label": "Pilot optical table",
+      "widthMm": 700,
+      "heightMm": 460,
+      "holeSpacingMm": 25,
+      "edgeMarginMm": 25,
+      "thicknessMm": 60,
+      "finish": "silver",
+      "holeDensity": "single",
+      "counterborePattern": "none"
+    },
+    "breadboards": [
+      {
+        "id": "pilot-board",
+        "label": "Six-component pilot",
+        "model": {
+          "holeSpacingMm": 25,
+          "edgeMarginMm": 12.5,
+          "thicknessMm": 12.7,
+          "finish": "black-anodized",
+          "holeDensity": "single",
+          "counterborePattern": "corner-25mm",
+          "label": "Six-component pilot",
+          "widthMm": 600,
+          "heightMm": 350
+        },
+        "anchorMm": {
+          "x": 50,
+          "y": 65
+        },
+        "rotationQuarterTurns": 0,
+        "mountPlaneOffsetMm": 65
+      }
+    ]
+  },
+  "beamSettings": {
+    "beamFidelityMode": "geometric",
+    "sharedBeamHeightMm": 75,
+    "defaultBeamDiameterMm": 2.5,
+    "defaultDivergenceMrad": 1.1
+  },
+  "components": [
+    {
+      "id": "pilot-mirror",
+      "type": "mirror",
+      "label": "Mirror",
+      "variantId": "bb1-e02",
+      "hostSurfaceId": "pilot-board",
+      "anchorMm": {
+        "x": 162.5,
+        "y": 177.5
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "support": {
+          "includeMount": true
+        }
+      }
+    },
+    {
+      "id": "pilot-lens",
+      "type": "lens",
+      "label": "Lens",
+      "variantId": "thin-lens-100mm",
+      "hostSurfaceId": "pilot-board",
+      "anchorMm": {
+        "x": 362.5,
+        "y": 177.5
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "lens": {
+          "focalLengthMm": 100,
+          "clearApertureMm": 22
+        },
+        "support": {
+          "includeMount": true
+        }
+      }
+    },
+    {
+      "id": "pilot-beamsplitter",
+      "type": "beamsplitter",
+      "label": "Beamsplitter",
+      "variantId": "plate-1in",
+      "hostSurfaceId": "pilot-board",
+      "anchorMm": {
+        "x": 562.5,
+        "y": 177.5
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "beamSplitter": {
+          "reflectPercent": 50,
+          "lossPercent": 2
+        },
+        "support": {
+          "includeMount": true
+        }
+      }
+    },
+    {
+      "id": "pilot-bbo-crystal",
+      "type": "bbo-crystal",
+      "label": "BBO crystal",
+      "variantId": "type-i-bbo",
+      "hostSurfaceId": "pilot-board",
+      "anchorMm": {
+        "x": 162.5,
+        "y": 327.5
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "bboCrystal": {
+          "crystalType": "type-i",
+          "interactionMode": "estimated",
+          "thicknessUm": 10,
+          "phaseMatchingAngleDeg": 29.2,
+          "polarizationAxisLocalDeg": 0
+        },
+        "support": {
+          "includeMount": true
+        }
+      }
+    },
+    {
+      "id": "pilot-laser-source",
+      "type": "laser-source",
+      "label": "Laser source",
+      "variantId": "fs-source-head",
+      "hostSurfaceId": "optical-table",
+      "anchorMm": {
+        "x": 25,
+        "y": 350
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "source": {
+          "isEnabled": false,
+          "presetId": "ti-sapphire",
+          "lane": "left",
+          "wavelengthNm": 800,
+          "bandwidthNm": 35,
+          "powerMw": 450,
+          "normalizedPowerPercent": 100,
+          "beamDiameterMm": 2.2,
+          "divergenceMrad": 1.1,
+          "gaussianInputMode": "derived",
+          "polarization": {
+            "basis": "ray-local",
+            "presetId": "linear-in-plane",
+            "inPlaneAmplitude": 1,
+            "outOfPlaneAmplitude": 0,
+            "relativePhaseDeg": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "pilot-detector",
+      "type": "detector",
+      "label": "Detector",
+      "variantId": "detector-generic",
+      "hostSurfaceId": "pilot-board",
+      "anchorMm": {
+        "x": 562.5,
+        "y": 327.5
+      },
+      "rotationQuarterTurns": 0,
+      "config": {
+        "support": {
+          "includeMount": true
+        }
+      }
+    }
+  ],
+  "annotations": []
+}

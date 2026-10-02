@@ -91,7 +91,7 @@ import {
   DEFAULT_SIMPLE_ICON_STYLE,
   parseSimpleIconStyle,
   type SimpleIconStyle,
-} from './uiPreferences'
+} from '../domain/types'
 import type {
   ActiveTool,
   AnnotationLayerBand,

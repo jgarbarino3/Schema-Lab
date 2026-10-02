@@ -35,7 +35,7 @@ Use this skill when a task changes what a component is, how it is placed, or how
 - Add or update unit tests covering footprint, ports, and any changed behavior.
 - If the component affects beam logic, run the relevant physics smoke:
   - `node output/playwright/optics-physics-smoke.mjs http://127.0.0.1:5173/`
-- If the component changes general canvas workflows, run the most relevant UI smoke under `output/playwright/`.
+- If the component changes general canvas workflows, run the most relevant UI smoke under `scripts/playwright-smoke/`.
 
 ## Out Of Scope
 

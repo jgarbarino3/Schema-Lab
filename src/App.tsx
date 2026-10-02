@@ -10,6 +10,7 @@ import {
   type ChangeEvent,
 } from 'react'
 import type Konva from 'konva'
+import { createPresentationSvg } from './canvas/presentationSvgExport'
 import { ExportStage } from './canvas/ExportStage'
 import { SchemaStage } from './canvas/SchemaStage'
 import { CURRENT_VERSION } from './content/versionHistory'
@@ -26,8 +27,11 @@ import {
   createExportViewport,
   type ExportFormat,
   type ExportScope,
+  type ExportView,
+  type ResolvedExportView,
   type SvgExportPreset,
 } from './domain/exportLayout'
+import { isAngledExportAvailable, resolveExportView } from './domain/exportView'
 import { analyzeGaussianPaths } from './domain/gaussian'
 import { deriveSceneWarnings } from './domain/sceneWarnings'
 import {
@@ -178,6 +182,14 @@ interface ExportRequestState {
   format: ExportFormat
   scope: ExportScope
   svgPreset?: SvgExportPreset
+  view: ResolvedExportView
+}
+
+interface ExportOptionsState {
+  format: ExportFormat
+  scope: ExportScope
+  svgPreset?: SvgExportPreset
+  view: ExportView
 }
 
 interface SvgImportPendingOptionsState {
@@ -946,7 +958,7 @@ function App() {
       const exportLabel = `${request.scope === 'breadboard-only' ? 'breadboard' : 'full scheme'} ${request.format.toUpperCase()}`
       setAsyncStatus(`Preparing ${exportLabel} export...`)
 
-      if (request.format === 'svg') {
+      if (request.format === 'svg' && request.svgPreset !== 'presentation') {
         try {
           const { createSceneSvg } = await import('./domain/svgExport')
           const svgMarkup = createSceneSvg({
@@ -960,14 +972,11 @@ function App() {
             simpleIconStyle,
             svgPreset: request.svgPreset ?? DEFAULT_SVG_PRESET,
           })
-          const presetSuffix =
-            request.svgPreset === 'presentation' ? '-presentation' : '-engineering'
-
           downloadBlob(
             new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
             request.scope === 'breadboard-only'
-              ? `schema-lab-breadboard${presetSuffix}.svg`
-              : `schema-lab-full-scheme${presetSuffix}.svg`,
+              ? 'schema-lab-breadboard-engineering.svg'
+              : 'schema-lab-full-scheme-engineering.svg',
           )
           setAsyncStatus(`${exportLabel} export downloaded.`)
           return
@@ -1024,8 +1033,29 @@ function App() {
     ],
   )
 
-  const handleConfirmExportOptions = (request: ExportRequestState) => {
+  const handleConfirmExportOptions = (options: ExportOptionsState) => {
     setExportOptionsFormat(undefined)
+
+    let request: ExportRequestState
+
+    try {
+      request = {
+        ...options,
+        view: resolveExportView({
+          requestedView: options.view,
+          format: options.format,
+          svgPreset: options.svgPreset,
+          renderMode,
+          workspaceViewMode,
+          scene,
+        }),
+      }
+    } catch (error) {
+      setAsyncStatus(
+        `Export failed: ${error instanceof Error ? error.message : 'invalid export view'}`,
+      )
+      return
+    }
 
     if (visibleSceneWarnings.length > 0) {
       setPendingExportRequest(request)
@@ -1434,9 +1464,25 @@ function App() {
       try {
         await nextAnimationFrame()
 
+        if (request.format === 'svg') {
+          const svgMarkup = createPresentationSvg(stage, {
+            title: scene.metadata.name,
+          })
+
+          downloadBlob(
+            new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' }),
+            request.scope === 'breadboard-only'
+              ? `schema-lab-breadboard-presentation-${request.view}.svg`
+              : `schema-lab-full-scheme-presentation-${request.view}.svg`,
+          )
+          setAsyncStatus(`${exportLabel} export downloaded.`)
+          return
+        }
+
+        const pixelRatio = 2
         const dataUrl = stage.toDataURL({
           mimeType: request.format === 'pdf' ? 'image/jpeg' : 'image/png',
-          pixelRatio: 2,
+          pixelRatio,
           quality: 0.94,
         })
 
@@ -1447,8 +1493,8 @@ function App() {
           downloadBlob(
             blob,
             request.scope === 'breadboard-only'
-              ? 'schema-lab-breadboard.png'
-              : 'schema-lab-full-scheme.png',
+              ? `schema-lab-breadboard-${request.view}.png`
+              : `schema-lab-full-scheme-${request.view}.png`,
           )
         } else if (request.format === 'pdf') {
           const { createSingleImagePdfBlob } = await import('./domain/pdfExport')
@@ -1456,13 +1502,15 @@ function App() {
             jpegDataUrl: dataUrl,
             widthPx: EXPORT_CANVAS_WIDTH_PX,
             heightPx: EXPORT_CANVAS_HEIGHT_PX,
+            imageWidthPx: stage.width() * pixelRatio,
+            imageHeightPx: stage.height() * pixelRatio,
           })
 
           downloadBlob(
             pdfBlob,
             request.scope === 'breadboard-only'
-              ? 'schema-lab-breadboard.pdf'
-              : 'schema-lab-full-scheme.pdf',
+              ? `schema-lab-breadboard-${request.view}.pdf`
+              : `schema-lab-full-scheme-${request.view}.pdf`,
           )
         } else {
           const { createSingleImagePptxBlob } = await import('./domain/pptxExport')
@@ -1471,8 +1519,8 @@ function App() {
           downloadBlob(
             pptxBlob,
             request.scope === 'breadboard-only'
-              ? 'schema-lab-breadboard.pptx'
-              : 'schema-lab-full-scheme.pptx',
+              ? `schema-lab-breadboard-${request.view}.pptx`
+              : `schema-lab-full-scheme-${request.view}.pptx`,
           )
         }
 
@@ -1485,7 +1533,7 @@ function App() {
         setRasterExportRequest(undefined)
       }
     },
-    [setAsyncStatus],
+    [scene.metadata.name, setAsyncStatus],
   )
 
   const handleExportStageReady = useCallback(
@@ -2928,6 +2976,7 @@ function App() {
             }
             defaultSvgPreset={DEFAULT_SVG_PRESET}
             format={exportOptionsFormat}
+            isAngledViewAvailable={isAngledExportAvailable(scene, renderMode)}
             isOpen={true}
             onCancel={() => setExportOptionsFormat(undefined)}
             onConfirm={handleConfirmExportOptions}
@@ -3083,8 +3132,10 @@ function App() {
           scope={rasterExportRequest.scope}
           showGaussianEnvelope={showGaussianEnvelope}
           showLabels={showComponentLabels}
+          showPostHolders={showPostHolders}
           simpleGlyphAppearances={simpleGlyphAppearances}
           simpleIconStyle={simpleIconStyle}
+          view={rasterExportRequest.view}
           viewport={exportViewport}
         />
       ) : null}

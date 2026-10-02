@@ -4,10 +4,10 @@ Schema-Lab is a browser-based optics workspace for laying out, tracing,
 reviewing, and exporting ultrafast optics setups such as FROG, Z-scan,
 delay-line, OPA, and related lab schematics.
 
-[Use Schema Lab](https://schemalaboratorio.netlify.app) · Current version: `v2.5` ·
+[Use Schema Lab](https://schemalaboratorio.netlify.app) · Current version: `v2.7` ·
 Status: early public release
 
-![Schema-Lab example setup](public/schema-lab-og-tutorial.png)
+![Schema-Lab example setup](public/schema-lab-og.png)
 
 ## Platform Note
 
@@ -24,7 +24,10 @@ panels, beam paths, and export controls at once.
 - deterministic beam tracing, beam inspection, and warning generation
 - optional Gaussian-beam analysis, overlays, and warning support
 - interpreted SVG import with reliable-path mapping and ambiguity review
-- scoped export flows for SVG, DXF, PDF, PPTX, and shared vector-scene output
+- scoped SVG, DXF, PNG, PDF, and PPTX exports, with top-down and angled
+  presentation views for realistic optical-table scenes
+- refined realistic artwork for mirrors, lenses, beamsplitters, BBO crystals,
+  laser sources, and detectors
 - onboarding, example setup, help, and browser-smoke coverage for critical UI
   flows
 

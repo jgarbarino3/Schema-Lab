@@ -37,7 +37,7 @@ Use this skill when a task changes workspace geometry or placement semantics.
 - Add or update unit tests for coordinate transforms, snapping, rotated bounds, port transforms, host-surface resolution, and serialization.
 - Run the relevant geometry-focused tests in `src/test`.
 - If the change touches optical-table interactions or visible surface targeting, run the table-mode smoke:
-  - `node output/playwright/optical-table-smoke.mjs http://127.0.0.1:5173/`
+  - `node scripts/playwright-smoke/optical-table-smoke.mjs http://127.0.0.1:4173/`
 
 ## Out Of Scope
 

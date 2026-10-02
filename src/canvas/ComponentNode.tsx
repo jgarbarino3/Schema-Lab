@@ -25,6 +25,7 @@ import type {
   ViewportState,
 } from '../domain/types'
 import { ComponentGlyph } from './ComponentGlyph'
+import { applyAlpha, getPlacementAccent } from './appearanceColor'
 import { wavelengthToHex } from './beamColorUtil'
 import { renderRealisticHardware } from './realisticHardware'
 import { resolveSupportHardwareDetail } from './supportHardwareDetail'
@@ -68,46 +69,6 @@ interface ComponentNodeProps {
   simpleIconStyle?: SimpleIconStyle
   surfaceSupportCompensationMm?: number
   viewport: ViewportState
-}
-
-
-
-function getPlacementAccent(status: PlacementStatus | undefined) {
-  switch (status) {
-    case 'snapped':
-      return '#9adbf0'
-    case 'warning':
-      return '#f5d28c'
-    case 'valid':
-    default:
-      return '#bcdbe6'
-  }
-}
-
-function applyAlpha(hexColor: string, alpha: number) {
-  const normalized = hexColor.replace('#', '')
-  if (![3, 6].includes(normalized.length)) {
-    return hexColor
-  }
-
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split('')
-          .map((character) => `${character}${character}`)
-          .join('')
-      : normalized
-  const numericValue = Number.parseInt(expanded, 16)
-
-  if (!Number.isFinite(numericValue)) {
-    return hexColor
-  }
-
-  const red = (numericValue >> 16) & 255
-  const green = (numericValue >> 8) & 255
-  const blue = numericValue & 255
-
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
 function scaleBoundsAboutCenter(
@@ -292,6 +253,7 @@ export function ComponentNodeView({
 
   return (
     <Group
+      id={`component-${instance.id}`}
       draggable={isDragEnabled && !isPreview}
       dragDistance={1}
       listening={!isPreview}

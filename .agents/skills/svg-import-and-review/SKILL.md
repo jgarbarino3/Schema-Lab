@@ -32,7 +32,7 @@ Use this skill when a task changes how external SVG content becomes a Schema-Lab
 
 - Add or update unit tests for reliable and ambiguous import cases.
 - Re-run the SVG import smoke when workflow or mapping behavior changes:
-  - `node output/playwright/svg-import-line-review.mjs http://127.0.0.1:5173/`
+  - `node scripts/playwright-smoke/drawing-import-auto-calibration-smoke.mjs http://127.0.0.1:4173/`
 - If import changes affect scene warnings or export, validate those dependent flows as well.
 
 ## Out Of Scope

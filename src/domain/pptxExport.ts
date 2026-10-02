@@ -1,7 +1,6 @@
 import JSZip from 'jszip'
 
 const PPTX_SLIDE_WIDTH_EMU = 9_144_000
-const PPTX_SLIDE_HEIGHT_EMU = 6_858_000
 
 function decodeDataUrl(dataUrl: string) {
   const [, base64] = dataUrl.split(',', 2)
@@ -25,6 +24,13 @@ export async function createSingleImagePptxBlob(
 ): Promise<Blob> {
   const zip = new JSZip()
   const mediaBytes = decodeDataUrl(pngDataUrl)
+  const imageHeader = new DataView(mediaBytes.buffer, mediaBytes.byteOffset, mediaBytes.byteLength)
+  const imageWidthPx = imageHeader.getUint32(16)
+  const imageHeightPx = imageHeader.getUint32(20)
+  if (!imageWidthPx || !imageHeightPx) {
+    throw new Error('PPTX export requires a PNG with nonzero dimensions.')
+  }
+  const slideHeightEmu = Math.round(PPTX_SLIDE_WIDTH_EMU * imageHeightPx / imageWidthPx)
 
   zip.file(
     '[Content_Types].xml',
@@ -84,7 +90,7 @@ export async function createSingleImagePptxBlob(
   <p:sldIdLst>
     <p:sldId id="256" r:id="rId2"/>
   </p:sldIdLst>
-  <p:sldSz cx="${PPTX_SLIDE_WIDTH_EMU}" cy="${PPTX_SLIDE_HEIGHT_EMU}"/>
+  <p:sldSz cx="${PPTX_SLIDE_WIDTH_EMU}" cy="${slideHeightEmu}"/>
   <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>`,
   )
@@ -180,7 +186,7 @@ export async function createSingleImagePptxBlob(
         <p:spPr>
           <a:xfrm>
             <a:off x="0" y="0"/>
-            <a:ext cx="${PPTX_SLIDE_WIDTH_EMU}" cy="${PPTX_SLIDE_HEIGHT_EMU}"/>
+            <a:ext cx="${PPTX_SLIDE_WIDTH_EMU}" cy="${slideHeightEmu}"/>
           </a:xfrm>
           <a:prstGeom prst="rect">
             <a:avLst/>

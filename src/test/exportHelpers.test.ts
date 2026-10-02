@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import JSZip from 'jszip'
 import { createDefaultComponentConfig, getComponentDefinition } from '../domain/componentCatalog'
 import { traceSceneBeams } from '../domain/beamTracing'
 import { createSceneDxf } from '../domain/dxfExport'
 import { analyzeGaussianPaths } from '../domain/gaussian'
 import { createSingleImagePptxBlob } from '../domain/pptxExport'
+import { createSingleImagePdfBlob } from '../domain/pdfExport'
 import { createEmptyScene } from '../domain/serialization'
 import { createSceneSvg } from '../domain/svgExport'
 import { createTutorialScene, TUTORIAL_FOCUS_COMPONENT_ID } from '../domain/tutorialScene'
@@ -509,7 +511,30 @@ describe('export helpers', () => {
     expect(svgMarkup).not.toContain('gaussian-outside-segment')
   })
 
-  it('packages a raster image into a PPTX blob', async () => {
+  it('writes valid PDF cross-references and preserves high-resolution image dimensions', async () => {
+    const blob = createSingleImagePdfBlob({
+      jpegDataUrl: 'data:image/jpeg;base64,/9j/2Q==',
+      widthPx: 1800,
+      heightPx: 1200,
+      imageWidthPx: 3600,
+      imageHeightPx: 2400,
+    })
+    const pdf = new TextDecoder('latin1').decode(await blob.arrayBuffer())
+    expect(pdf).toContain('/Width 3600 /Height 2400')
+    expect(pdf).toContain('/MediaBox [0 0 1350 900]')
+    const xref = pdf.match(/xref\n0 (\d+)\n([\s\S]*?)trailer/)
+    expect(xref).not.toBeNull()
+    const entries = xref![2].trim().split('\n')
+    expect(entries).toHaveLength(Number(xref![1]))
+    for (let objectId = 1; objectId < entries.length; objectId += 1) {
+      const offset = Number(entries[objectId].slice(0, 10))
+      expect(pdf.slice(offset)).toMatch(new RegExp(`^${objectId} 0 obj\\n`))
+    }
+    const startXref = Number(pdf.match(/startxref\n(\d+)/)?.[1])
+    expect(pdf.slice(startXref)).toMatch(/^xref\n/)
+  })
+
+  it('packages a raster image into a PPTX blob without changing its aspect ratio', async () => {
     const pngDataUrl =
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9lJawAAAAASUVORK5CYII='
 
@@ -520,5 +545,11 @@ describe('export helpers', () => {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     )
     expect(String.fromCharCode(bytes[0] ?? 0, bytes[1] ?? 0)).toBe('PK')
+    const zip = await JSZip.loadAsync(bytes)
+    const presentationXml = await zip.file('ppt/presentation.xml')!.async('string')
+    const slideSize = presentationXml.match(/<p:sldSz cx="(\d+)" cy="(\d+)"/)
+    expect(slideSize).not.toBeNull()
+    // The fixture is a square image, so its slide must also be square.
+    expect(slideSize?.[1]).toBe(slideSize?.[2])
   })
 })

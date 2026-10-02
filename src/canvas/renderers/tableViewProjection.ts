@@ -1,7 +1,6 @@
 import {
   rotatePointQuarterTurns,
   roundMm,
-  worldToScreen,
   screenToWorld,
 } from '../../domain/geometry'
 import {
@@ -22,12 +21,12 @@ import {
   getOpticalTableWorldBoundsMm,
   getSurfaceMountPlaneOffsetMm,
 } from '../../domain/workspace'
+import {
+  projectPresentationPoint,
+  TABLE_VIEW_OBLIQUE_PROJECTION,
+} from '../../domain/presentationProjection'
 
-export const TABLE_VIEW_OBLIQUE_PROJECTION = {
-  planeYCompression: 0.72,
-  planeXShear: -0.34,
-  zScale: 0.6,
-} as const
+export { TABLE_VIEW_OBLIQUE_PROJECTION } from '../../domain/presentationProjection'
 
 export interface SurfaceProjectionCandidate {
   boundsMm: BoundsMm
@@ -52,23 +51,14 @@ export function projectWorldPointToScreen(
   viewport: ViewportState,
   elevationMm = 0,
 ): ScreenPointPx {
-  const flatPointPx = worldToScreen(pointMm, viewport)
-  const worldDeltaY = pointMm.y - viewport.cameraCenterMm.y
+  const projected = projectPresentationPoint({
+    x: pointMm.x - viewport.cameraCenterMm.x,
+    y: pointMm.y - viewport.cameraCenterMm.y,
+  }, elevationMm)
 
   return {
-    x:
-      flatPointPx.x +
-      worldDeltaY *
-        TABLE_VIEW_OBLIQUE_PROJECTION.planeXShear *
-        viewport.zoomPxPerMm,
-    y:
-      viewport.canvasSizePx.height / 2 +
-      worldDeltaY *
-        TABLE_VIEW_OBLIQUE_PROJECTION.planeYCompression *
-        viewport.zoomPxPerMm -
-      elevationMm *
-        TABLE_VIEW_OBLIQUE_PROJECTION.zScale *
-        viewport.zoomPxPerMm,
+    x: viewport.canvasSizePx.width / 2 + projected.x * viewport.zoomPxPerMm,
+    y: viewport.canvasSizePx.height / 2 + projected.y * viewport.zoomPxPerMm,
   }
 }
 
@@ -101,17 +91,11 @@ export function projectLocalOffsetToScreen(
   zMm = 0,
 ): ScreenPointPx {
   const rotatedPointMm = rotatePointQuarterTurns(pointMm, rotationQuarterTurns)
+  const projected = projectPresentationPoint(rotatedPointMm, zMm)
 
   return {
-    x:
-      (rotatedPointMm.x +
-        rotatedPointMm.y * TABLE_VIEW_OBLIQUE_PROJECTION.planeXShear) *
-      viewport.zoomPxPerMm,
-    y:
-      rotatedPointMm.y *
-        TABLE_VIEW_OBLIQUE_PROJECTION.planeYCompression *
-        viewport.zoomPxPerMm -
-      zMm * TABLE_VIEW_OBLIQUE_PROJECTION.zScale * viewport.zoomPxPerMm,
+    x: projected.x * viewport.zoomPxPerMm,
+    y: projected.y * viewport.zoomPxPerMm,
   }
 }
 

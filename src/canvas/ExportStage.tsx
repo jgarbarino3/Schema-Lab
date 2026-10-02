@@ -2,31 +2,22 @@ import { useEffect, useRef } from 'react'
 import type Konva from 'konva'
 import { Layer, Line, Rect, Stage } from 'react-konva'
 import { sortAnnotationsByZIndex } from '../domain/annotations'
-import type {
-  BeamTraceResult,
-  GaussianTraceResult,
-  RenderMode,
-  SceneAnnotation,
-  SceneDocument,
-  SimpleIconStyle,
-  ViewportState,
-} from '../domain/types'
-import { AnnotationsLayer } from './AnnotationsLayer'
-import { worldToScreen } from '../domain/geometry'
 import { getScopedExportScene } from '../domain/exportScope'
+import { worldToScreen } from '../domain/geometry'
+import type { ExportScope, ResolvedExportView } from '../domain/exportLayout'
+import type { BeamTraceResult, GaussianTraceResult, RenderMode, SceneAnnotation, SceneDocument, SimpleIconStyle, ViewportState } from '../domain/types'
+import { getBreadboardInstances, getOpticalTable, getWorkspacePrimaryBreadboard } from '../domain/workspace'
+import { AnnotationsLayer } from './AnnotationsLayer'
 import { BeamLayer } from './BeamLayer'
 import { BreadboardLayer } from './BreadboardLayer'
 import { ComponentsLayer } from './ComponentsLayer'
 import type { SimpleGlyphAppearance } from './ComponentNode'
 import { GaussianEnvelopeLayer } from './GaussianEnvelopeLayer'
 import { getBeamSegmentScreenObstacles } from './labelLayout'
-import {
-  getBreadboardInstance,
-  getBreadboardInstances,
-  getOpticalTable,
-  getWorkspacePrimaryBreadboard,
-} from '../domain/workspace'
-import type { ExportScope } from '../domain/exportLayout'
+import { fitPresentationStage } from './presentationSvgExport'
+import { ProjectedSurfaceLayer } from './renderers/ProjectedSurfaceLayer'
+import { createLiveBreadboardSurfaceDescriptor, createLiveOpticalTableSurfaceDescriptor } from './renderers/surfaceDescriptors'
+import { projectWorldPointToScreen } from './renderers/tableViewProjection'
 
 interface ExportStageProps {
   beamTrace: BeamTraceResult
@@ -37,266 +28,92 @@ interface ExportStageProps {
   scene: SceneDocument
   scope: ExportScope
   showLabels?: boolean
+  showPostHolders?: boolean
   showGaussianEnvelope: boolean
   simpleGlyphAppearances?: Record<string, SimpleGlyphAppearance>
   simpleIconStyle?: SimpleIconStyle
+  view?: ResolvedExportView
   viewport: ViewportState
 }
 
+const ignore = () => undefined
+
+function ExportAnnotations({ annotations, sceneView, viewport }: {
+  annotations: SceneAnnotation[]
+  sceneView: ResolvedExportView
+  viewport: ViewportState
+}) {
+  const lines = annotations.filter((annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> => annotation.kind === 'line')
+  const project = sceneView === 'angled'
+    ? (point: { x: number; y: number }) => projectWorldPointToScreen(point, viewport)
+    : (point: { x: number; y: number }) => worldToScreen(point, viewport)
+  return <>
+    {lines.length > 0 ? <Layer>
+      {lines.map(line => {
+        const start = project(line.startMm)
+        const end = project(line.endMm)
+        return <Line key={line.id} id={'annotation-' + line.id} points={[start.x, start.y, end.x, end.y]} stroke={line.color} strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)} lineCap="round" listening={false} />
+      })}
+    </Layer> : null}
+    <AnnotationsLayer activeTool="select" annotations={annotations.filter(annotation => annotation.kind !== 'line')} onSelectAnnotation={ignore} onStartTextEditing={ignore} onTranslateAnnotation={ignore} viewport={viewport} />
+  </>
+}
+
 export function ExportStage({
-  beamTrace,
-  breadboardSurfaceId,
-  gaussianTrace,
-  onReady,
-  renderMode,
-  scene,
-  scope,
-  showLabels = true,
-  showGaussianEnvelope,
-  simpleGlyphAppearances,
-  simpleIconStyle = 'enhanced',
-  viewport,
+  beamTrace, breadboardSurfaceId, gaussianTrace, onReady, renderMode, scene, scope,
+  showLabels = true, showPostHolders = false, showGaussianEnvelope,
+  simpleGlyphAppearances, simpleIconStyle = 'enhanced', view = 'top-down', viewport,
 }: ExportStageProps) {
   const stageRef = useRef<Konva.Stage | null>(null)
+  const scoped = getScopedExportScene({ beamTrace, breadboardSurfaceId, gaussianTrace, scene, scope })
   const primaryBreadboard = getWorkspacePrimaryBreadboard(scene)
   const opticalTable = getOpticalTable(scene)
-  const breadboardInstances = getBreadboardInstances(scene)
-  const scopedScene = getScopedExportScene({
-    beamTrace,
-    breadboardSurfaceId,
-    gaussianTrace,
-    scene,
-    scope,
-  })
-  const exportBreadboardInstance =
-    scopedScene.exportBreadboardInstance ??
-    (scene.workspace.kind === 'optical-table'
-      ? getBreadboardInstance(scene, breadboardSurfaceId) ?? breadboardInstances[0]
-      : undefined)
-  const showTableSurface = !(
-    scope === 'breadboard-only' && scene.workspace.kind === 'optical-table'
-  )
-  const breadboardsToRender =
-    scope === 'breadboard-only' && exportBreadboardInstance
-      ? [exportBreadboardInstance]
-      : breadboardInstances
-  const componentsToRender = scopedScene.components
-  const visibleAnnotations = sortAnnotationsByZIndex(scopedScene.annotations)
-  const belowBandAnnotations = visibleAnnotations.filter(
-    (annotation) => annotation.layerBand === 'below-components',
-  )
-  const aboveBandAnnotations = visibleAnnotations.filter(
-    (annotation) => annotation.layerBand === 'above-components',
-  )
-  const componentLabelObstacles = getBeamSegmentScreenObstacles(beamTrace, viewport)
-  const opticalTableBoard =
-    opticalTable
-      ? {
-          label: opticalTable.label,
-          widthMm: opticalTable.widthMm,
-          heightMm: opticalTable.heightMm,
-          holeSpacingMm: opticalTable.holeSpacingMm,
-          edgeMarginMm: opticalTable.edgeMarginMm,
-          thicknessMm: opticalTable.thicknessMm,
-          finish: 'clear-anodized' as const,
-          holeDensity: opticalTable.holeDensity,
-          counterborePattern: opticalTable.counterborePattern,
-        }
-      : undefined
+  const boardOnly = scope === 'breadboard-only' && scene.workspace.kind === 'optical-table'
+  const breadboards = boardOnly
+    ? scoped.exportBreadboardInstance ? [scoped.exportBreadboardInstance] : []
+    : getBreadboardInstances(scene)
+  // Export owns a derived scene. Removing a board's base elevation preserves
+  // relative component heights without changing the user's saved geometry.
+  const renderScene: SceneDocument = {
+    ...scene,
+    components: scoped.components,
+    annotations: scoped.annotations,
+    workspace: boardOnly && scene.workspace.kind === 'optical-table'
+      ? { ...scene.workspace, breadboards: breadboards.map(board => ({ ...board, mountPlaneOffsetMm: view === 'angled' ? 0 : board.mountPlaneOffsetMm })) }
+      : scene.workspace,
+  }
+  const angled = view === 'angled'
+  const annotations = sortAnnotationsByZIndex(scoped.annotations)
+  const below = annotations.filter(annotation => annotation.layerBand === 'below-components')
+  const above = annotations.filter(annotation => annotation.layerBand === 'above-components')
 
   useEffect(() => {
-    onReady(stageRef.current)
-  }, [onReady, viewport])
+    const stage = stageRef.current
+    if (!stage) return
+    fitPresentationStage(stage)
+    onReady(stage)
+  }, [onReady, viewport, scene, view, showLabels, showPostHolders])
 
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        left: -10000,
-        pointerEvents: 'none',
-        position: 'fixed',
-        top: -10000,
-      }}
-    >
-      <Stage
-        ref={(stage) => {
-          stageRef.current = stage
-        }}
-        height={viewport.canvasSizePx.height}
-        width={viewport.canvasSizePx.width}
-      >
-        <Layer>
-          <Rect
-            fill="#0b1014"
-            height={viewport.canvasSizePx.height}
-            width={viewport.canvasSizePx.width}
-            x={0}
-            y={0}
-          />
-
-          {opticalTableBoard && showTableSurface ? (
-            <BreadboardLayer
-              anchorMm={{ x: 0, y: 0 }}
-              breadboard={opticalTableBoard}
-              isSelected={false}
-              onSelect={() => undefined}
-              palette={{
-                boardFill: '#a8b0b6',
-                boardStroke: '#d4dae0',
-                holeFill: '#6f777f',
-                labelColor: '#16202a',
-              }}
-              renderInLayer={false}
-              showLabels={showLabels}
-              viewport={viewport}
-            />
-          ) : (
-            <BreadboardLayer
-              anchorMm={{ x: 0, y: 0 }}
-              breadboard={primaryBreadboard}
-              isSelected={false}
-              onSelect={() => undefined}
-              renderInLayer={false}
-              showLabels={showLabels}
-              viewport={viewport}
-            />
-          )}
-
-          {breadboardsToRender.map((breadboard) => (
-            <BreadboardLayer
-              anchorMm={breadboard.anchorMm}
-              breadboard={{
-                ...breadboard.model,
-                label: breadboard.label,
-              }}
-              isSelected={false}
-              key={breadboard.id}
-              onSelect={() => undefined}
-              renderInLayer={false}
-              rotationQuarterTurns={breadboard.rotationQuarterTurns}
-              showLabels={showLabels}
-              viewport={viewport}
-            />
-          ))}
-        </Layer>
-
-        {showGaussianEnvelope ? (
-          <GaussianEnvelopeLayer
-            beamTrace={scopedScene.beamTrace}
-            gaussianTrace={scopedScene.gaussianTrace}
-            scene={scene}
-            viewport={viewport}
-          />
-        ) : null}
-
-        <BeamLayer
-          beamTrace={scopedScene.beamTrace}
-          gaussianTrace={scopedScene.gaussianTrace}
-          onHoverSegment={() => undefined}
-          onSelectSegment={() => undefined}
-          scene={scene}
-          showDetails={false}
-          viewport={viewport}
-        />
-
-        {belowBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
-          <Layer>
-            {belowBandAnnotations
-              .filter(
-                (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
-                  annotation.kind === 'line',
-              )
-              .map((line) => {
-                const startPx = worldToScreen(line.startMm, viewport)
-                const endPx = worldToScreen(line.endMm, viewport)
-
-                return (
-                  <Line
-                    key={line.id}
-                    lineCap="round"
-                    listening={false}
-                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                    shadowBlur={4}
-                    shadowColor={line.color}
-                    shadowOpacity={0.3}
-                    stroke={line.color}
-                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
-                  />
-                )
-              })}
-          </Layer>
-        ) : null}
-
-        <ComponentsLayer
-          components={componentsToRender}
-          highlightedComponentIds={[]}
-          isPanMode={false}
-          onBeginComponentDrag={() => undefined}
-          onCommitComponentDrag={() => undefined}
-          onHoverComponent={() => undefined}
-          onResizeComponent={() => undefined}
-          onSelectComponent={() => undefined}
-          onUpdateComponentDrag={() => undefined}
-          labelObstacles={componentLabelObstacles}
-          renderMode={renderMode}
-          scene={scene}
-          showLabels={showLabels}
-          simpleGlyphAppearances={simpleGlyphAppearances}
-          simpleIconStyle={simpleIconStyle}
-          snapMode="none"
-          viewport={viewport}
-        />
-
-        <AnnotationsLayer
-          activeTool="select"
-          annotations={belowBandAnnotations}
-          onResizeSelectedShape={() => undefined}
-          onUpdateSelectedText={() => undefined}
-          onSelectAnnotation={() => undefined}
-          onStartTextEditing={() => undefined}
-          onTranslateAnnotation={() => undefined}
-          viewport={viewport}
-        />
-
-        {aboveBandAnnotations.some((annotation) => annotation.kind === 'line') ? (
-          <Layer>
-            {aboveBandAnnotations
-              .filter(
-                (annotation): annotation is Extract<SceneAnnotation, { kind: 'line' }> =>
-                  annotation.kind === 'line',
-              )
-              .map((line) => {
-                const startPx = worldToScreen(line.startMm, viewport)
-                const endPx = worldToScreen(line.endMm, viewport)
-
-                return (
-                  <Line
-                    key={line.id}
-                    lineCap="round"
-                    listening={false}
-                    points={[startPx.x, startPx.y, endPx.x, endPx.y]}
-                    shadowBlur={4}
-                    shadowColor={line.color}
-                    shadowOpacity={0.3}
-                    stroke={line.color}
-                    strokeWidth={Math.max(1.5, line.strokeWidthMm * viewport.zoomPxPerMm)}
-                  />
-                )
-              })}
-          </Layer>
-        ) : null}
-
-        <AnnotationsLayer
-          activeTool="select"
-          annotations={aboveBandAnnotations}
-          onResizeSelectedShape={() => undefined}
-          onUpdateSelectedText={() => undefined}
-          onSelectAnnotation={() => undefined}
-          onStartTextEditing={() => undefined}
-          onTranslateAnnotation={() => undefined}
-          viewport={viewport}
-        />
-      </Stage>
-    </div>
-  )
+  return <div aria-hidden="true" style={{ left: -10000, pointerEvents: 'none', position: 'fixed', top: -10000 }}>
+    <Stage ref={stageRef} height={viewport.canvasSizePx.height} width={viewport.canvasSizePx.width}>
+      <Layer name="export-background">
+        <Rect fill="#0b1014" height={viewport.canvasSizePx.height} width={viewport.canvasSizePx.width} />
+      </Layer>
+      <Layer name="surfaces">
+        {scene.workspace.kind === 'single-breadboard' ? <BreadboardLayer breadboard={primaryBreadboard} isSelected={false} onSelect={ignore} renderInLayer={false} showLabels={showLabels} viewport={viewport} /> : null}
+        {opticalTable && !boardOnly ? angled
+          ? <ProjectedSurfaceLayer surface={createLiveOpticalTableSurfaceDescriptor(opticalTable)} isSelected={false} onSelect={ignore} showLabels={showLabels} viewport={viewport} />
+          : <BreadboardLayer breadboard={{ ...opticalTable, finish: 'clear-anodized' }} isSelected={false} onSelect={ignore} palette={{ boardFill: '#a8b0b6', boardStroke: '#d4dae0', holeFill: '#6f777f', labelColor: '#16202a' }} renderInLayer={false} showLabels={showLabels} viewport={viewport} />
+          : null}
+        {breadboards.map(board => angled
+          ? <ProjectedSurfaceLayer key={board.id} anchorMm={board.anchorMm} elevationMm={boardOnly ? 0 : board.mountPlaneOffsetMm} surface={createLiveBreadboardSurfaceDescriptor({ anchorMm: board.anchorMm, breadboard: board.model, id: board.id, label: board.label, rotationQuarterTurns: board.rotationQuarterTurns })} isSelected={false} onSelect={ignore} showLabels={showLabels} viewport={viewport} />
+          : <BreadboardLayer key={board.id} anchorMm={board.anchorMm} breadboard={{ ...board.model, label: board.label }} rotationQuarterTurns={board.rotationQuarterTurns} isSelected={false} onSelect={ignore} renderInLayer={false} showLabels={showLabels} viewport={viewport} />)}
+      </Layer>
+      {showGaussianEnvelope ? <GaussianEnvelopeLayer beamTrace={scoped.beamTrace} gaussianTrace={scoped.gaussianTrace} scene={renderScene} useProjectedTableView={angled} viewport={viewport} /> : null}
+      <BeamLayer beamTrace={scoped.beamTrace} gaussianTrace={scoped.gaussianTrace} onHoverSegment={ignore} onSelectSegment={ignore} renderMode={renderMode} scene={renderScene} showDetails={false} showComponentLabels={showLabels} useProjectedTableView={angled} viewport={viewport} />
+      <ExportAnnotations annotations={below} sceneView={view} viewport={viewport} />
+      <ComponentsLayer components={scoped.components} highlightedComponentIds={[]} isPanMode={false} onBeginComponentDrag={ignore} onCommitComponentDrag={ignore} onHoverComponent={ignore} onResizeComponent={ignore} onSelectComponent={ignore} onUpdateComponentDrag={ignore} labelObstacles={angled ? [] : getBeamSegmentScreenObstacles(scoped.beamTrace, viewport)} renderMode={renderMode} scene={renderScene} showLabels={showLabels} showPostHolders={showPostHolders} simpleGlyphAppearances={simpleGlyphAppearances} simpleIconStyle={simpleIconStyle} snapMode="none" useProjectedTableView={angled} viewport={viewport} />
+      <ExportAnnotations annotations={above} sceneView={view} viewport={viewport} />
+    </Stage>
+  </div>
 }

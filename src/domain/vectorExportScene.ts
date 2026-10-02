@@ -72,6 +72,11 @@ export type VectorExportLayerId =
 export interface VectorNodeStyle {
   dashMm?: number[]
   fill?: string
+  fillLinearGradient?: {
+    startMm: Vector2Mm
+    endMm: Vector2Mm
+    stops: Array<{ offset: number; color: string }>
+  }
   fillOpacity?: number
   fontFamily?: string
   fontSizeMm?: number

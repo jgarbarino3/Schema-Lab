@@ -570,78 +570,6 @@ export function MirrorOpticFace({
   )
 }
 
-interface GlassDiscProps {
-  centerX: number
-  centerY: number
-  palette: RealisticPalette
-  radius: number
-  stroke: string
-  variant?: 'mirror' | 'beamsplitter'
-}
-
-export function GlassDisc({
-  centerX,
-  centerY,
-  palette,
-  radius,
-  stroke,
-  variant = 'mirror',
-}: GlassDiscProps) {
-  const lineDash = variant === 'beamsplitter' ? [2.2, 2.2] : undefined
-  const lineStrokeWidth = variant === 'beamsplitter' ? 1.05 : 1.15
-
-  return (
-    <>
-      <Circle
-        fill={palette.glassTint}
-        opacity={variant === 'beamsplitter' ? 0.42 : 0.94}
-        radius={radius}
-        stroke={stroke}
-        strokeWidth={0.95}
-        x={centerX}
-        y={centerY}
-      />
-      <Circle
-        fill={palette.glassHighlight}
-        opacity={variant === 'beamsplitter' ? 0.22 : 0.32}
-        radius={radius * 0.76}
-        x={centerX - radius * 0.2}
-        y={centerY - radius * 0.22}
-      />
-      <Circle
-        fill="rgba(8, 14, 18, 0.18)"
-        radius={radius * 0.92}
-        x={centerX + radius * 0.08}
-        y={centerY + radius * 0.08}
-      />
-      <Line
-        dash={lineDash}
-        lineCap="round"
-        points={[
-          centerX + radius * 0.72,
-          centerY - radius * 0.72,
-          centerX - radius * 0.72,
-          centerY + radius * 0.72,
-        ]}
-        stroke={palette.detailStroke}
-        strokeWidth={lineStrokeWidth}
-      />
-      <Line
-        lineCap="round"
-        opacity={0.7}
-        points={[
-          centerX - radius * 0.4,
-          centerY - radius * 0.64,
-          centerX + radius * 0.05,
-          centerY - radius * 0.18,
-        ]}
-        stroke="rgba(255, 255, 255, 0.55)"
-        strokeWidth={0.7}
-      />
-    </>
-  )
-}
-
 interface BeamsplitterPlateProps {
   bodyBoundsMm: BoundsMm
   centerX: number
@@ -837,58 +765,6 @@ export function LensGlass({
         radius={lensRadius * 0.32}
         x={centerX - lensRadius * 0.08}
         y={centerY - lensRadius * 0.1}
-      />
-    </>
-  )
-}
-
-interface GlassPlateProps {
-  centerX: number
-  centerY: number
-  palette: RealisticPalette
-  size: number
-  stroke: string
-}
-
-export function GlassPlate({
-  centerX,
-  centerY,
-  palette,
-  size,
-  stroke,
-}: GlassPlateProps) {
-  return (
-    <>
-      <Rect
-        fill={palette.glassTint}
-        height={size}
-        opacity={0.34}
-        rotation={45}
-        stroke={stroke}
-        strokeWidth={0.85}
-        width={size}
-        x={centerX - size / 2}
-        y={centerY - size / 2}
-      />
-      <Rect
-        fill={palette.glassHighlight}
-        height={size * 0.56}
-        opacity={0.22}
-        rotation={45}
-        width={size * 0.3}
-        x={centerX - size * 0.22}
-        y={centerY - size * 0.42}
-      />
-      <Line
-        lineCap="round"
-        points={[
-          centerX - size * 0.45,
-          centerY + size * 0.34,
-          centerX + size * 0.42,
-          centerY - size * 0.34,
-        ]}
-        stroke={palette.detailStroke}
-        strokeWidth={1}
       />
     </>
   )

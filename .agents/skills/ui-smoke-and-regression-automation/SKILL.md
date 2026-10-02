@@ -22,17 +22,17 @@ Use this skill when a task changes user-visible workflows and should be protecte
 
 ## Current Repo Concerns
 
-- Schema-Lab already has focused smoke scripts in `output/playwright/` for optics physics, SVG import, optical table mode, touch interactions, and broader UI clarity.
+- Schema-Lab has maintained focused smoke scripts in `scripts/playwright-smoke/` for SVG import, optical-table mode, touch interactions, and broader UI clarity. The legacy `output/playwright/optics-physics-smoke.mjs` remains useful for physics-specific validation.
 - Multi-surface placement and table-mode behavior are especially prone to UI regressions that unit tests do not fully cover.
 
 ## Validation
 
 - Choose the smallest relevant smoke path for the change.
 - Common entry points:
-  - `node output/playwright/optical-table-smoke.mjs http://127.0.0.1:5173/`
+  - `node scripts/playwright-smoke/optical-table-smoke.mjs http://127.0.0.1:4173/`
   - `node output/playwright/optics-physics-smoke.mjs http://127.0.0.1:5173/`
-  - `node output/playwright/svg-import-line-review.mjs http://127.0.0.1:5173/`
-  - `node output/playwright/ux-clarity-smoke.mjs`
+  - `node scripts/playwright-smoke/drawing-import-auto-calibration-smoke.mjs http://127.0.0.1:4173/`
+  - `node scripts/playwright-smoke/ux-clarity-smoke.mjs http://127.0.0.1:4173/`
 - Pair browser smoke with unit tests for any domain logic affected by the same change.
 
 ## Out Of Scope

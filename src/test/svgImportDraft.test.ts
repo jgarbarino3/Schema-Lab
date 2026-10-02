@@ -148,23 +148,6 @@ describe('import preview session helpers', () => {
       }),
     ).toBe(false)
 
-    expect(
-      isImportSessionDirty({
-        baseline: {
-          appendBreadboardCenterMm: session.baselineAppendBreadboardCenterMm,
-          mode: 'replace',
-          previewItems: session.baselinePreviewItems,
-          workspaceConfig: session.baselineWorkspaceConfig,
-        },
-        current: {
-          appendBreadboardCenterMm: session.workingAppendBreadboardCenterMm,
-          mode: 'replace',
-          previewItems: session.workingPreviewItems,
-          workspaceConfig: session.workingWorkspaceConfig,
-        },
-      }),
-    ).toBe(false)
-
     session.workingPreviewItems[0] = {
       ...session.workingPreviewItems[0],
       rotationQuarterTurns: 1,

@@ -5,16 +5,16 @@ import {
   createDefaultComponentConfig,
   getResolvedComponentSpec,
 } from '../domain/componentCatalog'
-import { createViewportForBounds, expandBoundsMm } from '../domain/geometry'
 import type {
   ComponentType,
   RenderMode,
   SimpleIconStyle,
 } from '../domain/types'
+import { createComponentCatalogPreviewViewport } from './componentCatalogPreviewViewport'
 
 const PREVIEW_WIDTH = 124
 const PREVIEW_HEIGHT = 86
-const PREVIEW_PADDING_MM = 10
+const PREVIEW_PADDING_PX = 10
 
 interface ComponentCatalogPreviewProps {
   className?: string
@@ -47,11 +47,11 @@ export function ComponentCatalogPreview({
 
   const viewport = useMemo(() => {
     const spec = getResolvedComponentSpec(type, variantId)
-    const previewBounds = expandBoundsMm(spec.hitBoundsMm, PREVIEW_PADDING_MM)
-    return createViewportForBounds(previewBounds, {
-      width: PREVIEW_WIDTH,
-      height: PREVIEW_HEIGHT,
-    })
+    return createComponentCatalogPreviewViewport(
+      spec,
+      { width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT },
+      PREVIEW_PADDING_PX,
+    )
   }, [type, variantId])
 
   return (

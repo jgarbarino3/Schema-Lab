@@ -1,17 +1,24 @@
 import { useEffect, useId, useState } from 'react'
-import type { ExportFormat, ExportScope, SvgExportPreset } from '../domain/exportLayout'
+import type {
+  ExportFormat,
+  ExportScope,
+  ExportView,
+  SvgExportPreset,
+} from '../domain/exportLayout'
 import { ModalShell } from './ModalShell'
 
 interface ExportOptionsModalProps {
   defaultScope: ExportScope
   defaultSvgPreset: SvgExportPreset
   format?: ExportFormat
+  isAngledViewAvailable: boolean
   isOpen: boolean
   onCancel: () => void
   onConfirm: (options: {
     format: ExportFormat
     scope: ExportScope
     svgPreset?: SvgExportPreset
+    view: ExportView
   }) => void
 }
 
@@ -36,6 +43,7 @@ export function ExportOptionsModal({
   defaultScope,
   defaultSvgPreset,
   format,
+  isAngledViewAvailable,
   isOpen,
   onCancel,
   onConfirm,
@@ -43,6 +51,7 @@ export function ExportOptionsModal({
   const titleId = useId()
   const [scope, setScope] = useState<ExportScope>(defaultScope)
   const [svgPreset, setSvgPreset] = useState<SvgExportPreset>(defaultSvgPreset)
+  const [view, setView] = useState<ExportView>('current')
 
   useEffect(() => {
     if (!isOpen) {
@@ -51,6 +60,7 @@ export function ExportOptionsModal({
 
     setScope(defaultScope)
     setSvgPreset(defaultSvgPreset)
+    setView('current')
   }, [defaultScope, defaultSvgPreset, format, isOpen])
 
   if (!isOpen || !format) {
@@ -63,6 +73,8 @@ export function ExportOptionsModal({
         ? 'Export Presentation SVG'
         : 'Export Engineering SVG'
       : `Export ${formatExportFormat(format)}`
+  const showViewOptions =
+    format !== 'dxf' && (format !== 'svg' || svgPreset === 'presentation')
 
   return (
     <ModalShell
@@ -129,6 +141,46 @@ export function ExportOptionsModal({
               </label>
             </fieldset>
           ) : null}
+
+          {showViewOptions ? (
+            <fieldset className="modal-shell__fieldset">
+              <legend>View</legend>
+              <label className="modal-shell__choice">
+                <input
+                  checked={view === 'current'}
+                  name="export-view"
+                  onChange={() => setView('current')}
+                  type="radio"
+                  value="current"
+                />
+                <span>Current view</span>
+              </label>
+              <label className="modal-shell__choice">
+                <input
+                  checked={view === 'top-down'}
+                  name="export-view"
+                  onChange={() => setView('top-down')}
+                  type="radio"
+                  value="top-down"
+                />
+                <span>Top-down</span>
+              </label>
+              <label className="modal-shell__choice">
+                <input
+                  checked={view === 'angled'}
+                  disabled={!isAngledViewAvailable}
+                  name="export-view"
+                  onChange={() => setView('angled')}
+                  type="radio"
+                  value="angled"
+                />
+                <span>
+                  Angled
+                  {!isAngledViewAvailable ? ' (Realistic optical-table scenes only)' : ''}
+                </span>
+              </label>
+            </fieldset>
+          ) : null}
         </div>
 
         <div className="modal-shell__actions">
@@ -142,6 +194,7 @@ export function ExportOptionsModal({
                 format,
                 scope,
                 svgPreset: format === 'svg' ? svgPreset : undefined,
+                view,
               })
             }}
             type="button"

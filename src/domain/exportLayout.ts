@@ -14,11 +14,14 @@ export type ExportScope = 'breadboard-only' | 'full-scheme'
 export type ExportFormat = 'png' | 'pdf' | 'svg' | 'dxf' | 'pptx'
 export type VectorExportFormat = 'svg' | 'dxf'
 export type SvgExportPreset = 'engineering' | 'presentation'
+export type ExportView = 'current' | 'top-down' | 'angled'
+export type ResolvedExportView = Exclude<ExportView, 'current'>
 
 export interface SceneExportOptions {
   format: ExportFormat
   scope: ExportScope
   svgPreset?: SvgExportPreset
+  view?: ExportView
 }
 
 const BOARD_TITLE_MARGIN_MM = 18

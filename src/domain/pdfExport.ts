@@ -30,14 +30,16 @@ export function createSingleImagePdfBlob(args: {
   jpegDataUrl: string
   heightPx: number
   widthPx: number
+  imageHeightPx?: number
+  imageWidthPx?: number
 }) {
-  const { jpegDataUrl, heightPx, widthPx } = args
+  const { jpegDataUrl, heightPx, widthPx, imageHeightPx = heightPx, imageWidthPx = widthPx } = args
   const base64 = jpegDataUrl.replace(/^data:image\/jpeg;base64,/, '')
   const imageBytes = base64ToBytes(base64)
   const widthPt = Number((widthPx * 0.75).toFixed(2))
   const heightPt = Number((heightPx * 0.75).toFixed(2))
   const imageObjectHeader = encodePdfString(
-    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${widthPx} /Height ${heightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+    `4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imageWidthPx} /Height ${imageHeightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
   )
   const imageObjectFooter = encodePdfString('\nendstream\nendobj\n')
   const contentStream = `q\n${widthPt} 0 0 ${heightPt} 0 0 cm\n/Im0 Do\nQ\n`
@@ -66,15 +68,16 @@ export function createSingleImagePdfBlob(args: {
   }
 
   const xrefStart = position
-  const xrefLines = ['xref', `0 ${objects.length + 1}`, '0000000000 65535 f ']
+  // The first chunk is the PDF header, not an indirect object.
+  const xrefLines = ['xref', `0 ${objects.length}`, '0000000000 65535 f ']
 
-  for (const offset of offsets) {
+  for (const offset of offsets.slice(1)) {
     xrefLines.push(`${offset.toString().padStart(10, '0')} 00000 n `)
   }
 
   const trailer = [
     'trailer',
-    `<< /Size ${objects.length + 1} /Root 1 0 R >>`,
+    `<< /Size ${objects.length} /Root 1 0 R >>`,
     'startxref',
     `${xrefStart}`,
     '%%EOF',

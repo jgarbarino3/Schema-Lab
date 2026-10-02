@@ -4,9 +4,20 @@ export interface VersionHistoryEntry {
   highlights?: string[]
 }
 
-export const CURRENT_VERSION = 'v2.5'
+export const CURRENT_VERSION = 'v2.7'
 
 export const VERSION_HISTORY: VersionHistoryEntry[] = [
+  {
+    version: 'v2.7',
+    summary:
+      'Schema-Lab 2.7 adds refined realistic optics and angled presentation exports, with more reliable PDF and PowerPoint output.',
+    highlights: [
+      'Updated realistic artwork for mirrors, lenses, beamsplitters, BBO crystals, laser sources, and detectors',
+      'Current-view, top-down, and angled presentation exports for realistic optical-table scenes',
+      'Editable presentation SVGs with shared canvas artwork and full-scene or breadboard-only scope',
+      'Corrected PDF rendering, preserved PowerPoint image proportions, and better catalog preview framing',
+    ],
+  },
   {
     version: 'v2.5',
     summary:
